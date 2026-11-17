@@ -28,6 +28,7 @@ from ao_shaping.gui.slm.pattern_specs import (
 )
 from ao_shaping.gui.slm.static_shaping_page import (
     _PREVIEW_MAX_SIDE,
+    OpticalPathSnapshot,
     StaticShapingPage,
     make_preview_pixmap,
 )
@@ -234,4 +235,184 @@ def test_regeneration_clears_old_preview_for_status(app, page, monkeypatch) -> N
     assert page._preview.pixmap().isNull()
     assert page._preview.text() == "正在生成预览……"
     assert not page._preview_btn.isEnabled()
+    assert len(started) == 1
+
+
+def test_send_task_records_optical_path_metadata(
+    app, page, monkeypatch, tmp_path
+) -> None:
+    """_SendTask 下发成功后把光路认知快照与相位摘要落盘为 JSON。
+
+    用临时目录替换 ROOT_DIR，断言 JSON 里 source/observed/note 与传入快照一致，
+    且 phase_sha256 能对账下发相位。
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from ao_shaping.drivers.slm import santec as santec_mod
+    from ao_shaping.gui.slm import static_shaping_page as sp
+
+    # 不真开设备：mock Santec 的上下文与调用链。
+    class FakeSantec:
+        def __init__(self, slm_number=1, wavelength=None, video_mode=0):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def set_phase_overlay(self, value):
+            pass
+
+        def create_phase_from_array(self, phase):
+            return np.full(phase.shape, 511, dtype=np.uint16)
+
+        def display_data(self, gray):
+            pass
+
+    monkeypatch.setattr(santec_mod, "Santec", FakeSantec)
+
+    # 把落盘目标重定向到 tmp_path，避免污染仓库 data/。
+    monkeypatch.setattr(sp, "ROOT_DIR", _Path(tmp_path))
+
+    captured: dict[str, object] = {}
+    original = sp._record_send_metadata
+
+    def _spy(slm_number, pattern_type, phase, optical_path):
+        captured["slm_number"] = slm_number
+        captured["pattern_type"] = pattern_type
+        captured["phase"] = phase
+        captured["optical_path"] = optical_path
+        original(slm_number, pattern_type, phase, optical_path)
+
+    monkeypatch.setattr(sp, "_record_send_metadata", _spy)
+
+    phase = np.zeros((120, 192), dtype=np.float64)
+    snapshot = OpticalPathSnapshot(
+        source="model_forward",
+        note="测试：未观测",
+    )
+    task = sp._SendTask(
+        slm_number=2,
+        phase_radians=phase,
+        wavelength=1064,
+        optical_path=snapshot,
+        pattern_type="checkerboard",
+    )
+    task.run()
+
+    # _spy 被调用且参数接线正确。
+    assert captured["slm_number"] == 2
+    assert captured["pattern_type"] == "checkerboard"
+    assert captured["optical_path"] is snapshot
+
+    # 落盘文件存在且内容与快照一致。
+    out_dir = _Path(tmp_path) / "data" / "debug" / "static_shaping_send"
+    files = list(out_dir.glob("*_slm2_checkerboard.json"))
+    assert len(files) == 1, f"预期一份元数据 JSON，实得 {files}"
+    record = _json.loads(files[0].read_text(encoding="utf-8"))
+    assert record["slm_number"] == 2
+    assert record["pattern_type"] == "checkerboard"
+    assert record["optical_path"]["source"] == "model_forward"
+    assert record["optical_path"]["observed"] is False
+    assert record["optical_path"]["note"] == "测试：未观测"
+    assert record["phase_shape"] == [120, 192]
+    # sha256 能复现下发相位。
+    import hashlib as _hashlib
+
+    expected_sha = _hashlib.sha256(phase.tobytes()).hexdigest()
+    assert record["phase_sha256"] == expected_sha
+
+
+def test_send_task_defaults_to_model_forward_when_no_snapshot(app, page) -> None:
+    """不传 optical_path 时，_SendTask 默认构造 model_forward 快照。"""
+    from ao_shaping.gui.slm import static_shaping_page as sp
+
+    phase = np.zeros((120, 192), dtype=np.float64)
+    task = sp._SendTask(slm_number=1, phase_radians=phase, wavelength=1064)
+    assert task._optical_path.source == "model_forward"
+    assert task._optical_path.observed is False
+
+
+def test_page_injected_snapshot_sets_combo_default(app) -> None:
+    """注入 calibrated 快照时，光学观测来源 combo 默认选中已标定。"""
+    snapshot = OpticalPathSnapshot(
+        source="calibrated",
+        calibrated_at="2026-11-17T00:00:00",
+        pupil_center=(889.0, 590.0),
+        observed=True,
+        note="已实测",
+    )
+    widget = StaticShapingPage(optical_path=snapshot)
+    try:
+        assert widget._optical_path is snapshot
+        index = widget._optical_combo.currentIndex()
+        assert widget._optical_combo.itemData(index) == "calibrated"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_refresh_optical_hint_disables_calibrated_when_unobserved(app, page) -> None:
+    """未观测快照下，「已标定」项被禁用且提示声明未验证。"""
+    # 默认 page 是 model_forward。
+    page._optical_combo.setCurrentIndex(
+        page._optical_combo.findData("model_forward")
+    )
+    page._refresh_optical_hint()
+    calibrated_item = page._optical_combo.findData("calibrated")
+    assert not page._optical_combo.model().item(calibrated_item).isEnabled()
+    assert "未验证" in page._optical_hint.text()
+
+
+def test_on_send_model_forward_asks_confirmation(app, page, monkeypatch) -> None:
+    """model_forward 模式下点下发：弹确认框，拒绝则不启动任务。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    from ao_shaping.gui.slm import static_shaping_page as sp
+
+    page._last_phase = np.zeros((120, 192), dtype=np.float64)
+    page._optical_combo.setCurrentIndex(
+        page._optical_combo.findData("model_forward")
+    )
+    started: list[object] = []
+    monkeypatch.setattr(page._pool, "start", lambda task: started.append(task))
+    # 模拟用户点「否」。
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **kw: QMessageBox.StandardButton.No)
+    )
+
+    page._on_send()
+
+    assert started == [], "拒绝后不应启动下发任务"
+    assert page._send_btn.isEnabled(), "拒绝后按钮应恢复可用"
+
+
+def test_on_send_calibrated_skips_confirmation(app, page, monkeypatch) -> None:
+    """calibrated 模式下点下发：不弹确认框，直接启动任务。"""
+    from PySide6.QtWidgets import QMessageBox
+
+    page._last_phase = np.zeros((120, 192), dtype=np.float64)
+    page._optical_combo.setCurrentIndex(
+        page._optical_combo.findData("calibrated")
+    )
+    # 允许「已标定」项被选中：临时放开禁用。
+    calibrated_item = page._optical_combo.findData("calibrated")
+    page._optical_combo.model().item(calibrated_item).setEnabled(True)
+
+    started: list[object] = []
+    monkeypatch.setattr(page._pool, "start", lambda task: started.append(task))
+    # 若弹了确认框，这个哨兵会被调用；断言不被调用。
+    asked: list[bool] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **kw: asked.append(True) or QMessageBox.StandardButton.No),
+    )
+
+    page._on_send()
+
+    assert asked == [], "已标定模式下不应弹确认框"
     assert len(started) == 1

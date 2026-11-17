@@ -50,6 +50,10 @@ open/写 SLM 都是秒级阻塞 —— 这些一律丢给本页自持的单线�
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -80,7 +84,12 @@ from ao_shaping.gui.slm.pattern_specs import (
 from ao_shaping.utils.io.file import ROOT_DIR
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
-__all__ = ["StaticShapingPage", "make_preview_pixmap", "pattern_to_gray"]
+__all__ = [
+    "OpticalPathSnapshot",
+    "StaticShapingPage",
+    "make_preview_pixmap",
+    "pattern_to_gray",
+]
 
 #: 未连接时的默认面板几何（与 Streamlit ``helper_tab`` 的回退一致）。桌面页没有
 #: 设备连接后的 session_state，预览一律在缺省面板几何上生成，尺寸由此封顶（避免
@@ -89,6 +98,36 @@ _DEFAULT_PANEL_RES: tuple[int, int] = (1920, 1200)
 _DEFAULT_BITS: int = 10
 #: 预览显示时最长边缩到这个像素量级，避免把整张 1920 宽位图塞进小预览框。
 _PREVIEW_MAX_SIDE: int = 480
+
+
+@dataclass(frozen=True)
+class OpticalPathSnapshot:
+    """下发时所依据的光路认知快照（可注入、可序列化）。
+
+    桌面控制台是纯 Qt 进程，没有 Streamlit 会话，因此无法直接读
+    :mod:`ao_shaping.gui.slm.bench_settings` 的 ``detected_state``。这个快照把
+    「本次下发基于什么光路认知」显式化，避免把模型前向假设静默当成实测。
+
+    ``source`` 三态：
+
+    * ``"calibrated"``：本会话已用 CCD 实测光路，相位基于实测几何。
+    * ``"model_forward"``：未观测，按理想/默认模型前向直接下发（PSF/离焦/
+      照明包络取默认值，``observed=False``）。
+    * ``"unknown"``：连默认几何都没注入，页面用内置回退值，明确标注未标定。
+
+    下发时该快照会被 :class:`_SendTask` 写入元数据 JSON，供事后回查区分
+    「算法效果」与「光路漂移 / 假设错误」。
+    """
+
+    source: str = "model_forward"
+    calibrated_at: str | None = None
+    pupil_center: tuple[float, float] | None = None
+    geometry_file: str | None = None
+    psf_assumed: str = "ideal_point"
+    defocus_assumed: float = 0.0
+    envelope_assumed: str = "uniform"
+    observed: bool = False
+    note: str = "未做 CCD 观测，光路假设未验证"
 
 
 def pattern_to_gray(phase_radians: np.ndarray, bits: int = 10) -> np.ndarray:
@@ -185,26 +224,79 @@ class _PreviewTask(QRunnable):
             self.signals.preview_failed.emit(str(e))
 
 
+def _record_send_metadata(
+    slm_number: int,
+    pattern_type: str,
+    phase: np.ndarray,
+    optical_path: OpticalPathSnapshot,
+) -> None:
+    """把一次下发所依据的光路认知与相位摘要落盘为 JSON 记录。
+
+    落盘失败只记日志、不阻断下发——下发本身是阻塞设备操作，不该被元数据写失败
+    连累。路径沿用实验数据约定：``data/debug/static_shaping_send/``。
+    """
+    try:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_pattern = "".join(c if c.isalnum() else "_" for c in pattern_type)
+        filename = f"{stamp}_slm{slm_number}_{safe_pattern}.json"
+        out_dir = ROOT_DIR / "data" / "debug" / "static_shaping_send"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "slm_number": slm_number,
+            "pattern_type": pattern_type,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "optical_path": {
+                "source": optical_path.source,
+                "calibrated_at": optical_path.calibrated_at,
+                "pupil_center": list(optical_path.pupil_center)
+                if optical_path.pupil_center is not None
+                else None,
+                "geometry_file": optical_path.geometry_file,
+                "psf_assumed": optical_path.psf_assumed,
+                "defocus_assumed": optical_path.defocus_assumed,
+                "envelope_assumed": optical_path.envelope_assumed,
+                "observed": optical_path.observed,
+                "note": optical_path.note,
+            },
+            "phase_shape": list(phase.shape),
+            "phase_sha256": hashlib.sha256(phase.tobytes()).hexdigest(),
+        }
+        out_path = out_dir / filename
+        out_path.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        logger.info("下发元数据已记录: {}", out_path)
+    except Exception as e:
+        logger.warning("下发元数据落盘失败（不阻断下发）: {}", e)
+
+
 class _SendTask(QRunnable):
-    """在后台线程把相位下发到指定编号的 SLM。"""
+    """在后台线程把相位下发到指定编号的 SLM，并记录光路认知元数据。"""
 
     def __init__(
         self,
         slm_number: int,
         phase_radians: np.ndarray,
         wavelength: int,
+        optical_path: OpticalPathSnapshot | None = None,
+        pattern_type: str = "",
     ) -> None:
         super().__init__()
         self._slm_number = slm_number
         self._phase_radians = phase_radians
         self._wavelength = wavelength
+        #: 默认模型前向快照：未观测、按理想光路，与页面无 CCD 时的实际行为一致。
+        self._optical_path = optical_path or OpticalPathSnapshot(source="model_forward")
+        self._pattern_type = pattern_type
         self.signals = _WorkerSignals()
 
     def run(self) -> None:
         """线程池入口（后台线程执行）。
 
         驱动 import 放在这里：桌面控制台冷启动不该被 SLM SDK 拖慢；只有真的要点
-        「下发到 SLM」才拉起驱动。
+        「下发到 SLM」才拉起驱动。下发成功后记录光路认知元数据，供事后回查区分
+        「算法效果」与「光路漂移 / 假设错误」。
         """
         from ao_shaping.drivers.slm.santec import Santec
 
@@ -218,6 +310,12 @@ class _SendTask(QRunnable):
                 slm.set_phase_overlay(None)
                 phase_gray = slm.create_phase_from_array(self._phase_radians)
                 slm.display_data(phase_gray)
+            _record_send_metadata(
+                slm_number=self._slm_number,
+                pattern_type=self._pattern_type,
+                phase=self._phase_radians,
+                optical_path=self._optical_path,
+            )
             self.signals.sent.emit(f"相位已下发到 SLM {self._slm_number} 并显示。")
         except Exception as e:  # 设备错误必须变成界面可读结论
             logger.exception(
@@ -236,17 +334,30 @@ class _SendTask(QRunnable):
 class StaticShapingPage(QWidget):
     """SLM 静态整形页：PatternHelper 面板 + 预览 + 下发。
 
-    左侧是可滚动的表单列（图案类型 + 参数 + 两个动作按钮），右侧固定一块预览区。
-    生成与下发都在后台线程池跑，界面不卡。
+    左侧是可滚动的表单列（图案类型 + 参数 + 目标 SLM + 光学观测来源 + 两个动作
+    按钮），右侧固定一块预览区。生成与下发都在后台线程池跑，界面不卡。
+
+    ``optical_path`` 注入本页面下发所依据的光路认知快照（见
+    :class:`OpticalPathSnapshot`）。桌面控制台无 Streamlit 会话，无法直接读
+    ``bench_settings.detected_state``，由宿主（``shell``）构造后传入；缺省为
+    ``model_forward``（未观测、按理想光路），并在界面上显式声明。
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        optical_path: OpticalPathSnapshot | None = None,
+    ) -> None:
         super().__init__(parent)
         _icon = ROOT_DIR / "camera_rotate.ico"
         if _icon.exists():
             self.setWindowIcon(QIcon(str(_icon)))
         self._helper = PatternHelper(_DEFAULT_PANEL_RES, bits=_DEFAULT_BITS)
         self._last_phase: np.ndarray | None = None
+        #: 下发所依据的光路认知快照：宿主注入，缺省模型前向。
+        self._optical_path: OpticalPathSnapshot = optical_path or OpticalPathSnapshot(
+            source="model_forward"
+        )
 
         #: 生成预览代次：每次参数/图案类型变化 +1，作废在飞的旧生成结果（见
         #: :meth:`_clear_preview`）—— 否则生成途中改参数，旧相位仍会上屏并被「下发
@@ -300,6 +411,27 @@ class StaticShapingPage(QWidget):
         self._slm_form.addRow("SLM 编号", self._slm_spin)
         slm_layout.addLayout(self._slm_form)
         form_layout.addWidget(slm_box)
+
+        # ④ 光学观测来源：显式声明本次下发基于什么光路认知。
+        # 相位生成本身不需要 CCD（纯 numpy），但「光路没变 / 理想光路」是本轮实测
+        # 证伪的假设，不能静默采用——未观测时必须在界面上声明，下发时写入元数据。
+        opt_box, opt_layout = self._section("④ 光学观测来源")
+        self._optical_combo = QComboBox()
+        self._optical_combo.addItem("○ 模型前向（未观测，按理想光路）", "model_forward")
+        self._optical_combo.addItem("○ 未知（几何未标定，用内置回退）", "unknown")
+        self._optical_combo.addItem("● 已标定光路（本会话实测）", "calibrated")
+        # 按注入快照的 source 设默认选中；未标定时「已标定」项保持禁用。
+        self._optical_combo.setCurrentIndex(
+            self._optical_combo.findData(self._optical_path.source)
+        )
+        self._optical_combo.currentIndexChanged.connect(self._refresh_optical_hint)
+        self._optical_hint = QLabel()
+        self._optical_hint.setWordWrap(True)
+        self._optical_hint.setStyleSheet("color: #b00020;")
+        opt_layout.addWidget(self._optical_combo)
+        opt_layout.addWidget(self._optical_hint)
+        self._refresh_optical_hint()
+        form_layout.addWidget(opt_box)
 
         # 动作按钮
         buttons = QHBoxLayout()
@@ -484,7 +616,8 @@ class StaticShapingPage(QWidget):
         self._preview.setPixmap(make_preview_pixmap(gray))
         self._last_phase = np.asarray(phase, dtype=np.float64).copy()
         self._preview.setToolTip(
-            f"图案「{label}」预览，尺寸 {gray.shape[1]}×{gray.shape[0]}"
+            f"图案「{label}」预览，尺寸 {gray.shape[1]}×{gray.shape[0]}；"
+            f"预览为模型前向，未含实测光路校正。"
         )
 
     @Slot(str)
@@ -496,6 +629,34 @@ class StaticShapingPage(QWidget):
         self._preview.setText("生成相位失败 —— 请检查参数后重试。")
         QMessageBox.warning(self, "生成预览", message)
 
+    def _refresh_optical_hint(self) -> None:
+        """按当前「光学观测来源」选中项刷新下方提示与已标定项可用性。
+
+        「已标定光路」只有在注入快照确实是 ``calibrated`` 时才可选；否则禁用，
+        避免操作员误以为桌面控制台已实测光路。
+        """
+        index = self._optical_combo.currentIndex()
+        source = self._optical_combo.itemData(index)
+        calibrated_item = self._optical_combo.findData("calibrated")
+        if calibrated_item >= 0:
+            self._optical_combo.model().item(calibrated_item).setEnabled(
+                source == "calibrated"
+            )
+        if source == "calibrated":
+            self._optical_hint.setText("● 本次下发基于本会话 CCD 实测光路。")
+            self._optical_hint.setStyleSheet("color: #2e7d32;")
+        elif source == "model_forward":
+            self._optical_hint.setText(
+                "○ 未做 CCD 观测：PSF / 离焦 / 照明包络取默认值，光路假设未验证，"
+                "下发结果不代表实测。"
+            )
+            self._optical_hint.setStyleSheet("color: #b00020;")
+        else:
+            self._optical_hint.setText(
+                "○ 几何未标定，使用内置回退值：光路假设未验证，下发结果不代表实测。"
+            )
+            self._optical_hint.setStyleSheet("color: #b00020;")
+
     @Slot()
     def _on_send(self) -> None:
         """点「下发到 SLM」：需要先有一份已缓存的弧度相位。"""
@@ -505,12 +666,28 @@ class StaticShapingPage(QWidget):
             )
             return
         slm_number = self._slm_spin.value()
+        # 模型前向 / 未知：光路假设未经 CCD 验证，下发前显式确认，避免把假设
+        # 静默当成实测。已标定光路无需确认。
+        source = self._optical_combo.itemData(self._optical_combo.currentIndex())
+        if source in ("model_forward", "unknown"):
+            reply = QMessageBox.question(
+                self,
+                "模型前向假设",
+                "本次下发基于模型前向假设，未经 CCD 验证。\n"
+                "继续下发？（相位仍会写进 SLM，但结果不代表实测光路。）",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         self._send_btn.setEnabled(False)
         self._send_btn.setText("下发中…")
         task = _SendTask(
             slm_number,
             self._last_phase,
             wavelength=1064,
+            optical_path=self._optical_path,
+            pattern_type=self._current_key,
         )
         task.signals.sent.connect(self._on_sent)
         task.signals.send_failed.connect(self._on_send_failed)

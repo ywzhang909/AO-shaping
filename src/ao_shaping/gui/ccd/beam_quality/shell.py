@@ -412,9 +412,18 @@ class DesktopShellApp(QMainWindow):
         创建只是为了不在冷启动时多建一个页面对象。
         """
         if self._static_page is None:
-            from ao_shaping.gui.slm.static_shaping_page import StaticShapingPage
+            from ao_shaping.gui.slm.static_shaping_page import (
+                OpticalPathSnapshot,
+                StaticShapingPage,
+            )
 
-            self._static_page = StaticShapingPage()
+            # 桌面控制台无 Streamlit 会话，读不到 bench_settings.detected_state，
+            # 因此默认注入「模型前向 / 未观测」快照：界面会显式声明光路假设未验证，
+            # 下发元数据也会记录 observed=False。未来若 shell 接入标定来源，在此
+            # 构造 calibrated 快照传入即可。
+            self._static_page = StaticShapingPage(
+                optical_path=OpticalPathSnapshot(source="model_forward")
+            )
         return self._static_page
 
     def _page_for(self, index: int) -> QWidget:
