@@ -6,7 +6,8 @@
 分析项:
 
 * 亮度统计: 峰值、均值、标准差、饱和像素占比 (灰度 >= 255);
-* 质心: 扣除中值背景后的一阶矩;
+* 质心: 扣除中值背景后的一阶矩 (过中心剖面的默认中心口径取椭圆拟合中心,
+  见 :data:`CENTER_METHODS`);
 * 包围椭圆: 以 ``背景 + 0.5 * (峰值 - 背景)`` 二值化, 取最大连通域,
   用该连通域的二阶矩得到椭圆的长短半轴与倾角;
 * X/Y 过中心剖面 (默认取 ±1 像素的均值以抑制噪声);
@@ -36,17 +37,18 @@ HALF_MAX_TO_SIGMA = float(np.sqrt(2.0 * np.log(2.0)))
 FWHM_TO_SIGMA = 2.0 * HALF_MAX_TO_SIGMA
 
 #: 可选的中心计算方法: (键, 界面显示名)。
-#: 默认 ``"centroid"`` (质心, 与历史行为一致); 其余为操作员可选的替代口径。
-#: 三者都来自本模块的纯 numpy/scipy 计算 —— ``utils/image`` 提供了质心
-#: (``windowed_centroid``) 与峰值 (``locate_peak``) 同口径原语, 但椭圆拟合中心
-#: 只存在于 :func:`_ellipse_from_mask`; 且引入 ``utils/image`` 会连带把
+#: 默认 ``"ellipse"`` (椭圆拟合中心, 与 0 级中心默认口径一致); 其余为操作员
+#: 可选的替代口径。四者都来自本模块的纯 numpy/scipy 计算 —— ``utils/image``
+#: 提供了质心与峰值 (``locate_peak``) 同口径原语, 但椭圆拟合中心只存在于
+#: :func:`_ellipse_from_mask`; 且引入 ``utils/image`` 会连带把
 #: ``spots_calc`` 的 cuBLAS 预载链拉进 CCD GUI, 故统一在此维护。
 CENTER_METHODS: tuple[tuple[str, str], ...] = (
     ("centroid", "质心"),
+    ("box_centroid", "框内质心"),
     ("ellipse", "椭圆拟合中心"),
     ("peak", "最大值"),
 )
-DEFAULT_CENTER_METHOD = "centroid"
+DEFAULT_CENTER_METHOD = "ellipse"
 
 
 @dataclass
@@ -317,19 +319,48 @@ def _validate_center_method(method: str) -> None:
         )
 
 
+def _box_centroid(
+    weight: np.ndarray | None,
+    component: np.ndarray | None,
+) -> tuple[float, float] | None:
+    """半高最大连通域外接框内的一阶矩; 无框/无权重返回 ``None``。"""
+    if weight is None or component is None:
+        return None
+    ys, xs = np.nonzero(component)
+    if xs.size == 0:
+        return None
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    patch = weight[y0:y1, x0:x1].astype(np.float64, copy=False)
+    total = float(patch.sum())
+    if total <= 0.0:
+        return None
+    cols = np.arange(x0, x1, dtype=np.float64)
+    rows = np.arange(y0, y1, dtype=np.float64)
+    cx = float(np.dot(patch.sum(axis=0), cols) / total)
+    cy = float(np.dot(patch.sum(axis=1), rows) / total)
+    return (cx, cy)
+
+
 def _select_center(
     method: str,
     *,
     centroid: tuple[float, float],
     ellipse: EllipseParams | None,
     peak: tuple[float, float],
+    weight: np.ndarray | None = None,
+    component: np.ndarray | None = None,
 ) -> tuple[float, float]:
     """按方法键选出中心 ``(cx, cy)``。
 
-    椭圆口径在无椭圆 (全黑/纯背景) 时回退质心; 峰值口径总是可取。
+    椭圆口径在无椭圆 (全黑/纯背景) 时回退质心; 框内质心在无连通域/无权重时
+    回退质心; 峰值口径总是可取。
     """
     if method == "ellipse":
         return ellipse.center if ellipse is not None else centroid
+    if method == "box_centroid":
+        boxed = _box_centroid(weight, component)
+        return boxed if boxed is not None else centroid
     if method == "peak":
         return peak
     return centroid
@@ -392,6 +423,8 @@ def analyze_frame(
         centroid=(cx, cy),
         ellipse=ellipse,
         peak=peak_xy,
+        weight=weight,
+        component=component,
     )
 
     # --- 过中心剖面 ---

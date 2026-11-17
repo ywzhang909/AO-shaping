@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
+from scipy import ndimage
 
 from ao_shaping.gui.ccd.beam_quality import frame_source as frame_source_module
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
@@ -174,11 +175,20 @@ def test_trend_buffer_ellipse_nan_and_values() -> None:
 
 
 def test_analyze_frame_center_methods() -> None:
-    """中心口径可选: 质心 (默认) / 椭圆拟合中心 / 峰值, 未知键报错。"""
+    """中心口径可选: 椭圆拟合中心 (默认) / 质心 / 框内质心 / 峰值, 未知键报错。"""
     cx, cy = 120.4, 150.7
     img = _gaussian_frame(cx=cx, cy=cy, sigma_x=18.0, sigma_y=11.0, noise=0.8)
 
-    centroid_metrics = analyze_frame(img)  # 默认 = 质心
+    default_metrics = analyze_frame(img)  # 默认 = 椭圆拟合中心
+    assert default_metrics.ellipse is not None
+    assert default_metrics.cx == pytest.approx(
+        default_metrics.ellipse.center[0], abs=1e-6
+    )
+    assert default_metrics.cy == pytest.approx(
+        default_metrics.ellipse.center[1], abs=1e-6
+    )
+
+    centroid_metrics = analyze_frame(img, center_method="centroid")
     assert centroid_metrics.cx == pytest.approx(cx, abs=1.0)
     assert centroid_metrics.cy == pytest.approx(cy, abs=1.0)
 
@@ -192,6 +202,18 @@ def test_analyze_frame_center_methods() -> None:
         ellipse_metrics.ellipse.center[1], abs=1e-6
     )
 
+    # 框内质心: 落在半高最大连通域的外接框内
+    box_metrics = analyze_frame(img, center_method="box_centroid")
+    bg = float(np.median(img))
+    level = bg + 0.5 * (float(img.max()) - bg)
+    labels, count = ndimage.label(img > level)
+    assert count > 0
+    sizes = np.bincount(labels.ravel())
+    sizes[0] = 0
+    ys, xs = np.nonzero(labels == int(np.argmax(sizes)))
+    assert xs.min() <= box_metrics.cx <= xs.max() + 1
+    assert ys.min() <= box_metrics.cy <= ys.max() + 1
+
     # 峰值口径: 中心取全局 argmax
     peak_metrics = analyze_frame(img, center_method="peak")
     peak_row, peak_col = np.unravel_index(int(np.argmax(img)), img.shape)
@@ -199,8 +221,10 @@ def test_analyze_frame_center_methods() -> None:
     assert peak_metrics.cy == pytest.approx(float(peak_row), abs=1e-6)
 
     # 剖面都过各自口径的中心 (x_profile 长度仍为图宽)
+    assert default_metrics.x_profile.size == img.shape[1]
     assert centroid_metrics.x_profile.size == img.shape[1]
     assert ellipse_metrics.x_profile.size == img.shape[1]
+    assert box_metrics.x_profile.size == img.shape[1]
     assert peak_metrics.x_profile.size == img.shape[1]
 
     # 未知键必须抛 ValueError, 不静默回退
