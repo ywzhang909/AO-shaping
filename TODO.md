@@ -5417,6 +5417,13 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 环境限制: `gui` 全域 17 收集错误 = 容器无 `PySide6` (CI 有该依赖、master 全绿), 与本次改动无关
 - 门禁: `render_sidebar` 收紧 319/4/289→45/3/37 + 新增四条 section 行; ruff/term 绿
 
+**2026-11-17 · 498420dd 之后 · 第 122 批: `focus_probe.sweep_focus` 153→93 行 (`tools/slm/panel/focus_probe.py`)**
+- 提取: `_fp_sweep_diopter_branch` 39 (diopters 分支连同内层扫描环整体提走, 7 参数 0 回传, 环内 break 由内层环绑定) + `_fp_sweep_pick_and_verdict` 29 (尾段排名/线性度/遮挡裁决, 19 参数 6 回传 `best/best_diopter/linearity/gain/blocked_reason/path_blocked`)
+- 尾段只切到裁决行为止 (629-654)——函数末尾 `return FocusProbeResult(...)` 留在父级, 避开"区内含 return 拒收"(b120 教训 ㉜)
+- 叶差分: 16 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 991→1007 baseline 抬高 +16
+- 载体: `test_focus_probe` + 形状门禁 **456 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: `sweep_focus` 收紧 176/5/153→105/1/93 + 新增两条 helper 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
