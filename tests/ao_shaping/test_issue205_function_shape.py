@@ -100,6 +100,7 @@ _MICRO_DM_UI = "src/ao_shaping/gui/dm/micro_dm_ui.py"
 _CALIBRATE = "src/ml/sim2f/calibrate.py"
 _TRAIN_DATA_COLLECT = "src/ao_shaping/tools/slm/calibration/train_data_collect.py"
 _CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
+_TSH = "src/ao_shaping/gui/ccd/target_shape_helper.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -448,6 +449,9 @@ TARGETS = [
     (_CCD_ANALYZER, "main", 136, 4, 124),
     (_CCD_ANALYZER, "_ccd_render_realtime_panel", 88, 3, 78),
     (_CCD_ANALYZER, "_ccd_render_connection_controls", 78, 3, 68),
+    (_TSH, "_render_sidebar", 32, 4, 28),
+    (_TSH, "_tsh_render_camera_section", 108, 6, 94),
+    (_TSH, "_tsh_render_roi_size_section", 80, 6, 68),
     (_PROBE_ACTIVE, "probe_active", 242, 4, 210),
     (_PROBE_ACTIVE, "_probe_validate_inputs", 38, 3, 33),
     (_PROBE_ACTIVE, "_probe_init_state", 30, 2, 26),
