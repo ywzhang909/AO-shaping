@@ -5569,6 +5569,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 提取 `_shaping_epoch_loop` 81 行 (14 参数 0 回传, 逐迭代 lr 调度/多候选评分/最优相位回写整环; 环内 2 处 break 由环自身绑定; 状态全经 loss_history/per_holder/张量原地突变流动, 与逐字提取语义一致; 0 回传裸 return 尾行按 ast 剥离)
 - 载体 (golden 逐位兜底): 同前三文件 + 形状门禁 **531 passed**; ruff 全仓绿; term 0; modsize 抬高后绿
 
+**2026-11-18 · 392e21f7 之后 · 第 143 批: `optimizer_greedy` 165→119 行 (`optimizer/wf/greedy_zernike.py`)**
+- 提取 `_greedy_setup` 23 (3 参数 6 回传) 与 `_greedy_final_poll` 30 (12 参数 0 回传, 裸 return 尾行剥离); With 体内 `evaluate` 闭包与早退 Return 留父级
+- wiki 重钉 (㉞/㊱ 先例): `optimizer-greedy.md` `source:` 355→416 (helper 插入使 def 下移, 手工改该页单行, 不整跑生成管线)
+- 新增守卫常量 `_GREEDY_ZERNIKE` + 三行; 载体 `test_greedy_zernike_characterization` + 形状 **487 passed**; **wf 域 174 passed / 1 skipped** (与 b126 基线一致); conventions 72 passed; ruff/term/modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

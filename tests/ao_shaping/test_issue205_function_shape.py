@@ -102,6 +102,7 @@ _TRAIN_DATA_COLLECT = "src/ao_shaping/tools/slm/calibration/train_data_collect.p
 _CCD_ANALYZER = "src/ao_shaping/gui/ccd/ccd_analyzer.py"
 _TSH = "src/ao_shaping/gui/ccd/target_shape_helper.py"
 _DIFFERENTIABLE_SHAPING = "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py"
+_GREEDY_ZERNIKE = "src/ao_shaping/optimizer/wf/greedy_zernike.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -578,6 +579,9 @@ TARGETS = [
     (_DIFFERENTIABLE_SHAPING, "_tbs_prepare_candidates", 56, 3, 51),
     (_DIFFERENTIABLE_SHAPING, "_run_shaping_loop", 100, 2, 92),
     (_DIFFERENTIABLE_SHAPING, "_shaping_epoch_loop", 90, 5, 81),
+    (_GREEDY_ZERNIKE, "optimizer_greedy", 130, 3, 119),
+    (_GREEDY_ZERNIKE, "_greedy_setup", 27, 2, 23),
+    (_GREEDY_ZERNIKE, "_greedy_final_poll", 34, 2, 30),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),
