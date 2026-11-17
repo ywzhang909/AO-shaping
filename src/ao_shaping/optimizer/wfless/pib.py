@@ -207,51 +207,9 @@ def _objective_to_min(objective: str) -> int:
     return -1 if objective_direction(objective) == "max" else 1
 
 
-def _run_spgd_epochs(
-    *,
-    _fix_bucket,
-    _gradient_history,
-    _max_history_len,
-    _pib_history,
-    _render_epoch_frame,
-    _saturate_epoch,
-    adaptive_search_state,
-    calc_objective,
-    cam,
-    center,
-    dm,
-    dm_unit_mask,
-    enable_adaptive_search,
-    epochs,
-    lr,
-    objective,
-    optimizer,
-    optimizer_type,
-    recorder,
-    rng,
-    run_adaptive_search,
-    search_interval,
-    search_patience,
-    search_warmup,
-    shrink_iter,
-    shrink_ratio,
-    tabu_memory,
-    test_pib,
-    to_min,
-    update_iter,
-    _init_r,
-    _init_v,
-    best_objective,
-    delta,
-    last_best_epoch,
-    r_bucket,
-) -> SimpleNamespace:
-    """#205 batch-4: the tqdm epoch loop of the former 582-line optimize_pib.
 
-    The With block moved line-exact (dedent 4). Read-only closure names come
-    in as keyword params; the six outer locals the loop mutates are threaded
-    back out in the returned namespace by the caller.
-    """
+def _spgd_epoch_loop(_fix_bucket, _gradient_history, _init_r, _init_v, _max_history_len, _pib_history, _render_epoch_frame, _saturate_epoch, adaptive_search_state, best_objective, calc_objective, cam, center, delta, dm, dm_unit_mask, enable_adaptive_search, epochs, last_best_epoch, lr, objective, optimizer, optimizer_type, r_bucket, recorder, rng, run_adaptive_search, search_interval, search_patience, search_warmup, shrink_iter, shrink_ratio, tabu_memory, test_pib, to_min, update_iter):
+# tqdm epoch loop lifted verbatim (bound break travels with loop)
     with tqdm.tqdm(
         total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
     ) as bar:
@@ -401,6 +359,56 @@ def _run_spgd_epochs(
 
             bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
             bar.update(1)
+    return _init_r, _init_v, best_objective, delta, last_best_epoch, r_bucket
+
+
+
+def _run_spgd_epochs(
+    *,
+    _fix_bucket,
+    _gradient_history,
+    _max_history_len,
+    _pib_history,
+    _render_epoch_frame,
+    _saturate_epoch,
+    adaptive_search_state,
+    calc_objective,
+    cam,
+    center,
+    dm,
+    dm_unit_mask,
+    enable_adaptive_search,
+    epochs,
+    lr,
+    objective,
+    optimizer,
+    optimizer_type,
+    recorder,
+    rng,
+    run_adaptive_search,
+    search_interval,
+    search_patience,
+    search_warmup,
+    shrink_iter,
+    shrink_ratio,
+    tabu_memory,
+    test_pib,
+    to_min,
+    update_iter,
+    _init_r,
+    _init_v,
+    best_objective,
+    delta,
+    last_best_epoch,
+    r_bucket,
+) -> SimpleNamespace:
+    """#205 batch-4: the tqdm epoch loop of the former 582-line optimize_pib.
+
+    The With block moved line-exact (dedent 4). Read-only closure names come
+    in as keyword params; the six outer locals the loop mutates are threaded
+    back out in the returned namespace by the caller.
+    """
+    _init_r, _init_v, best_objective, delta, last_best_epoch, r_bucket = _spgd_epoch_loop(_fix_bucket, _gradient_history, _init_r, _init_v, _max_history_len, _pib_history, _render_epoch_frame, _saturate_epoch, adaptive_search_state, best_objective, calc_objective, cam, center, delta, dm, dm_unit_mask, enable_adaptive_search, epochs, last_best_epoch, lr, objective, optimizer, optimizer_type, r_bucket, recorder, rng, run_adaptive_search, search_interval, search_patience, search_warmup, shrink_iter, shrink_ratio, tabu_memory, test_pib, to_min, update_iter)
     return SimpleNamespace(_init_r=_init_r, _init_v=_init_v, best_objective=best_objective, delta=delta, last_best_epoch=last_best_epoch, r_bucket=r_bucket)
 
 

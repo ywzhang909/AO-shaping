@@ -5374,6 +5374,49 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_slm_diffraction_efficiency` + 形状门禁 **467 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
 - 门禁: 棘轮新增 3 行 (140/5/124 + 40/3/32 + 40/1/33); 模块 1546→1562 baseline 抬高 +16; ruff/term 绿
 
+**2026-11-17 · 7501371b 之后 · 第 116 批: `calibrate_bench_geometry_from_sweep` 186→130 行 + 四缝 (`wfless/model_in_loop_shaping.py`)**
+- 提取: `_milsg_require_groups` 20 (空 groups 的 SweepCalibrationError 抛出) / `_milsg_require_defocus` 10 (缺 defocus 抛出) / `_milsg_waist_verdict` 21 (waist 判定日志, 回传 `waist_model`) / `_milsg_log_geometry` 21 (标定汇总日志, 零回传); raise 块整体提走合法 (异常照常传播), 缝内全程无 break/continue
+- 叶差分: 78 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 3422→3454 baseline 抬高 +32
+- 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **491 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed (本批 lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 214/3/186→145/1/130 + 新增 4 helper 行 (均 guard `_measure` 实测); ruff/term 绿
+- 队列更新: 本模块同族 `calibrate_bench_geometry` 173 的缝含 break 环 (教训㉛ 同型), 剩余可提段 <30 行, 收益不足转 pin-only; `optimize_beam_shaping` 153 / `_run_spgd_epochs` 195 / `closed_loop_run` 154 (b76 后) 转入下批评估
+
+**2026-11-17 · 0acc8699 之后 · 第 117 批: `_run_spgd_epochs` 195→47 行 + 整环提取 (`wfless/pib.py`, 生成器 bound-break 豁免首战)**
+- 工具扩展 (㉛ 后续): 生成器加**绑定豁免** —— 区域内 break/continue 仅当**区域内没有包含它的完整 For/While** 才拒绝; 整环可整体提走 (break 随环走)。split117.py 起为新基线; 本批配套加**绑定后审** (helper 内每个 break/continue 必被 helper 内某 For/While 包含) 验证
+- 提取: `_spgd_epoch_loop` 152 (tqdm 逐轮环整体提走, 36 参数 6 回传 `_init_r/_init_v/best_objective/delta/last_best_epoch/r_bucket`, 其中 delta 为 ⑳ 型重绑参数)
+- wiki 重钉: `optimize_pib` 509→517/661→669 —— md 引文 + index.md + 双 JSON; JSON `"end": 661` 全库不唯一 ⇒ 以相邻 `"lineno": 509,\n   "end": 661` 对为锚替换
+- 载体: `test_pib_objective_columns` + `test_pib_objective_sign` + `test_spid_pib_path_characterization` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮收紧 230/5/195→55/0/47 + 新增 `_spgd_epoch_loop` 170/5/152; 模块 1085→1093 baseline 抬高 +8; ruff/term 绿
+
+**2026-11-17 · db8820c8 之后 · 第 118 批: `_run_validate_blocks` 188→45 行 + 整环提取 (`transfer/validate.py`)**
+- 提取: `_validate_block_loop` 147 (逐块细化 for-block 环整体提走, 24 参数 3 回传 `best/champion/exposure`; 环体含 2 个内层环, 全程无 break/continue, 绑定后审通过 —— 与 b117 不同本批**无需豁免**, 常规路径)
+- 闭包参数照常入参 (`capture`/`save_summary`/`tune_exposure` 均为父级局部闭包, 沿 b111 工厂形态直接传引用)
+- 叶差分: 24 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 1431→1439 baseline 抬高 +8
+- 载体: `test_transfer_workflow` (validate.run fake e2e 驱动到 blocks 段) + 形状门禁 **464 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed (lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 200/5/181→55/0/45 + 新增 `_validate_block_loop` 160/5/147; ruff/term 绿
+
+**2026-11-17 · e765c8cd 之后 · 第 119 批: `ModelInLoopConfig.__post_init__` 150→38 行 (`wfless/slm_model_in_loop.py`)**
+- 提取: `_validate_mil_scalars` 116 (参数/载波前置校验 113 行 raise 链整体提走, 1 参数 0 回传, 调用点 `_validate_mil_scalars(self)`; helper 落在**类外**模块级——类内方法提取的既定形态, 见 b109 教训)
+- 叶差分: 56 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 4172→4180 baseline 抬高 +8
+- 载体: `test_slm_model_in_loop` + `test_model_in_loop_shaping` + `loop_invariants` + 形状门禁 **626 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增 `__post_init__` 50/2/38 与 `_validate_mil_scalars` 128/2/116; ruff/term 绿
+- CI: ci118 (b117 db8820c8) 0 失败、ci119 (b118 e765c8cd) 0 失败
+
+**2026-11-17 · da535a8c 之后 · 第 120 批: `tabu_search.run_search` 152→82 行 (`algorithm/tabu/tabu_search.py`)**
+- 提取: `_evaluate_search_candidates` 74 (候选生成 `if` 分支 + 评估 `for` 环整体提走, 7 参数 4 回传 `best_candidate/evaluated/safe_rejects/tabu_hits`; 环内 break 由内层环绑定, bound 后审通过)
+- 缝选择教训 (新 ㉜): ①区域起点必须落在**语句边界**——从 `if` 体内(419)起会混缩进层, 须含 `if` 头(418); ②区内含 `return`(491 的"无有效候选"早退)生成器**拒收**, 缩短区域至 488 把早退块留在父级(父级剩余 82 行中含该早退, 不再二次切)
+- 叶差分: 8 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块行数不变 (baseline 无抬高)
+- 载体: `test_tabu_search` + 形状门禁 **431 passed**; algorithm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增常量 `_TABU` + 行 `run_search` 95/1/82、`_evaluate_search_candidates` 88/2/74; ruff/term 绿
+- CI: ci120 已启动 (b119 da535a8c) 轮询中
+
+**2026-11-17 · a4403883 之后 · 第 121 批: `render_sidebar` 289→37 行 (`gui/zernike/zernike_response_matrix_ui.py`)**
+- 提取: 四个 section 助手 `_render_calibration_params_section` 83 / `_render_wfs_params_section` 92 / `_render_slm_params_section` 47 / `_render_device_connection_section` 46 (全部 st.* 控件块逐区提取; 前三者 0 参数 0 回传, 第四个 1 参数 `col1`——区内先 `col1, col2 = st.columns(2)` 重绑后使用, 传入值不被读取, 语义逐字节保持)
+- 叶差分: 22 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 1604→1636 baseline 抬高 +32
+- 载体: `test_zernike_response_matrix_ui` + 形状门禁 **442 passed**; `gui/zernike` 逐文件域 **22 passed**; `test_conventions` 72 passed
+- 环境限制: `gui` 全域 17 收集错误 = 容器无 `PySide6` (CI 有该依赖、master 全绿), 与本次改动无关
+- 门禁: `render_sidebar` 收紧 319/4/289→45/3/37 + 新增四条 section 行; ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

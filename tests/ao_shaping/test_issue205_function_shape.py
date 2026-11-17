@@ -92,6 +92,7 @@ _SQ = "src/ao_shaping/optimizer/wfless/slm_square_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
 _WORKFLOW = "src/ao_shaping/tools/slm/transfer/workflow.py"
+_TABU = "src/ao_shaping/algorithm/tabu/tabu_search.py"
 _DIFFERENTIABLE_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
 _ZERNIKE_RESPONSE_MATRIX_UI = "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py"
 _PHASE_CAPTURE = "src/ao_shaping/tools/slm/calibration/phase_capture.py"
@@ -137,7 +138,11 @@ _TRANSFER_PREFLIGHT = "src/ao_shaping/tools/slm/transfer/preflight.py"
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
 TARGETS = [
-    (_FILE, "calibrate_bench_geometry_from_sweep", 214, 3, 186),
+    (_FILE, "calibrate_bench_geometry_from_sweep", 145, 1, 130),
+    (_FILE, "_milsg_log_geometry", 25, 0, 21),
+    (_FILE, "_milsg_waist_verdict", 25, 1, 21),
+    (_FILE, "_milsg_require_defocus", 14, 1, 10),
+    (_FILE, "_milsg_require_groups", 24, 1, 20),
     (_FILE, "_milsg_validate_sweeps", 30, 3, 26),
     (_FILE, "_milsg_focal_crosschecks", 32, 3, 27),
     (_FILE, "_milsg_fit_waist", 30, 3, 26),
@@ -192,7 +197,8 @@ TARGETS = [
     (_PIB, "_pib_make_search_fn", 92, 2, 80),
     (_PIB, "_pib_init_tabu_state", 32, 2, 27),
     (_PIB, "_pib_update_iter_setup", 20, 4, 17),
-    (_PIB, "_run_spgd_epochs", 230, 5, 195),
+    (_PIB, "_run_spgd_epochs", 55, 0, 47),
+    (_PIB, "_spgd_epoch_loop", 170, 5, 152),
     (_PIB, "_apply_adaptive_search_epoch", 120, 4, 100),
     (_COMB, "optimize_pib", 150, 1, 92),
     (_COMB, "_run_combined_epochs", 80, 1, 54),
@@ -206,7 +212,8 @@ TARGETS = [
     (_VAL, "_make_tune_exposure", 80, 2, 73),
     (_VAL, "_session_capture", 110, 2, 92),
     (_VAL, "_run_validate_shapes", 130, 3, 105),
-    (_VAL, "_run_validate_blocks", 200, 5, 181),
+    (_VAL, "_run_validate_blocks", 55, 0, 45),
+    (_VAL, "_validate_block_loop", 160, 5, 147),
     (_VAL, "_probe_direction_asymmetry", 60, 1, 47),
     (_VAL, "_observe_jacobian_guard", 45, 1, 31),
     (_VAL, "_dump_shape_history_and_timing", 60, 4, 47),
@@ -386,6 +393,8 @@ TARGETS = [
     (_MIL, "_session_measure_flat", 142, 2, 124),
     (_MIL, "_session_round_state_init", 84, 1, 73),
     (_MIL, "_run_model_in_loop_rounds", 208, 4, 181),
+    (_MIL, "__post_init__", 50, 2, 38),
+    (_MIL, "_validate_mil_scalars", 128, 2, 116),
     (_MIL, "_milr_round_probe_setup", 28, 2, 23),
     (_MIL, "_milr_round_score_after", 12, 1, 9),
     (_MIL, "_milr_step_b_measure", 111, 2, 96),
@@ -398,10 +407,16 @@ TARGETS = [
     (_MIL, "_model_in_loop_round_probes", 110, 2, 81),
     (_WORKFLOW, "main", 191, 5, 165),
     (_WORKFLOW, "_add_session_commands", 157, 4, 136),
+    (_TABU, "run_search", 95, 1, 82),
+    (_TABU, "_evaluate_search_candidates", 88, 2, 74),
     (_DIFFERENTIABLE_BEAM, "optimize_beam_shaping", 200, 1, 153),
     (_DIFFERENTIABLE_BEAM, "_run_simulation_phase", 80, 3, 68),
     (_DIFFERENTIABLE_BEAM, "_run_hardware_phase", 100, 4, 88),
-    (_ZERNIKE_RESPONSE_MATRIX_UI, "render_sidebar", 319, 4, 289),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "render_sidebar", 45, 3, 37),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "_render_calibration_params_section", 95, 1, 83),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "_render_wfs_params_section", 105, 3, 92),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "_render_slm_params_section", 58, 0, 47),
+    (_ZERNIKE_RESPONSE_MATRIX_UI, "_render_device_connection_section", 55, 3, 46),
     (_PHASE_CAPTURE, "run", 316, 3, 286),
     (_MICRO_DM_UI, "_tab2_fragment", 309, 7, 279),
     (_CALIBRATE, "calibrate_bench", 164, 5, 142),
