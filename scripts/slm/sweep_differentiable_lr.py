@@ -64,6 +64,7 @@ import argparse
 import csv
 import json
 import math
+from functools import partial
 import shutil
 import sys
 import time
@@ -93,6 +94,7 @@ from scripts._common.differentiable_problem import (
     load_problem_from_run_dir,
 )
 from scripts._common.plot_style import setup_cjk_font
+from scripts._common import fmt_general
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -747,13 +749,9 @@ def _plot_physical(results: list[ArmResult], baseline: dict[str, Any], path: Pat
     plt.close(fig)
 
 
-def _fmt(v: Any, spec: str = ".4g") -> str:
-    """表格数字格式化 (None/NaN -> n/a)。"""
-    if v is None:
-        return "n/a"
-    if isinstance(v, float) and not math.isfinite(v):
-        return "n/a"
-    return format(v, spec)
+# R-25 反漂移 (issue #205 第 132 批, 第 139 批重申): 逐字口径 =
+# fmt_general(missing_none="n/a", missing_nonfinite="n/a")。
+_fmt = partial(fmt_general, missing_none="n/a", missing_nonfinite="n/a")
 
 
 def _headline_row(res: ArmResult) -> str:

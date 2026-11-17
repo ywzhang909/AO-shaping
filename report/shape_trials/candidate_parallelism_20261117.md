@@ -5,7 +5,7 @@
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py)
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_propagation.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_propagation.py)
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_objective.py`](../../src/ao_shaping/algorithm/signal_processing/differentiable_objective.py)
-> **运行环境**: 仅 GPU 离线（RTX 5080 Laptop，grid 256 cuda）；未占用 SLM / CCD / 激光，全程无上机动作
+> **运行环境**: 仅 GPU 离线（RTX 5080 Laptop，grid 256 cuda）；未占用 SLM / CCD / 激光，全程无实验动作
 > **说明**: 可微整形 8 候选模型内并行（train_beam_shaping n_candidates=8 默认值）的改动、验证与代价记录：单候选路径逐位不变（批量前向 absdiff=0、梯度相对差 6.6e-5、54+37+9 测试通过）；实测代价 300 迭代生产设置下 8 候选比单候选慢 4.6–5.8×，非凸目标最终损失改善 1.4–2.2%、单盆地目标（square）几乎无收益（0.07%）；并行相对 K 次串行重启稳定 1.4–2.6×（K=8 时 1.39×）。结论：这是「用时间换 1–2% 质量」的取舍而非免费加速；单盆地/规则目标建议 n_candidates=1（或 2–4），非凸/多瓣任意形状质量优先时 8 候选值得。仅 optimizer=adam 支持多候选，lbfgs 自动回退 1。人工撰写。
 <!-- provenance:end -->
 
@@ -16,7 +16,7 @@
 也就是说，这是「用时间换 1–2 % 质量」的取舍，不是免费加速。
 
 - 数据：`data/debug/parallel_candidates_20261117/`（`results.json` + 原始日志 + 两个基准脚本）
-- 设备：仅 GPU（RTX 5080 Laptop）。**未占用 SLM / CCD / 激光**，全程无上机动作。
+- 设备：仅 GPU（RTX 5080 Laptop）。**未占用 SLM / CCD / 激光**，全程无实验动作。
 
 ## 1. 改了什么
 
@@ -108,9 +108,9 @@
 | issue | 状态 | 处置 | 理由 |
 | --- | --- | --- | --- |
 | #229 Zernike 定向探针迁移 | 已 CLOSED（非本会话） | 不动 | 与本次改动无关 |
-| #233 SLM 非线性融入前向网络 | OPEN | **保持 OPEN** | 本次只做优化器层候选并行，未改前向物理模型，无实测验收 |
-| #234 zernike_block 迁移实施报告 | OPEN | **保持 OPEN** | 实施提交 `d7692534` 在 `feat/zernike-block-transfer` 分支，未合入 master，且无上机实测 |
-| #235 零级中心口径与 shift_phase 一致性 | OPEN | **保持 OPEN** | 零级中心已可选（提交 `0fd76e44`），但上机方向门槛未执行，实测未验收 |
+| #233 SLM 非线性融入前向网络 | OPEN | **保持 OPEN** | 本次只做优化器层候选并行，未改前向物理预测模型，无实测验收 |
+| #234 zernike_block 迁移实施报告 | OPEN | **保持 OPEN** | 实施提交 `d7692534` 在 `feat/zernike-block-transfer` 分支，未合入 master，且无实验实测 |
+| #235 零级中心口径与 shift_phase 一致性 | OPEN | **保持 OPEN** | 零级中心已可选（提交 `0fd76e44`），但实验方向门槛未执行，实测未验收 |
 
-上机 P1+P2 计划（`docs/dev/hw_direction_test_plan_20261117.md`）等待激光恢复后执行；
+实验 P1+P2 计划（`docs/dev/hw_direction_test_plan_20261117.md`）等待激光恢复后执行；
 在方向门槛与实测验收通过前，不关闭任何硬件 / 迁移类 issue。

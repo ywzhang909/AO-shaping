@@ -110,6 +110,13 @@ ignore = [
 # class by inlining the path so no `ROOT =` precedes the imports. Both touch ~40 files
 # for zero correctness gain, so they are recorded here instead.
 
+# report/ archives (upstream c678e660): script copies frozen byte-for-byte beside
+# their run artifacts as same-source evidence. They carry the same sys.path
+# bootstrap that makes E402 structural under scripts/ (the archived copies predate
+# being placed under report/), and rewriting them would break the "exactly what
+# ran" property. E402 only -- every other rule still sees these files.
+"report/**" = ["E402"]
+
 # scripts/ (709): repo-root bootstrap convention for `sys.path`, plus late imports
 # inside long procedural report generators.
 # __init__.py (5): lazy backend registries import after `register_*_lazy` tables.

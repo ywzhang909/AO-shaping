@@ -499,7 +499,7 @@ class DahengCamera(BaseCamera):
         未开流 (``_acquisition_on`` 为假) 绝不取帧 —— ``initialize()`` 在
         ``stream_on`` 之前调用本方法, 因此那里只写格式不消费帧。
 
-        🔴 **拉流中 ``PixelFormat`` 不可写** (2026-11-17 真机实测, 相机
+        🔴 **拉流中 ``PixelFormat`` 不可写** (2026-11-17 实验系统实测, 相机
         FJB24112232): GenICam 的 ``PixelFormat`` 在取流进行时 ``set``
         **不生效** —— SDK 只 print ``PixelFormat.set: is not writeable`` 并**保留
         旧格式**, 回读仍是 ``Mono8`` (与 :attr:`reset_window` 的越界静默坑同源)。
@@ -523,7 +523,7 @@ class DahengCamera(BaseCamera):
 
         requested_format = self._BIT_DEPTH_PIXEL_FORMATS[bits]
         previous = self.bit_depth
-        # 🔴 拉流中 PixelFormat 不可写 (2026-11-17 真机实测): SDK 只 print
+        # 🔴 拉流中 PixelFormat 不可写 (2026-11-17 实验系统实测): SDK 只 print
         # "PixelFormat.set: is not writeable" 并保留旧格式, 回读仍是 Mono8。先停流再写
         # (与 reset_window 同口径); finally 里复流, 抛错也不许把相机留在停流状态。
         if self._acquisition_on:
@@ -813,6 +813,8 @@ class DahengCamera(BaseCamera):
                     try:
                         self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
                     except Exception as disable_exc:
+                        # policy: 关不掉 SDK 自动曝光只是降级路径不完美, 真失败已由
+                        # 上方 SDK 调用抛出; 这里再抛会吞掉手动回路本身的错误。
                         logger.warning(
                             "[SDK auto-exposure] disable failed: {}", disable_exc
                         )

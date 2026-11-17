@@ -4699,6 +4699,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 处置：10 处逐点写 `# policy:` 判据（未判据棘轮仍为 0，未放宽），总棘轮 409→424 只登记本次并入的既有差异，不预留给后续新增。
 - 复测：`tests/ao_shaping/test_conventions.py` 73 passed（本树 2026-11-08）。
 
+**2026-11-17 · c678e660 合并 (经 86b15af1) · 盲捕获棘轮 425→438 / 盲静默 39→45 / 未判据 2→0（第 139 批随批处置）**
+- 来源：上游相机功能合并（`drivers/ccd/daheng|miicam/driver.py`、`gui/ccd/ccd_analyzer.py` 等）在本树净增 13 处宽捕获（其中 6 处为纯静默），**非本批拆分之伤**，按 ab5ae52e 与 78171ec2 先例登记复位
+- 未判据棘轮保持 0：两处新宽捕获已在 handler 就地补 `policy:` 判定行（daheng 自动曝光关闭失败仅降级、static_shaping_page 元数据落盘失败不阻断下发——两者本已 `logger.warning`, 补的是守卫要求的就地判据）
+- 棘轮只登记本次净增，不预留给后续新增
+- 复测：`test_blind_except_handlers_in_src_do_not_grow` / `test_blind_silent_exception_handlers_in_src_do_not_grow` / `test_unmarked_blind_except_handlers_do_not_grow` 全绿
+
 **2026-11-13 · ab5ae52e · 盲捕获棘轮 424→425：transfer 采集开场曝光三态的实时预测兜底**
 - 边界：`ab5ae52e`（`transfer/capture.py` 采集开场曝光三态 + `capture()` 拆分）在本树净增 **1** 处宽泛捕获 —— `capture()` 里实时预测初始化（`_init_live_prediction`）的 `except Exception`：模型/checkpoint 加载与构建可抛的异常类型不可枚举，捕获后仅 `logger.warning` 并继续采集；同提交的曝光回读兜底已带 `# policy:` 判据，不计入新增。棘轮 424→425。
 - 为何不收窄：该兜底落在模型构建阶段，厂商 SDK 与模型构建可抛的异常类型不可枚举；收窄到具体类型会把「模型不可用」变成 traceback，违背「实时预测只是辅助画面，采集须继续」的设计，与 §8.9 既有的「收窄硬件路径不是清理」口径一致（issue #145 / #45）。
@@ -5538,6 +5544,14 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - ⚠️ 教训 (新 ㊹): **b133 载体口径漏了 `tests/.../transfer/` 子包** —— 只跑了顶层 `test_transfer_*.py` (15 文件), 而 transfer/ 子目录还有 3 个**源码文本守卫** (归属者链钉子) 在 b131/b133 后失去目标 (批后 tools/slm 全域跑发现)。修法是 batch-74 既定"先钉委派边、性质移宿承接 helper": `capture → _cap_session_setup → _cap_live_reader` 链两测 + `run → _validate_runtime_imports` 的 `remaining_blocks` 门一处。规则更新: **lift 触及 capture/validate/run 这类被源码钉子引用的函数时, 域跑必须覆盖整个子包目录, 且改钉前先 ast 定位调用的新家** (b133 台账里"param_checks"实际是 runtime_imports, 凭记忆钉错一次)
 - 载体: `test_slm_calibration_pure/windowed/alignment_probe` + 形状门禁 **483 passed**; tools/slm 全域 **1478 passed / 7 skipped**; conventions 72 passed; ruff 全仓绿; term 0
 - 新增守卫条目: `_CALIBRATION` 表加 align + 三 helper 行
+
+**2026-11-18 · d5652e29 之后 · 第 139 批 (修复): `c678e660` 合并回退的上游脚本债二次清零**
+- ⚠️ 教训 (新 ㊺): **上游合并可以把已修债整体吃回去** —— `c678e660` (经 `86b15af1` 文档提交 rebase 带入) 把 b132-A 的四脚本 `_fmt` 收口 / `synthetic_frozen_parameters` / ladder 合成几何回退 / hermetic 子进程测试**全部还原** (provenance.py 也被旧版覆盖丢光 20261117 四条注册)。rebase 后不能只跑 conventions, **必须重跑被修域的守卫测试** (本批靠 ci135/136 终判 + scripts 域全量抓回)
+- 重申 (逐处 diff 对照历史提交 831f8f8c/435a126c): analyze_model_hw_fidelity→`fmt_spec_or_text` 别名; ladder/sweep→`partial(fmt_general, ...)`; `synthetic_frozen_parameters` (gain=250/sigma=1 调优值) + dry-run 无检查点回退; `sec.synthetic_geometry` + `run_dry_run` 回退; clean-process 测试真子进程化
+- provenance 注册表修复: 上游把 `ideal_path_static_test_20261117` 条目贴在函数体外 (模块级 `X": ReportProvenance(` 语法炸, `load_opt_module` 全链 SyntaxError) —— 移回 REPORTS 闭合前; 从 `git show` 历史版本逐块恢复 fwdmodel_fit_20261117 / status_20261117 / issue235 报告 (HANDWRITTEN) + summary (含 command), 新登记 candidate_parallelism_20261117 (HANDWRITTEN, 无生成脚本), sync 重渲染头部与 README 索引
+- 门禁连带 (全部登记于 §8.9 2026-11-17 条目): 盲捕获棘轮 425→438、盲静默 39→45 (上游相机功能净增, 非本批拆分); 未判据 2→0 用**就地 policy 判定行**清零而非抬上限; `ruff.toml` per-file-ignores 加 `"report/**" = ["E402"]` (归档脚本副本字节冻结证据, 只豁免 E402, 其余规则仍可见)
+- AGENTS/module_inventory: `signal_processing/` 行补 `shaping_lr_schedule` (c678e660 新模块, `test_wavefront_inventory_doc` 双向对账)
+- 验证: `tests/ao_shaping/scripts/` 域 **3486 passed** (仅剩 2 个 PySide6 容器缺依赖); conventions **72 passed**; ruff 全仓绿; term 0; modsize exit=0 (policy 注释 +2 行已入基线)
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
