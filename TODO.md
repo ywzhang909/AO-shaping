@@ -5553,6 +5553,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - AGENTS/module_inventory: `signal_processing/` 行补 `shaping_lr_schedule` (c678e660 新模块, `test_wavefront_inventory_doc` 双向对账)
 - 验证: `tests/ao_shaping/scripts/` 域 **3486 passed** (仅剩 2 个 PySide6 容器缺依赖); conventions **72 passed**; ruff 全仓绿; term 0; modsize exit=0 (policy 注释 +2 行已入基线)
 
+**2026-11-18 · 9f1518f0 之后 · 第 140 批: `main_shift_calib` 208→105 行 + 二次吃回再拆 (`tools/slm/calibration/calibration.py` 等三文件)**
+- ⚠️ 教训 (㊺ 续): `c678e660` 的"冲突以本地为主"还吃掉了 **b129 `ccd_analyzer.main` 与 b136 `target_shape_helper._render_sidebar` 两批拆分** (守卫行报"found 0"才暴露; 形状守卫不在 scripts 域, 上批域跑没覆盖到)。规则再补: **上游合并后必跑 `test_issue205_function_shape.py` 全量**
+- 重申: tsh 拆分在新版上重做后**尺寸与 b136 钉行逐位相同** (28/94/68, 上游修复恰在区外), 旧行直接复绿; ccd_analyzer 因上游重构了 sidebar 结构按新边界重拆 (main 262→138, 两 helper 0 参数 0 回传全走 session_state, 裸 return 尾行×2 按 ast 剥离), 三行重钉 150/5/138、76/4/66、74/4/64
+- 新拆 `main_shift_calib` 208→105: `_shift_eval_closures` 36 (6 参数 2 回传 `evaluate/scan_axis` 闭包工厂) / `_shift_axis_refine` 35 (4/2) / `_shift_quality_verdict` 44 (9 参数含 ⑳ 强制 `ok`, 1 回传)
+- 叶差分: 五区 verbatim=True (62/66 与 33/32/41 行, 去尾 `return` 行后); 泄漏审计仅 5 个 helper 名
+- 验证: 形状守卫 + `test_slm_calibration_pure/windowed` + `test_target_shape_helper_offline` **491 passed**; `test_ccd_analyzer_offline` 7 passed; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高 +53 (三文件 helper 开销)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -332,6 +332,176 @@ def _add_contour_trace(
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+
+def _tsh_render_roi_size_section(cam):
+# ROI and panel-size controls lifted verbatim
+    with st.container(border=True):
+        st.subheader("🔲 ROI 窗口")
+        use_roi = st.checkbox("启用 ROI 窗口", value=False)
+        cam: DahengCamera | None = st.session_state.ts_camera
+        centers = st.session_state.ts_centers
+        # Use the first available center for ROI placement
+        roi_center: tuple[float, float] | None = None
+        if centers:
+            roi_center = next(iter(centers.values()))
+        if (
+            use_roi
+            and st.session_state.ts_camera_connected
+            and cam is not None
+        ):
+            if roi_center is None:
+                roi_center = (cam.cam_width / 2, cam.cam_height / 2)
+            applied_window = st.session_state.get("ts_roi_window")
+            if applied_window is not None:
+                (rw, rh), (rcx, rcy) = applied_window
+                st.caption(f"当前生效窗口: {rw}×{rh} @ ({rcx:.0f}, {rcy:.0f})")
+            if st.button("应用 ROI 窗口"):
+                try:
+                    requested_size = int(st.session_state.ts_window_size)
+                    applied = cam.reset_window(
+                        center=(int(roi_center[0]), int(roi_center[1])),
+                        size=(requested_size, requested_size),
+                    )
+                    # reset_window returns the read-back EFFECTIVE window:
+                    # the SDK silently clamps/preserves requests outside the
+                    # GenICam grid, so session geometry must follow the
+                    # readback, not the request. None (backend without
+                    # readback) keeps the requested geometry.
+                    (eff_w, eff_h), (eff_cx, eff_cy) = _store_effective_window(
+                        st.session_state,
+                        requested_size,
+                        (float(roi_center[0]), float(roi_center[1])),
+                        applied,
+                    )
+                    st.success(
+                        f"ROI 已应用: 中心 ({eff_cx:.0f}, {eff_cy:.0f}), "
+                        f"大小 {eff_w}×{eff_h}"
+                    )
+                    if applied is not None and (
+                        (eff_w, eff_h) != (requested_size, requested_size)
+                        or (int(eff_cx), int(eff_cy))
+                        != (int(roi_center[0]), int(roi_center[1]))
+                    ):
+                        st.warning(
+                            f"设备生效窗口与请求不同 (请求: 中心 "
+                            f"({roi_center[0]:.0f}, {roi_center[1]:.0f}), "
+                            f"大小 {requested_size}) — 会话几何已按回读值更新"
+                        )
+                    logger.info(
+                        "ROI window applied: effective center={}, size={} "
+                        "(requested center={}, size={})",
+                        (eff_cx, eff_cy),
+                        (eff_w, eff_h),
+                        roi_center,
+                        requested_size,
+                    )
+                # policy: an ROI window that cannot be applied is a configuration error: report it and leave the previous window in effect
+                except Exception as exc:
+                    logger.exception("reset_window failed")
+                    st.error(f"ROI 应用失败: {exc}")
+        else:
+            st.caption("默认使用全幅传感器")
+
+
+
+
+def _tsh_render_camera_section():
+# Camera connect and window controls lifted verbatim
+    with st.container(border=True):
+        st.subheader("📷 相机连接")
+
+        st.session_state.ts_cam_id = st.number_input(
+            "Camera ID",
+            min_value=0,
+            value=int(st.session_state.ts_cam_id),
+            step=1,
+        )
+        st.session_state.ts_exposure_ms = st.number_input(
+            "曝光时间 (ms)",
+            min_value=0.02,
+            max_value=1000.0,
+            value=float(st.session_state.ts_exposure_ms),
+            step=1.0,
+        )
+        st.session_state.ts_window_size = st.number_input(
+            "窗口大小 (px)",
+            min_value=50,
+            max_value=2000,
+            value=int(st.session_state.ts_window_size),
+            step=50,
+        )
+
+        # Stale camera check
+        cam = st.session_state.ts_camera
+        if cam is not None:
+            try:
+                if not cam.is_connected():
+                    logger.warning("Camera connection lost, resetting state")
+                    # Close the stale object before dropping the GUI's only
+                    # cleanup reference (the SDK handle may still be allocated).
+                    _close_stale_camera(cam, "is_connected() returned False")
+                    st.session_state.ts_camera = None
+                    st.session_state.ts_camera_connected = False
+                    st.session_state.ts_frame = None
+                    st.session_state.ts_centers = {}
+                    st.session_state.ts_target = None
+            # policy: a camera liveness probe that throws is treated as lost: state is reset to disconnected rather than leaving a stale handle the next tick would trust
+            except Exception as exc:
+                logger.warning("Camera state check failed: {}", exc)
+                # Best-effort close first; a close failure must not mask the
+                # original liveness error (already logged above, and passed
+                # through as the reason).
+                _close_stale_camera(cam, f"liveness probe raised: {exc}")
+                st.session_state.ts_camera = None
+                st.session_state.ts_camera_connected = False
+
+        if not st.session_state.ts_camera_connected:
+            if st.button("连接相机", type="primary"):
+                try:
+                    cam = DahengCamera(
+                        cam_id=st.session_state.ts_cam_id,
+                        exposure_time_ms=st.session_state.ts_exposure_ms,
+                    )
+                    cam.open()
+                    st.session_state.ts_camera = cam
+                    st.session_state.ts_camera_connected = True
+                    st.success("相机已连接")
+                    logger.info(
+                        "Camera {} connected", st.session_state.ts_cam_id
+                    )
+                    st.rerun()
+                # policy: a refused connect is surfaced so the operator can fix the device id and retry; the driver's failure type varies with transport and native library
+                except Exception as exc:
+                    logger.exception("Camera connection failed")
+                    st.error(f"连接失败: {exc}")
+        else:
+            if st.button("断开相机"):
+                try:
+                    cam = st.session_state.ts_camera
+                    if cam is not None:
+                        cam.close()
+                    st.session_state.ts_camera = None
+                    st.session_state.ts_camera_connected = False
+                    st.session_state.ts_frame = None
+                    st.session_state.ts_centers = {}
+                    st.session_state.ts_target = None
+                    st.info("相机已断开")
+                    logger.info("Camera disconnected")
+                    st.rerun()
+                # policy: if the close threw, the state reset in the try may be partial, so the failure is shown rather than reporting a clean disconnect
+                except Exception as exc:
+                    logger.exception("Camera disconnect failed")
+                    st.error(f"断开失败: {exc}")
+
+        # Connection status indicator
+        if st.session_state.ts_camera_connected:
+            st.success("● 已连接")
+        else:
+            st.warning("○ 未连接 — 使用仿真图像")
+    return cam
+
+
+
 def _render_sidebar() -> None:
     """Render the sidebar with camera controls."""
     with st.sidebar:
@@ -339,97 +509,7 @@ def _render_sidebar() -> None:
         st.caption("读取大恒相机图像并显示目标光斑")
 
         # ── 相机连接 ────────────────────────────────────────────────────────
-        with st.container(border=True):
-            st.subheader("📷 相机连接")
-
-            st.session_state.ts_cam_id = st.number_input(
-                "Camera ID",
-                min_value=0,
-                value=int(st.session_state.ts_cam_id),
-                step=1,
-            )
-            st.session_state.ts_exposure_ms = st.number_input(
-                "曝光时间 (ms)",
-                min_value=0.02,
-                max_value=1000.0,
-                value=float(st.session_state.ts_exposure_ms),
-                step=1.0,
-            )
-            st.session_state.ts_window_size = st.number_input(
-                "窗口大小 (px)",
-                min_value=50,
-                max_value=2000,
-                value=int(st.session_state.ts_window_size),
-                step=50,
-            )
-
-            # Stale camera check
-            cam = st.session_state.ts_camera
-            if cam is not None:
-                try:
-                    if not cam.is_connected():
-                        logger.warning("Camera connection lost, resetting state")
-                        # Close the stale object before dropping the GUI's only
-                        # cleanup reference (the SDK handle may still be allocated).
-                        _close_stale_camera(cam, "is_connected() returned False")
-                        st.session_state.ts_camera = None
-                        st.session_state.ts_camera_connected = False
-                        st.session_state.ts_frame = None
-                        st.session_state.ts_centers = {}
-                        st.session_state.ts_target = None
-                # policy: a camera liveness probe that throws is treated as lost: state is reset to disconnected rather than leaving a stale handle the next tick would trust
-                except Exception as exc:
-                    logger.warning("Camera state check failed: {}", exc)
-                    # Best-effort close first; a close failure must not mask the
-                    # original liveness error (already logged above, and passed
-                    # through as the reason).
-                    _close_stale_camera(cam, f"liveness probe raised: {exc}")
-                    st.session_state.ts_camera = None
-                    st.session_state.ts_camera_connected = False
-
-            if not st.session_state.ts_camera_connected:
-                if st.button("连接相机", type="primary"):
-                    try:
-                        cam = DahengCamera(
-                            cam_id=st.session_state.ts_cam_id,
-                            exposure_time_ms=st.session_state.ts_exposure_ms,
-                        )
-                        cam.open()
-                        st.session_state.ts_camera = cam
-                        st.session_state.ts_camera_connected = True
-                        st.success("相机已连接")
-                        logger.info(
-                            "Camera {} connected", st.session_state.ts_cam_id
-                        )
-                        st.rerun()
-                    # policy: a refused connect is surfaced so the operator can fix the device id and retry; the driver's failure type varies with transport and native library
-                    except Exception as exc:
-                        logger.exception("Camera connection failed")
-                        st.error(f"连接失败: {exc}")
-            else:
-                if st.button("断开相机"):
-                    try:
-                        cam = st.session_state.ts_camera
-                        if cam is not None:
-                            cam.close()
-                        st.session_state.ts_camera = None
-                        st.session_state.ts_camera_connected = False
-                        st.session_state.ts_frame = None
-                        st.session_state.ts_centers = {}
-                        st.session_state.ts_target = None
-                        st.info("相机已断开")
-                        logger.info("Camera disconnected")
-                        st.rerun()
-                    # policy: if the close threw, the state reset in the try may be partial, so the failure is shown rather than reporting a clean disconnect
-                    except Exception as exc:
-                        logger.exception("Camera disconnect failed")
-                        st.error(f"断开失败: {exc}")
-
-            # Connection status indicator
-            if st.session_state.ts_camera_connected:
-                st.success("● 已连接")
-            else:
-                st.warning("○ 未连接 — 使用仿真图像")
+        cam = _tsh_render_camera_section()
 
         st.divider()
 
@@ -449,72 +529,7 @@ def _render_sidebar() -> None:
         st.divider()
 
         # ── ROI 窗口 (可选) ─────────────────────────────────────────────────
-        with st.container(border=True):
-            st.subheader("🔲 ROI 窗口")
-            use_roi = st.checkbox("启用 ROI 窗口", value=False)
-            cam: DahengCamera | None = st.session_state.ts_camera
-            centers = st.session_state.ts_centers
-            # Use the first available center for ROI placement
-            roi_center: tuple[float, float] | None = None
-            if centers:
-                roi_center = next(iter(centers.values()))
-            if (
-                use_roi
-                and st.session_state.ts_camera_connected
-                and cam is not None
-            ):
-                if roi_center is None:
-                    roi_center = (cam.cam_width / 2, cam.cam_height / 2)
-                applied_window = st.session_state.get("ts_roi_window")
-                if applied_window is not None:
-                    (rw, rh), (rcx, rcy) = applied_window
-                    st.caption(f"当前生效窗口: {rw}×{rh} @ ({rcx:.0f}, {rcy:.0f})")
-                if st.button("应用 ROI 窗口"):
-                    try:
-                        requested_size = int(st.session_state.ts_window_size)
-                        applied = cam.reset_window(
-                            center=(int(roi_center[0]), int(roi_center[1])),
-                            size=(requested_size, requested_size),
-                        )
-                        # reset_window returns the read-back EFFECTIVE window:
-                        # the SDK silently clamps/preserves requests outside the
-                        # GenICam grid, so session geometry must follow the
-                        # readback, not the request. None (backend without
-                        # readback) keeps the requested geometry.
-                        (eff_w, eff_h), (eff_cx, eff_cy) = _store_effective_window(
-                            st.session_state,
-                            requested_size,
-                            (float(roi_center[0]), float(roi_center[1])),
-                            applied,
-                        )
-                        st.success(
-                            f"ROI 已应用: 中心 ({eff_cx:.0f}, {eff_cy:.0f}), "
-                            f"大小 {eff_w}×{eff_h}"
-                        )
-                        if applied is not None and (
-                            (eff_w, eff_h) != (requested_size, requested_size)
-                            or (int(eff_cx), int(eff_cy))
-                            != (int(roi_center[0]), int(roi_center[1]))
-                        ):
-                            st.warning(
-                                f"设备生效窗口与请求不同 (请求: 中心 "
-                                f"({roi_center[0]:.0f}, {roi_center[1]:.0f}), "
-                                f"大小 {requested_size}) — 会话几何已按回读值更新"
-                            )
-                        logger.info(
-                            "ROI window applied: effective center={}, size={} "
-                            "(requested center={}, size={})",
-                            (eff_cx, eff_cy),
-                            (eff_w, eff_h),
-                            roi_center,
-                            requested_size,
-                        )
-                    # policy: an ROI window that cannot be applied is a configuration error: report it and leave the previous window in effect
-                    except Exception as exc:
-                        logger.exception("reset_window failed")
-                        st.error(f"ROI 应用失败: {exc}")
-            else:
-                st.caption("默认使用全幅传感器")
+        _tsh_render_roi_size_section(cam)
 
 
 # ── Shape controls (left column) ──────────────────────────────────────────────
