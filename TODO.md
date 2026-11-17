@@ -5515,6 +5515,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 叶差分: verbatim=True (153 行); ⚠️ 校验教训: **逐字校验的 dedent 必须复刻生成器规则** (`ln.strip() and ln.startswith(" "*strip)`) — 原文件有 0 缩进的裸 `)` 续行, 校验脚本条件写松会把该行剥空成假差异; 区域 base 缩进要**实测** (本区 16, 目测 8 是错的)
 - 载体: `test_slm_zernike_pib_loop` + `production_sim` + `heuristic` + 形状门禁 **491 passed**; **wfless 域逐文件 55/55 全绿** (聚合 OOM 既有, 逐文件口径同 b127); ruff/term 绿; modsize baseline 抬高 (slm_zernike_pib.py +34)
 
+**2026-11-17 · ab5ef9ed 之后 · 第 135 批: `_run_square_session` 225→103 行 (`wfless/slm_square_shaping.py`)**
+- 提取四区: `_square_param_setup` 36 (17 参数 4 回传) / `_square_init_metrics` 19 (25 参数 17 回传) / `_square_optimization_block` 66 (57 参数 9 回传, 守卫装配 + epoch 优化块) / `_square_finalize_logging` 16 (10 参数 0 回传)
+- 0 回传 helper 触发**生成器裸 `return ` 追加 bug** (b131 已见, 未修根): 按 ast 定位 helper 末节点精确剥离 (文件里原有 2 处合法早退裸 return, 不得按文本计数误删)
+- 叶差分: 四区 verbatim=True (33/16/63/14 行); 泄漏审计仅 4 helper 名
+- 载体: `test_slm_square_*` + 形状门禁 **519 passed**; **wfless 域逐文件 55/55 全绿**; ruff 全仓绿; term 0; modsize baseline 抬高 (slm_square_shaping.py)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
