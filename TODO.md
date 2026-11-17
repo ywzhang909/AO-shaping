@@ -5692,6 +5692,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 棘轮: `(_WORKFLOW, "main", 191, 5, 165)` → 122/5/111 + helper 行 64/1/58 (该文件 `_WF`/`_WORKFLOW` 两常量并存, main 族钉在 `_WORKFLOW`)
 - 载体: `test_transfer_workflow` + 形状 + conventions **638 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
 
+**2026-11-18 · 71f5ea91 之后 · 第 165 批: `core._pick_orders` 159→136 行 (`tools/slm/calibration/diffraction_efficiency/core.py`)**
+- 提取 `_pick_anchor_block` 27 行 (锚点侧向修正块, 7 参数 3 回传 `anchor/side_a/side_b`; **anchor 的绑定全在深嵌套分支 (If-493 两支各一 Store, 其一路径以早退 Return 收口), ㊳ 式 pre 扫不到** → `_fp`+`_fr` 强制入参+回显 (⑳ 预绑回显), risk=1 的 `anchor(s=1,c=1)` 是分支内条件 Store, 参数化后恒有初值, 语义逐位还原)
+- 大 If 区 493-542 含早退 Return 不可逐字外提; 555-565 亦含 Return — 均留在原地, 本批只取无 Return 尾块
+- 棘轮: `(_DECORE_CORE, "_pick_orders", 183, 4, 159)` → 146/5/136 + helper 行 31/3/27
+- 载体: `test_slm_diffraction_efficiency` + `test_cli_argv_binding` + 形状 + conventions **673 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
