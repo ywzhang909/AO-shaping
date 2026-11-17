@@ -5473,6 +5473,15 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 环境: `tests/ao_shaping/gui/ccd` 4 个收集错误全是容器缺 `PySide6` (既有)
 - 门禁: `main` 收紧 295/4/265→136/4/124 + 新增两 helper 行 88/3/78、78/3/68; ruff/term 绿
 
+**2026-11-17 · af477e43 之后 · 第 130 批: `_run_session_rounds` 241→74 行 (`tools/slm/transfer/workflow.py`)**
+- 提取三区: `_wf_round_setup` 86 (10 参数 11 回传, 覆盖输出路径/suffix/options 组装) / `_wf_round_online_audit` 62 (11 参数 2 回传 `audit/suffix`, 在线标定审计各阶段) / `_wf_round_fit_quality` 31 (8 参数 3 回传 `accepted/measured_correlation/measured_relative_l2`, 拟合质量裁决)
+- ⚠️ 教训 (新 ㊳): **生成器 pristine 校验必须扫描 `body`/`orelse`/`finalbody`/handlers 四类语句表** — 旧校验只取 `host.body`, 而本批两区 (1191:1249/1254:1281) 位于 `if offline:` 的 `else:` 分支, `prs` 恒为空 → `AssertionError: ('pristine', ...)`; 重写阶段的 `find_run` 本就递归 `orelse`, 只有校验失配。改法是候选表遍历 + "从 A 开始的最大连续 run 且末条 end_lineno==B"
+- ⚠️ 教训 (新 ㊴): **lambda 默认参数与嵌套分支里的名字加载会被漏算** → 需按 helper 强制覆盖。首轮三区同提产生 8 个 F821 (`anchored_out` 作 `_wf_round_online_audit` 的入参; `zero/reference` 应作 `_wf_round_setup` 的回传; `measured_correlation/measured_relative_l2` 应作 `_wf_round_fit_quality` 的回传——它们只出现在 `stage(lambda ...=...)` 默认参数与 else 分支的 logger 调用中)。回滚后给生成器加 per-helper 覆盖重提, 全绿
+- 叶差分: 三区 verbatim=True (28/59/83 行); 新增名仅 3 个 helper; 模块级 import 无泄漏
+- 载体: `test_transfer_workflow` + 形状门禁 **494 passed**; transfer 域 15 个 `test_transfer_*` 文件 **133 passed**; `test_conventions` 72 passed / 1 skipped (容器 ruff 不在 PATH)
+- 环境: 工作树测试 runner 用 `/tmp/rp_205b.sh` (repo 自带 `run_pytest_ci.sh` 按脚本自身位置解析 REPO, 测不到 worktree)
+- 门禁: `_run_session_rounds` 收紧 280/4/241→85/4/74 + 三 helper 行 95/1/86、70/1/62、35/1/31; modsize baseline 抬高 +24 (workflow.py 1808→1832, helper 签名/docstring/空行开销); ruff/term 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
