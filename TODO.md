@@ -5635,6 +5635,11 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: **runners 全域 + 形状 + conventions 1215 passed / 26 skipped**; ruff/term/modsize 绿
 - 上游 `97b37eee` 协作者重钉了第 144/147 批 5 处文档行号 (rebase 带入, 无冲突)
 
+**2026-11-18 · 360fe949 之后 · 第 156 批: `objective._raw_base` 150→88 行 (`utils/image/target/objective.py`)**
+- dispatch 链两计算区提取 (均不含分支 Return, 保留 `return` 于原地): `_rawbase_pib_rms_terms` 24 (`j/pib_term` 回传) + `_rawbase_shape_score` 46 (`energy/score/tracking` 回传, `tracking` 自回写走 ㊶ stores-loads)
+- 新增 `_OBJ` 常量 + 三行; wiki 无该页引用 (conventions 绿)
+- 载体: algorithm target_func/gaussian_radius + utils loggrad/pearson/shaping_objective + wfless objectives_sim + 形状 + conventions 合计 **797 passed / 8 skipped**; ruff 全仓绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
