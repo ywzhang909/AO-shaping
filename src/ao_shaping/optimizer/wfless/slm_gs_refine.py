@@ -1664,6 +1664,142 @@ def _resolve_daheng_ceiling(ctx: "_RefineContext") -> float:
     return ceiling
 
 
+
+def _gsr_window_geometry(config, ctx, discovery, full_x, full_y):
+# Window shape and ROI validation lifted verbatim
+    if config.cam_size > 0:
+        half = config.cam_size // 2
+        full_shape = (
+            discovery.shape
+            if discovery is not None
+            else _camera_frame_shape(ctx.cam)
+        )
+        if full_shape is not None and (
+            full_x - half < 0
+            or full_y - half < 0
+            or full_x + half >= full_shape[1]
+            or full_y + half >= full_shape[0]
+        ):
+            raise ValueError(
+                "CCD zero order too close to edge for requested window"
+            )
+        actual_size, actual_center = ctx.cam.reset_window(
+            center=(full_x, full_y), size=(config.cam_size, config.cam_size)
+        )
+        ctx.signal_local_xy = (
+            int(full_x - actual_center[0] + actual_size[0] // 2),
+            int(full_y - actual_center[1] + actual_size[1] // 2),
+        )
+        logger.info(
+            "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
+        )
+
+
+
+
+def _gsr_full_frame_center(ctx, discovery, full_frame_center, full_x, full_y, recorded_full_center):
+# Full-frame center source selection lifted verbatim
+    if ctx.overlay is not None:
+        full_frame_center = (int(full_x), int(full_y))
+    elif discovery is not None:
+        zy, zx = np.unravel_index(
+            int(np.argmax(discovery)), np.asarray(discovery).shape
+        )
+        full_frame_center = (int(zx), int(zy))
+    elif recorded_full_center is not None:
+        # 续跑块**跳过**了零级重定位 (没有全幅帧可看), 但它记着上一块用的是
+        # 哪个位置 —— 那正是本块摆窗口用的位置, 必须原样带下去。漏掉这一支
+        # 会让本块把 (0, 0) 记成「全幅零级」, 下一块于是重新定位, 冻结的
+        # ROI 在第二道块边界上就失效了 (2026-10-23 修复: 此前这一支落到
+        # 下面的 (0, 0) 兜底)。
+        full_frame_center = (int(full_x), int(full_y))
+    else:
+        full_frame_center = (0, 0)
+    signal_local_xy = full_frame_center
+    ctx.signal_local_xy = signal_local_xy
+    return full_frame_center
+
+
+
+
+def _gsr_blaze_discovery(config, ctx, discovery, full_x, full_y, panel_shape, recorded_full_center):
+# Blaze discovery and zero-order localisation lifted verbatim
+    if config.blaze_period_px >= 0:
+        from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+        if discovery is None:
+            # blaze 标定要在**全幅**画面上找零级与信号阶, 续跑块跳过零级重定位
+            # 后没有全幅帧, 这里补拍一张 (只用于标定, 不参与定位)。
+            discovery = display_and_average(
+                ctx.cam,
+                ctx.slm,
+                ctx.displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                n_frames=1,
+                settle_wait_s=config.settle_wait_s,
+                settle_tol=config.settle_tol,
+                settle_max_wait_s=config.settle_max_wait_s,
+                settle_max_discard=config.settle_max_discard,
+                memory_number=ctx.work_slots[2],
+            )
+        blaze_probe_count = 0
+
+        def capture_blaze(phase: np.ndarray) -> np.ndarray:
+            nonlocal blaze_probe_count
+            slot = ctx.work_slots[blaze_probe_count % 2]
+            blaze_probe_count += 1
+            frame = display_and_average(
+                ctx.cam,
+                ctx.slm,
+                phase if ctx.disturbance is None else phase + ctx.disturbance,
+                n_frames=1,
+                settle_wait_s=config.settle_wait_s,
+                settle_tol=config.settle_tol,
+                settle_max_wait_s=config.settle_max_wait_s,
+                settle_max_discard=config.settle_max_discard,
+                memory_number=slot,
+            )
+            if config.cam_type == "daheng" and np.max(frame) >= 250:
+                raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+            return frame
+
+        try:
+            choice = select_blaze(
+                capture_blaze,
+                panel_shape,
+                target_side=ctx.target_side,
+                window_size=config.cam_size or ctx.target_side,
+                period_px=config.blaze_period_px,
+                direction=config.blaze_direction,
+                flat_frame=discovery,
+            )
+            overlay = choice.params
+            ctx.overlay = overlay
+            ctx.blaze_choice = choice
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("blaze calibration skipped: {}", exc)
+            ctx.overlay = None
+            ctx.blaze_choice = None
+        if ctx.overlay is not None:
+            if recorded_full_center is None:
+                full_x, full_y = ctx.blaze_choice.signal_xy
+            else:
+                logger.warning(
+                    "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
+                    full_x,
+                    full_y,
+                )
+            logger.info(
+                "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
+                ctx.overlay.blaze_period_px,
+                ctx.overlay.blaze_direction,
+                ctx.blaze_choice.zero_xy,
+                ctx.blaze_choice.signal_xy,
+                ctx.blaze_choice.separation_px,
+            )
+    return discovery, full_x, full_y
+
+
+
 def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
     """Locate the zero order (or reuse the frozen one) and set the CCD ROI window.
 
@@ -1710,122 +1846,9 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
                     "Daheng full-frame discovery saturated; reduce exposure"
                 )
             full_y, full_x = locate_zero_order(discovery)
-        if config.blaze_period_px >= 0:
-            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
-
-            if discovery is None:
-                # blaze 标定要在**全幅**画面上找零级与信号阶, 续跑块跳过零级重定位
-                # 后没有全幅帧, 这里补拍一张 (只用于标定, 不参与定位)。
-                discovery = display_and_average(
-                    ctx.cam,
-                    ctx.slm,
-                    ctx.displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
-                    n_frames=1,
-                    settle_wait_s=config.settle_wait_s,
-                    settle_tol=config.settle_tol,
-                    settle_max_wait_s=config.settle_max_wait_s,
-                    settle_max_discard=config.settle_max_discard,
-                    memory_number=ctx.work_slots[2],
-                )
-            blaze_probe_count = 0
-
-            def capture_blaze(phase: np.ndarray) -> np.ndarray:
-                nonlocal blaze_probe_count
-                slot = ctx.work_slots[blaze_probe_count % 2]
-                blaze_probe_count += 1
-                frame = display_and_average(
-                    ctx.cam,
-                    ctx.slm,
-                    phase if ctx.disturbance is None else phase + ctx.disturbance,
-                    n_frames=1,
-                    settle_wait_s=config.settle_wait_s,
-                    settle_tol=config.settle_tol,
-                    settle_max_wait_s=config.settle_max_wait_s,
-                    settle_max_discard=config.settle_max_discard,
-                    memory_number=slot,
-                )
-                if config.cam_type == "daheng" and np.max(frame) >= 250:
-                    raise RuntimeError("blaze CCD probe saturated; reduce exposure")
-                return frame
-
-            try:
-                choice = select_blaze(
-                    capture_blaze,
-                    panel_shape,
-                    target_side=ctx.target_side,
-                    window_size=config.cam_size or ctx.target_side,
-                    period_px=config.blaze_period_px,
-                    direction=config.blaze_direction,
-                    flat_frame=discovery,
-                )
-                overlay = choice.params
-                ctx.overlay = overlay
-                ctx.blaze_choice = choice
-            except (RuntimeError, ValueError) as exc:
-                logger.warning("blaze calibration skipped: {}", exc)
-                ctx.overlay = None
-                ctx.blaze_choice = None
-            if ctx.overlay is not None:
-                if recorded_full_center is None:
-                    full_x, full_y = ctx.blaze_choice.signal_xy
-                else:
-                    logger.warning(
-                        "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
-                        full_x,
-                        full_y,
-                    )
-                logger.info(
-                    "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
-                    ctx.overlay.blaze_period_px,
-                    ctx.overlay.blaze_direction,
-                    ctx.blaze_choice.zero_xy,
-                    ctx.blaze_choice.signal_xy,
-                    ctx.blaze_choice.separation_px,
-                )
-        if ctx.overlay is not None:
-            full_frame_center = (int(full_x), int(full_y))
-        elif discovery is not None:
-            zy, zx = np.unravel_index(
-                int(np.argmax(discovery)), np.asarray(discovery).shape
-            )
-            full_frame_center = (int(zx), int(zy))
-        elif recorded_full_center is not None:
-            # 续跑块**跳过**了零级重定位 (没有全幅帧可看), 但它记着上一块用的是
-            # 哪个位置 —— 那正是本块摆窗口用的位置, 必须原样带下去。漏掉这一支
-            # 会让本块把 (0, 0) 记成「全幅零级」, 下一块于是重新定位, 冻结的
-            # ROI 在第二道块边界上就失效了 (2026-10-23 修复: 此前这一支落到
-            # 下面的 (0, 0) 兜底)。
-            full_frame_center = (int(full_x), int(full_y))
-        else:
-            full_frame_center = (0, 0)
-        signal_local_xy = full_frame_center
-        ctx.signal_local_xy = signal_local_xy
-        if config.cam_size > 0:
-            half = config.cam_size // 2
-            full_shape = (
-                discovery.shape
-                if discovery is not None
-                else _camera_frame_shape(ctx.cam)
-            )
-            if full_shape is not None and (
-                full_x - half < 0
-                or full_y - half < 0
-                or full_x + half >= full_shape[1]
-                or full_y + half >= full_shape[0]
-            ):
-                raise ValueError(
-                    "CCD zero order too close to edge for requested window"
-                )
-            actual_size, actual_center = ctx.cam.reset_window(
-                center=(full_x, full_y), size=(config.cam_size, config.cam_size)
-            )
-            ctx.signal_local_xy = (
-                int(full_x - actual_center[0] + actual_size[0] // 2),
-                int(full_y - actual_center[1] + actual_size[1] // 2),
-            )
-            logger.info(
-                "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
-            )
+        discovery, full_x, full_y = _gsr_blaze_discovery(config, ctx, discovery, full_x, full_y, panel_shape, recorded_full_center)
+        full_frame_center = _gsr_full_frame_center(ctx, discovery, full_frame_center, full_x, full_y, recorded_full_center)
+        _gsr_window_geometry(config, ctx, discovery, full_x, full_y)
     ctx.full_frame_center = full_frame_center
 
 

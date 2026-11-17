@@ -104,6 +104,7 @@ _TSH = "src/ao_shaping/gui/ccd/target_shape_helper.py"
 _DIFFERENTIABLE_SHAPING = "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py"
 _GREEDY_ZERNIKE = "src/ao_shaping/optimizer/wf/greedy_zernike.py"
 _FLOOR_PROBE = "src/ao_shaping/tools/ccd/floor_probe.py"
+_GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
 _PROBE_ACTIVE = "src/ml/sim2f/probe_active.py"
 _SIM_SPGD = "src/ao_shaping/optimizer/wfless/sim_spgd.py"
 _SAC_TRAIN = "src/ao_shaping/optimizer/rl/sac_train.py"
@@ -594,6 +595,10 @@ TARGETS = [
     (_FLOOR_PROBE, "main", 142, 3, 131),
     (_FLOOR_PROBE, "_floor_setup", 18, 1, 13),
     (_FLOOR_PROBE, "_floor_build_summary", 36, 1, 30),
+    (_GS_REFINE, "_locate_zero_order_and_window", 56, 4, 50),
+    (_GS_REFINE, "_gsr_blaze_discovery", 86, 4, 75),
+    (_GS_REFINE, "_gsr_full_frame_center", 25, 4, 21),
+    (_GS_REFINE, "_gsr_window_geometry", 32, 3, 28),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),

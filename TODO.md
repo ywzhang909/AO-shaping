@@ -5601,6 +5601,12 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 候选改道记录: `_run_pib_session` 196 的剩余大块是 29+16 行 Expr (提取后仍 ~170 >150, 且同名 helper 与 `pib.py` 载体交叉), 收益不足转后
 - 载体: `test_slm_square_*` 四文件 + 形状 **532 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
 
+**2026-11-18 · 79b2af8d 之后 · 第 150 批: `_locate_zero_order_and_window` 163→50 行 (`slm_gs_refine.py`)**
+- 提取 `_gsr_blaze_discovery` 75 (7 参数 3 回传, blaze 弥散发现 + 嵌套 `nonlocal` 探针闭包整体随迁 —— nonlocal 改绑 helper 自身作用域的 `blaze_probe_count`, 语义等价) / `_gsr_full_frame_center` 21 / `_gsr_window_geometry` 28 (0 回传, 裸 return 剥离)
+- 改道记录 (本批跳过并登记理由): `_run_pib_session` 196 余块为 29+16 行 Expr (提后仍 >150); `optimize_slm_zernike_pib` 175 是 config→55 局部变量解包段, 整体外提会得到 55 元组回传的机械 helper (可读性反受损), 转 pin-only; `pib.py::_run_pib_bench_session` 175 与两文件 `_spgd_epoch_loop` (152/156) 因嵌套 def 形参误判 / 条件绑定名 / 环绑定 continue 不可二次切, 转 pin-only
+- 新增 4 行钉到既有 `_SLM_GS_REFINE` 常量 (该文件另有旧常量 `_GS_REFINE`, 双常量并存系仓库现状, 不顺手改)
+- 载体: `test_slm_gs_refine` + `session_golden` + `target_shapes` + 形状 **614 passed**; ruff 全仓绿; term 0; conventions 72; modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
