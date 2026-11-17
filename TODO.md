@@ -5698,6 +5698,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 棘轮: `(_DECORE_CORE, "_pick_orders", 183, 4, 159)` → 146/5/136 + helper 行 31/3/27
 - 载体: `test_slm_diffraction_efficiency` + `test_cli_argv_binding` + 形状 + conventions **673 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
 
+**2026-11-18 · 8a2aa0ab 之后 · 第 166 批: 重构队列收口 —— 全树 ≥150 行残余逐项终判 (无代码改动)**
+- 重扫 (ast 全树, 第 165 批后): 残余 38 个 ≥150 行函数, **全部终判为 pin-only, 无一可用逐字提取降到 <150**; 分三类:
+  1. **结构性不可提 (新增终判, 逐区实测)**: `optimize_slm_square` 386 行 = 79 行 docstring + **42 个逐行 config 解包** + 59 行会话分派 Return, 中段全部外提后母体下界 ≈190 仍 ≥150 (与 b150 已登记的 `optimize_slm_zernike_pib` 55 参解包同型); `rms_by_zernike.optimizer_rms_slm` 155 (b158 已登记); `calibrate_shared_aberration` 207 (b150 已登记, docstring 主导); 两 `_spgd_epoch_loop` 156/152 (环绑 continue, b150 已登记); `_run_pib_session` 196 / `_run_pib_bench_session` 175 / `optimize_slm_zernike_pib` 175 (b150 已登记)
+  2. **硬件域 (载体须实验系统)**: `drivers/wfs/_thorlab_wfs.load_dll` 351 (Windows ctypes 装载面, 测试仅惰性装载契约 `test_lazy_driver_loading`); `tools/wfs/` 三 CLI `zernike_correction.main` 189 + `scan_response_matrix` 151 / `wfs_reference.main` 162 / `zernike_response.export_driver_correction` 160; `tools/slm/calibration/` 家族 `lut_runner.run` 329 / `phase_capture.run` 286 / `train_data_collect.main` 277 + `acquire` 162 / `measure._run_measurement_session` 250; `runners/micro_drive/voltage_runner` 241 + `_amain` 151; `tools/micro_dm/micro_dm_image_collect.run` 230; 顶级 `tools/train_data_collect.optimizer` 184; `slm_model_in_loop.__init__` 207 + `_session_open_bench` 151; `panel/focus_probe.probe_session_focus` 171 + `panel/panel_locate._scan_panel_session` 151 — 逐字提取硬件会话环已有先例但需 sim 载体逐环验证, 与"无硬件 issue"边界冲突, 不入批
+  3. **GUI 构建/视图层 (无有意义载体)**: `zernike_debug_viewer._render_main` 349 + `_compute_response_matrix_from_debug` 171; `ceramic_viewer.render_tab_grid` 257/250 (dm+r50 双胞胎); `r50_units.render_tab_single_unit` 190; `exposure_status.probe_session_exposure_ms` 174; `transfer_desktop/page._build_target` 173 + `archive_replay._build` 153 (PySide6, 载体 `test_transfer_desktop_archive_replay` 只测回放逻辑不测构建层); `zernike_response_matrix_ui` 167/155/154; `md_img_analysis_ui.run_pipeline` 162 (**全树零测试引用**, grep 已核); `optimizer/rl/sac_turbulence_train.main` 189 (**全树零引用**, b159 已登记) — 与 b150 先例一致
+- **结论: issue #205 的逐字提取范围自此完成**。126→165 批共 40 个函数落刀; 棘轮表覆盖全部已拆函数 (cap=实测+裕量); 残余 38 个逐项理由在上列, 若后续出现 sim 化载体 (如 focus_probe 数字孪生化) 可按 b163 nonlocal-`_fp`/`_fr` 或 b157 闭包工厂模式重评
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
