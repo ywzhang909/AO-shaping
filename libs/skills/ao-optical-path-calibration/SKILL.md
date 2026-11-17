@@ -21,6 +21,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 - **DVI 模式打开 SLM 会挂起**，挂起后内存模式打开也可能挂。恢复方式是**给 SLM 控制器断电重启**，软件无法恢复（`report/fouriergsnet_pipeline/TODO.md:35, :71, :142`）。
 - 背对背 open/close SLM 会触发驱动板假死（memory 中已记录），两次开关之间要间隔一个 settle 时长。
 - **CCD 不做物理开窗**：实验期间保持全幅采集，需要缩小分析范围时只在后处理做算法裁切。物理开窗一旦设错，原始数据就丢了全幅上下文，无法从记录里复盘当时到底裁掉了什么（memory 中已记录此类教训）。
+- **未加倾斜 / 离焦相位时轻微过曝采集**：SLM 只做整形相位、不叠加倾斜或离焦相位时，0 级光斑未被分离，强度远强于被整形的图案，CCD 上可能完全看不清整形图样。此时应**轻微过曝采集**，让整形图案的弱峰可见；这是采集策略上的例外，与 Step 4「正常采集不超量程」的判据区分开，记录中要注明本次采用了过曝采集。
 
 ---
 
@@ -113,6 +114,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 
 ### Step 5 — 几何与零级
 - 光阑状态（开/闭）必须记录。光阑关闭时**零级未被抑制**，E0/E1 ≈ 1.2（`report/shape_trials/aperture_closed_20261109/aperture_closed_shaping_20261109.md:11, 66-67`）；`zero_radius` 仅屏蔽评分，不屏蔽光束。
+- **未叠加倾斜 / 离焦相位时的采集**：SLM 只写整形相位、未加倾斜或离焦相位时，0 级光斑没有被空间分离，强度远强于整形图案，CCD 上可能看不清被整形的图样。此时按 §0 的纪律**轻微过曝采集**，让整形图案的弱峰可见；并在记录的 `operator_note` 里注明"未加倾斜 / 离焦相位，采用过曝采集"，便于复盘时区分这是采集策略而非光路异常。若已叠加倾斜 / 离焦相位把 0 级分离，则恢复正常峰值判据，不要过曝。
 - 相机焦面偏离 2f 焦面，需要 Fresnel 补偿，每天取值不同（0.559 / 0.626 / 0.70 m⁻¹，`report/slm/focus_plane_report/focus_plane_20261019.md:9, 152`）。当天的补偿值必须写入记录。
 - 几何标定读取 `data/slm_geometry_calib.npz`（字段：`Kx, Ky, rotation_deg, fwhm0, resid_x, resid_y, crop_side, center, mirror, k_mean`），写入方 `scripts/slm/persist_live_geometry.py`。旧版本以日期存档。
 
