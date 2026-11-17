@@ -5482,6 +5482,16 @@ slm_zernike_pib.py:1837`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 环境: 工作树测试 runner 用 `/tmp/rp_205b.sh` (repo 自带 `run_pytest_ci.sh` 按脚本自身位置解析 REPO, 测不到 worktree)
 - 门禁: `_run_session_rounds` 收紧 280/4/241→85/4/74 + 三 helper 行 95/1/86、70/1/62、35/1/31; modsize baseline 抬高 +24 (workflow.py 1808→1832, helper 签名/docstring/空行开销); ruff/term 绿
 
+**2026-11-17 · bb8a049b 之后 · 第 131 批: `capture` 237→90 行 (`tools/slm/transfer/capture.py`)**
+- 提取三区: `_cap_session_setup` 34 (8 参数 8 回传, 相机实时读取与会话零点) / `_cap_phase_loop` 82 (20 参数 3 回传 `early_stopped/exposure/flat_frame_name`, 逐相位捕获环整体提走, 环内 break 随环走) / `_cap_post_capture` 42 (10 参数 0 回传, 捕获后读出与曝光记账)
+- ⚠️ 教训 (新 ㊵): **`_gb_stores` 不把函数体内延迟 `ImportFrom` 计为前置绑定** — 本模块驱动全为懒导入 (573-583), 区域内引用 `get_camera_exposure_ms` 等被误判"需入参但不在 pre"→ assert 炸; 加 Import/ImportFrom 分支后正常 (懒导入对象作参数传递语义不变)
+- ⚠️ 教训 (新 ㊶): **`a_st` 不能用"后续无条件 store"剪掉回传名, 若该 store 语句自身 load 了同名** (`x = helper(..., x)` 自再绑) — 首轮 `_cap_session_setup` 的 `exposure` 被 A 调用点再绑误剪 → 调用点 F821; 修为 `a_st |= stores - loads`
+- ⚠️ 教训 (㊴ 推广): trust 前置绑定**必须按 helper 分域** — 全局 `/tmp/split_trust.txt` 会让本不加载这些名的区域 (B) 把它们错提为参数, 调用点 NameError。改 analyse 签名 `trust=None`, 由重写循环按 helper 传入
+- ⚠️ 生成器 bug 修复: `returns==[]` 且区域无 return 时**仍追加裸 `return ` 行** (语义 no-op 但破坏逐字); 本批手工剥除后再验 verbatim。`_fp` 强制参数 (`early_stopped` 条件存储, ⑳ 型重绑) 照常生效
+- 叶差分: 三区 verbatim=True (31/79/40 行); 新增名仅 3 个 helper
+- 载体: `test_transfer_*` 15 文件 + 形状门禁 **578 passed**; `test_conventions` 72 passed / 1 skipped; ruff/term 绿; modsize baseline 抬高 +23 (capture.py 920→943)
+- ⚠️ **CI 记录更正**: 此前"ci126-130 全部 0 失败"为**误判** — 当时轮询日志里 Pytest 仍 in_progress, `grep -c failure` 自然为 0。复核最终日志: **ci123 起每个 run 的 Pytest 都有同一组 4 个失败**, 引入点是 rebase 带入的上游 `e597547e` (hw_forward_model_fidelity_ladder 脚本 + 测试), 与本序列 lift 无关。修复列为下一批 (b132)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
