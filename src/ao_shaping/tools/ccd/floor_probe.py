@@ -559,6 +559,57 @@ def _plan_lines(args: argparse.Namespace, shape: tuple[int, int]) -> list[str]:
     ]
 
 
+
+def _floor_build_summary(args, center, floor, half, repeat_summary, settle_summary, shape, snr_summary):
+# Summary payload assembly lifted verbatim
+    summary: dict[str, Any] = {
+        "stage_repeat_floor": floor,
+        "repeat_series": np.asarray(repeat_summary["series"], dtype=np.float64),
+        "n_repeat": int(args.n_repeat),
+        "settle_times_s": np.asarray(settle_summary["times_s"], dtype=np.float64),
+        "settle_norms": np.asarray(settle_summary["norms"], dtype=np.float64),
+        "settle_s": (
+            float("nan")
+            if settle_summary["settle_s"] is None
+            else float(settle_summary["settle_s"])
+        ),
+        "settled": bool(settle_summary["settled"]),
+        "snr_ks": np.asarray(snr_summary["ks"], dtype=np.int64),
+        "snr_values": np.asarray(
+            [snr_summary["snr"][k] for k in snr_summary["ks"]], dtype=np.float64
+        ),
+        "snr_norms": np.asarray(snr_summary["norms"], dtype=np.float64),
+        "snr_improves": bool(snr_summary["improves"]),
+        "verdict": str(snr_summary["verdict"]),
+        "exposure_ms": float(args.exposure_ms),
+        "perturbation_rad": float(args.perturbation_rad),
+        "cell_grid": int(args.cell_grid),
+        "n_dof": int(args.cell_grid) * int(args.cell_grid),
+        "panel_shape": np.asarray(shape, dtype=np.int64),
+        "roi_center": np.asarray(center, dtype=np.int64),
+        "roi_half": int(half),
+    }
+    return summary
+
+
+
+
+def _floor_setup(args, shape):
+# Probe grid and record scaffolding lifted verbatim
+    ks = _parse_ints(args.ks)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    flat_phase = np.zeros(shape, dtype=np.float64)
+    current: dict[str, np.ndarray] = {"phase": flat_phase}
+    pattern = perturbation_pattern(
+        int(args.cell_grid), float(args.perturbation_rad), shape
+    )
+    rows: list[dict[str, Any]] = []
+    records_path = out_dir / "floor_records.pkl"
+    return current, flat_phase, ks, out_dir, pattern, records_path, rows
+
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the floor probe on hardware and persist it.
 
@@ -588,16 +639,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
-    ks = _parse_ints(args.ks)
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    flat_phase = np.zeros(shape, dtype=np.float64)
-    current: dict[str, np.ndarray] = {"phase": flat_phase}
-    pattern = perturbation_pattern(
-        int(args.cell_grid), float(args.perturbation_rad), shape
-    )
-    rows: list[dict[str, Any]] = []
-    records_path = out_dir / "floor_records.pkl"
+    current, flat_phase, ks, out_dir, pattern, records_path, rows = _floor_setup(args, shape)
 
     def checkpoint(row: dict[str, Any]) -> None:
         rows.append(row)
@@ -683,33 +725,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         display_phase(flat_phase)  # leave the bench flat, not on a perturbation
 
-    summary: dict[str, Any] = {
-        "stage_repeat_floor": floor,
-        "repeat_series": np.asarray(repeat_summary["series"], dtype=np.float64),
-        "n_repeat": int(args.n_repeat),
-        "settle_times_s": np.asarray(settle_summary["times_s"], dtype=np.float64),
-        "settle_norms": np.asarray(settle_summary["norms"], dtype=np.float64),
-        "settle_s": (
-            float("nan")
-            if settle_summary["settle_s"] is None
-            else float(settle_summary["settle_s"])
-        ),
-        "settled": bool(settle_summary["settled"]),
-        "snr_ks": np.asarray(snr_summary["ks"], dtype=np.int64),
-        "snr_values": np.asarray(
-            [snr_summary["snr"][k] for k in snr_summary["ks"]], dtype=np.float64
-        ),
-        "snr_norms": np.asarray(snr_summary["norms"], dtype=np.float64),
-        "snr_improves": bool(snr_summary["improves"]),
-        "verdict": str(snr_summary["verdict"]),
-        "exposure_ms": float(args.exposure_ms),
-        "perturbation_rad": float(args.perturbation_rad),
-        "cell_grid": int(args.cell_grid),
-        "n_dof": int(args.cell_grid) * int(args.cell_grid),
-        "panel_shape": np.asarray(shape, dtype=np.int64),
-        "roi_center": np.asarray(center, dtype=np.int64),
-        "roi_half": int(half),
-    }
+    summary = _floor_build_summary(args, center, floor, half, repeat_summary, settle_summary, shape, snr_summary)
 
     save_floor_records_pkl(records_path, rows)
     summary_path = save_floor_summary_npz(out_dir / "floor_summary.npz", summary)

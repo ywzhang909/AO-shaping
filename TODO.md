@@ -5584,6 +5584,10 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 棘轮行改钉 197/5/176→160/1/147 (旧行是早期部分提取时代钉值) + 两 helper 行
 - 载体: `test_exposure_control` + `_bit_depth` + 形状 **509 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 绿
 
+**2026-11-18 · 59b9bc80 之后 · 第 146 批: `floor_probe.main` 166→131 行 (`tools/ccd/floor_probe.py`)**
+- 提取 `_floor_setup` 13 (2 参数 7 回传) 与 `_floor_build_summary` 30 (8 参数 1 回传); 首轮把嵌套 `def checkpoint(row)` 一并圈入时生成器把 **def 形参 `row` 误判为自由加载** 列入回传 (调用点会 UnboundLocalError) —— 审计 RISK `row(s=0,c=0)` 正是该误判信号, 缩小区域至 def 之前解决 (教训: **区域含嵌套 def 且 RISK 出现 s=0,c=0 名 = 形参误判, 收缩边界**)
+- 新增守卫常量 `_FLOOR_PROBE` + 三行; 载体 `test_slm_floor_probe` + 形状 **505 passed**; conventions 72; ruff/term/modsize 绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
