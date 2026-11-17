@@ -2,9 +2,9 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`tests/ao_shaping/utils/test_spots_calc.py`](../../tests/ao_shaping/utils/test_spots_calc.py)
-> **复现命令**: `python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k benchmark`
+> **复现命令**: `AO_UPDATE_BENCHMARK_REPORT=1 python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k TestPerformance`
 > **运行环境**: 离线
-> **说明**: 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）
+> **说明**: 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）；每次运行落 logs/benchmarks/，仅 AO_UPDATE_BENCHMARK_REPORT=1 时更新仓内副本
 <!-- provenance:end -->
 
 | Function | NumPy (s) | Numba (s) | CuPy (s) |

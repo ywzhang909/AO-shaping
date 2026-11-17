@@ -1,6 +1,9 @@
+import os
+import sys
+import time
+
 import numpy as np
 import pytest
-import time
 
 from scipy.ndimage import center_of_mass
 
@@ -757,17 +760,41 @@ class TestPerformance:
             markdown += "- No CuPy benchmark returned N/A.\n"
 
         print(markdown)
-        # Save to report/benchmarks/backend_kernels_performance.md (repo-root based, CWD-independent)
+        # The run artefact always lands in logs/ (git-ignored); the tracked
+        # report/benchmarks copy is updated only on explicit request, otherwise
+        # any plain suite run silently rewrites it with whatever backend this
+        # machine happens to have -- a CPU-container run once clobbered the
+        # measured CuPy columns with N/A.
+        from datetime import datetime
         from pathlib import Path
-        out_path = Path(__file__).resolve().parents[3] / "report" / "benchmarks" / "backend_kernels_performance.md"
-        # This test is the report's writer, so it must also stamp the provenance
-        # header -- a sync pass would just be erased by the next test run.
-        from scripts._common.provenance import insert_header
 
-        markdown = insert_header(
-            markdown, "report/benchmarks/backend_kernels_performance.md"
+        root = Path(__file__).resolve().parents[3]
+        stem = "backend_kernels_performance"
+
+        def _stamp(body: str) -> str:
+            header = (
+                f"> **运行环境标记**: {datetime.now():%Y-%m-%d %H:%M:%S} | {sys.platform} "
+                f"| Python {sys.version.split()[0]} | numpy {np.__version__}\n\n"
+            )
+            return header + body
+
+        run_dir = root / "logs" / "benchmarks"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / f"{stem}_{datetime.now():%Y%m%d_%H%M%S}.md").write_text(
+            _stamp(markdown), encoding="utf-8"
         )
-        out_path.write_text(markdown, encoding="utf-8")
+
+        if os.environ.get("AO_UPDATE_BENCHMARK_REPORT") == "1":
+            # This test is the tracked report's writer, so it must also stamp
+            # the provenance header -- a sync pass would just be erased by the
+            # next explicit update run.
+            from scripts._common.provenance import insert_header
+
+            tracked = root / "report" / "benchmarks" / f"{stem}.md"
+            tracked.write_text(
+                _stamp(insert_header(markdown, f"report/benchmarks/{stem}.md")),
+                encoding="utf-8",
+            )
 
 class TestPowerInBucketMask:
     def test_uniform_image_full_mask(self):

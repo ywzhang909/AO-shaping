@@ -136,9 +136,9 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/benchmarks/backend_kernels_performance.md": ReportProvenance(
         script="tests/ao_shaping/utils/test_spots_calc.py",
-        command="python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k benchmark",
+        command="AO_UPDATE_BENCHMARK_REPORT=1 python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k TestPerformance",
         environment="离线",
-        note="由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）",
+        note="由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）；每次运行落 logs/benchmarks/，仅 AO_UPDATE_BENCHMARK_REPORT=1 时更新仓内副本",
     ),
     "report/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
