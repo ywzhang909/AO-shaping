@@ -473,18 +473,26 @@ class MIICamera(BaseCamera):
         self.cam_width, self.cam_height = self.cam.get_Size()
 
     def _detect_raw_format(self) -> None:
-        """检测实际 raw 格式, 必要时调整像素格式。"""
+        """检测实际 raw 格式, 必要时调整像素格式。
+
+        SDK ``get_RawFormat()`` 返回的 fourcc 是 32 位整数 (``MAKEFOURCC``
+        拼装, 小端), 必须先解出 4 个 ASCII 字符再与格式名比较, 否则整数
+        永远匹配不上字符串, 所有分支都是死路。
+        """
         raw_fmt, _ = self.cam.get_RawFormat()
-        raw_fmt_str = (
-            raw_fmt.decode("ascii", errors="replace")
-            if isinstance(raw_fmt, bytes)
-            else raw_fmt
-        )
+        if isinstance(raw_fmt, int):
+            raw_fmt_str = (
+                (raw_fmt & 0xFFFFFFFF).to_bytes(4, "little").decode("ascii", errors="replace")
+            )
+        elif isinstance(raw_fmt, bytes):
+            raw_fmt_str = raw_fmt.decode("ascii", errors="replace")
+        else:
+            raw_fmt_str = raw_fmt
 
         if raw_fmt_str in ("YUYV", "VUYY", "UYVY"):
             self._pixel_format = "YUV422"
             logger.info(f"Camera using YUV422 format (raw: {raw_fmt_str})")
-        elif raw_fmt_str in ("YMono",):
+        elif raw_fmt_str in ("YMono", "YYYY", "YMon"):
             logger.info(
                 f"Camera using MONO{self._bit_depth} format (raw: {raw_fmt_str})"
             )
