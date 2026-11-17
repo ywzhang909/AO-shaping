@@ -1736,7 +1736,9 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # calls actually raise (`queue.Empty`, `OSError`, `queue.Full`), so four unattributable
 # swallows became attributable. Tightened, not relaxed. Measured from the guard's own walk
 # (43 -> 39), not recounted by hand.
-_BLIND_SILENT_BASELINE = 45
+# 2026-11-18: 上游 `45e06487` #205 ponytail-lean 删 7 个死函数, 其内一处盲静默 handler 随删;
+# 守卫自身 walk 实测 45 -> 44, 按守卫要求主动降档 (measured fact, 非放宽)。
+_BLIND_SILENT_BASELINE = 44
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
