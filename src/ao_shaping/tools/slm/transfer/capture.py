@@ -484,6 +484,243 @@ def _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer):
 
 
 
+
+def _cap_bad_status_note(attempt, exposure, label, raw, setting):
+# Bad-exposure status warning block lifted verbatim
+    if setting.status != "ok" or raw.max() >= 250:
+        raise RuntimeError(
+            f"Unusable exposure for {label} after {attempt} ladder "
+            f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
+            f"status={setting.status}; data retained, releasing devices"
+        )
+    return 
+
+
+
+
+def _cap_commit_sample(args, attempt, clocks, exposure, exposure_clocks, exposure_frames, flat_frame_name, frame, gray, grid, label, live_prediction, manifest, panel, raw, samples, save_dataset, session_zero, setting, slm_serial, split):
+# Sample path plus manifest and pickle commit lifted verbatim
+    path = f"sample_{len(manifest):04d}.npz"
+    _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
+    flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
+    row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y)
+    manifest.append(row)
+    (args.out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    with (args.out / "capture_records.pkl").open("wb") as stream:
+        pickle.dump(manifest, stream, protocol=5)
+    logger.info(
+        f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
+    )
+    return flat_frame_name
+
+
+
+
+def _cap_show_flat_phase(args, live_phase, slm):
+# Flat phase display and settle lifted verbatim
+    slm.display_data(
+        slm.create_phase_from_array(
+            to_panel(np.zeros((args.grid, args.grid), np.float32))
+        )
+    )
+    live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
+    time.sleep(0.6)
+    return 
+
+
+
+
+def _cap_exposure_bounds(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, seed_exposure):
+# Camera exposure floor ceiling and protection cap lifted verbatim
+    floor, ceiling = get_camera_exposure_range(cam)
+    limit = (
+        configured_daheng_exposure_limit() if args.camera == "daheng" else 0
+    )
+    if limit > 0:
+        ceiling = min(ceiling, limit)
+    # 阶梯起点: 有种子就 max(floor, seed) (与改动前的 max(floor, 0.02) 同式),
+    # 没有种子 (``default``) 就从相机自己回读的生效曝光起步。
+    exposure = (
+        max(floor, seed_exposure)
+        if seed_exposure is not None
+        else float(get_camera_exposure_ms(cam))
+    )
+    return ceiling, exposure, floor
+
+
+
+
+def _cap_post_capture(args, cam, ceiling, config, exposure, exposure_source, flat_frame_name, floor, seed_exposure, slm_serial):
+# Post capture readout and exposure bookkeeping lifted verbatim
+    from ao_shaping.tools.slm.transfer.optical_probe import (
+        read_bit_depth as _camera_bit_depth,
+        read_camera_format as _camera_format,
+    )
+
+    probe_record: dict = dict(
+        exposure_range_ms=[float(floor), float(ceiling)],
+        camera_format=_camera_format(cam),
+        bit_depth=_camera_bit_depth(cam),
+        slm_serial=slm_serial[0],
+    )
+    if flat_frame_name is not None:
+        # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
+        probe_record["flat_frame"] = flat_frame_name
+    (args.out / "_optical_probe.json").write_text(
+        json.dumps(probe_record, indent=2),
+        encoding="utf-8",
+    )
+    # 曝光阶梯落定 (相机还开着): 回读**生效**曝光并记住它 —— 这正是下一次同一条
+    # 光路 `auto` 种子的来源。只在采集真的走完时记录: 阶梯没收住就没有可用曝光,
+    # 记下来只会污染种子。记录本身best-effort, 绝不打断采集。
+    effective_exposure = record_effective_exposure(
+        cam,
+        args.cam_id,
+        exposure,
+        source=exposure_source,
+        backend=args.camera,
+    )
+    # 键名不能叫 `exposure_policy`: 那是 per_block / per_shape 的**配对曝光**策略
+    # 字符串 (artifacts.py 与 validate.py 都按字符串读它)。这里记的是开场种子。
+    config["exposure_seed_policy"] = {
+        "source": exposure_source,
+        "requested": getattr(args, "exposure_ms", None),
+        "seed_ms": seed_exposure,
+        "effective_ms": effective_exposure,
+        "floor_ms": float(floor),
+    }
+    (args.out / "config.json").write_text(
+        json.dumps(config, default=str, indent=2), encoding="utf-8"
+    )
+
+
+
+
+def _cap_phase_loop(adapt_exposure, args, cam, ceiling, early_stopped, exposure, exposure_steps, flat_frame_name, floor, get_camera_exposure_ms, live_label, live_phase, live_prediction, manifest, read, samples, save_dataset, session_zero, slm, slm_serial):
+# Per phase capture loop lifted verbatim
+    for label, split, grid in probes(
+        args.grid,
+        args.count,
+        args.seed,
+        getattr(args, "ramp_periods", (64, 128)),
+    ):
+        live_label[0] = f"探针 {label}"
+        # The parallel-fit worker (or an operator) may ask capture to
+        # stop early; honour it before taking the next probe.
+        if (args.out / "stop_acquisition.request").is_file():
+            early_stopped = True
+            break
+        _cap_reuse_guard(label, live_prediction, manifest)
+        panel = to_panel(grid)
+        gray = slm.create_phase_from_array(panel)
+        slm.display_data(gray)
+        live_phase[0] = grid
+        time.sleep(0.6)
+        exposure_frames, exposure_clocks = [], []
+
+        def probe_read(_clocks=exposure_clocks, _frames=exposure_frames):
+            _clocks.append(
+                {
+                    **clock(),
+                    "exposure_ms": float(get_camera_exposure_ms(cam)),
+                }
+            )
+            frame = read()
+            if save_dataset:
+                _frames.append(frame.copy())
+            return frame
+
+        budgets = (exposure_steps,) + (
+            EXPOSURE_RETRY_STEPS,
+        ) * EXPOSURE_RETRIES
+        for attempt, steps in enumerate(budgets, start=1):
+            setting = adapt_exposure(
+                cam.reset_exposure_time,
+                probe_read,
+                start_ms=exposure,
+                floor_ms=floor,
+                ceiling_ms=ceiling,
+                full_scale=255,
+                max_steps=steps,
+                ratio_bounds=EXPOSURE_RATIO_BOUNDS,
+                on_step=LightGuard(
+                    label=f"probe {label}", max_steps=steps
+                ).observe,
+            )
+            exposure = float(get_camera_exposure_ms(cam))
+            frames, clocks = [], []
+            for _ in range(args.frames):
+                stamp = clock()
+                frames.append(read().copy())
+                clocks.append(
+                    {
+                        **stamp,
+                        "end_monotonic_ns": time.monotonic_ns(),
+                        "exposure_ms": float(get_camera_exposure_ms(cam)),
+                    }
+                )
+            raw = np.stack(frames)
+            frame = raw.mean(0)
+            if setting.status == "ok" and raw.max() < 250:
+                break
+            # 阶梯停在了接受带外 (clipped = 峰值达到量程饱和, dim = 到上限仍太暗)。
+            # 从阶梯**算好、但还没测过**的那一档接着走, 而不是把整条 lane
+            # 判死: 撞过头只是这一步跨度太大, 换一档就能回来。
+            if attempt < len(budgets):
+                logger.warning(
+                    f"{label}: exposure ladder ended {setting.status} "
+                    f"(measured {exposure:.5f} ms -> peak={setting.peak:.1f} "
+                    f"fraction={setting.fraction:.3f}, attempt={attempt}); "
+                    f"resuming at {float(setting.exposure_ms):.5f} ms with "
+                    f"{budgets[attempt]} steps"
+                )
+                exposure = float(setting.exposure_ms)
+        flat_frame_name = _cap_commit_sample(args, attempt, clocks, exposure, exposure_clocks, exposure_frames, flat_frame_name, frame, gray, grid, label, live_prediction, manifest, panel, raw, samples, save_dataset, session_zero, setting, slm_serial, split)
+        _cap_bad_status_note(attempt, exposure, label, raw, setting)
+    return early_stopped, exposure, flat_frame_name
+
+
+
+
+def _cap_session_setup(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, observer, seed_exposure, slm):
+# Camera live read and session zero lifted verbatim
+    ceiling, exposure, floor = _cap_exposure_bounds(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, seed_exposure)
+
+    # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
+    # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
+    # 标签随探针更新; 帧序号在整段里单调, 便于对照 manifest。
+    live_label = [f"光路检查 · {args.out.name}"]
+    live_seen = [0]
+    # SLM 当前被驱动到的**控制网格**相位 (与 validate.py 的约定一致:
+    # ``phase_grid`` 是控制网格, 不是面板位图)。``read()`` 是光路检查 /
+    # 曝光阶梯 / 探针取帧共用的单一读取漏斗, 而这三个来源的相位各不相同,
+    # 所以用一个可变单元格跟踪「此刻 SLM 上是什么相位」, 在每次真的写进
+    # SLM 之前落值。没有有效相位 (尚无探针、也没有可供显示的网格) 就记
+    # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
+    live_phase = [None]
+    live_prediction = [None]
+    checkpoint_value = getattr(args, "checkpoint", None)
+    _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer)
+
+    read = _cap_live_reader(cam, live_label, live_phase, live_prediction, live_seen, observer)
+
+    # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
+    # 先烧掉整个阶梯 (每档 0.6 s settle + 落盘) 才报「曝光不收敛」,
+    # 一条 lane 几十秒换来一句无法诊断的话。这里先显示平场 (第一号
+    # 探针 reference_start 本来就是它, 所以不多一次显示语义), 再用
+    # 0.05/0.4/3.2 ms 三档少数几帧回答「有没有光」; 没有光就直接抛
+    # OpticalPathInvalid (exit code 3), 不进探针族。
+    _cap_show_flat_phase(args, live_phase, slm)
+    _cap_verify_light(args, cam, ceiling, floor, read)
+
+    # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
+    session_zero: tuple[float, float] | None = None
+    return ceiling, exposure, floor, live_label, live_phase, live_prediction, read, session_zero
+
+
+
 def capture(args, *, on_frame=None):
     """Measure the probe plan; return ``{manifest file name: fit payload}``.
 
@@ -552,197 +789,15 @@ def capture(args, *, on_frame=None):
                 logger.warning(f"无法读取 SLM 序列号, 跳过最新模型按序列号保存: {exc!r}")
             slm.set_phase_overlay(None)
             try:
-                floor, ceiling = get_camera_exposure_range(cam)
-                limit = (
-                    configured_daheng_exposure_limit() if args.camera == "daheng" else 0
-                )
-                if limit > 0:
-                    ceiling = min(ceiling, limit)
-                # 阶梯起点: 有种子就 max(floor, seed) (与改动前的 max(floor, 0.02) 同式),
-                # 没有种子 (``default``) 就从相机自己回读的生效曝光起步。
-                exposure = (
-                    max(floor, seed_exposure)
-                    if seed_exposure is not None
-                    else float(get_camera_exposure_ms(cam))
-                )
-
-                # 实时画面: read() 是这一段的唯一取图漏斗 —— 光路检查、曝光阶梯
-                # (probe_read) 与探针取帧都从它取图, 所以一处挂钩覆盖三处。
-                # 标签随探针更新; 帧序号在整段里单调, 便于对照 manifest。
-                live_label = [f"光路检查 · {args.out.name}"]
-                live_seen = [0]
-                # SLM 当前被驱动到的**控制网格**相位 (与 validate.py 的约定一致:
-                # ``phase_grid`` 是控制网格, 不是面板位图)。``read()`` 是光路检查 /
-                # 曝光阶梯 / 探针取帧共用的单一读取漏斗, 而这三个来源的相位各不相同,
-                # 所以用一个可变单元格跟踪「此刻 SLM 上是什么相位」, 在每次真的写进
-                # SLM 之前落值。没有有效相位 (尚无探针、也没有可供显示的网格) 就记
-                # None —— 绝不伪造一个相位; 但它不是坏状态, 只是还没轮到驱动 SLM。
-                live_phase = [None]
-                live_prediction = [None]
-                checkpoint_value = getattr(args, "checkpoint", None)
-                _cap_load_checkpoint(args, checkpoint_value, live_prediction, observer)
-
-                read = _cap_live_reader(cam, live_label, live_phase, live_prediction, live_seen, observer)
-
-                # 便宜的光路检查, 在探针族之前: 2026-10-28 光路失效那次, 单条探针
-                # 先烧掉整个阶梯 (每档 0.6 s settle + 落盘) 才报「曝光不收敛」,
-                # 一条 lane 几十秒换来一句无法诊断的话。这里先显示平场 (第一号
-                # 探针 reference_start 本来就是它, 所以不多一次显示语义), 再用
-                # 0.05/0.4/3.2 ms 三档少数几帧回答「有没有光」; 没有光就直接抛
-                # OpticalPathInvalid (exit code 3), 不进探针族。
-                slm.display_data(
-                    slm.create_phase_from_array(
-                        to_panel(np.zeros((args.grid, args.grid), np.float32))
-                    )
-                )
-                live_phase[0] = np.zeros((args.grid, args.grid), np.float32)
-                time.sleep(0.6)
-                _cap_verify_light(args, cam, ceiling, floor, read)
-
-                # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
-                session_zero: tuple[float, float] | None = None
-                for label, split, grid in probes(
-                    args.grid,
-                    args.count,
-                    args.seed,
-                    getattr(args, "ramp_periods", (64, 128)),
-                ):
-                    live_label[0] = f"探针 {label}"
-                    # The parallel-fit worker (or an operator) may ask capture to
-                    # stop early; honour it before taking the next probe.
-                    if (args.out / "stop_acquisition.request").is_file():
-                        early_stopped = True
-                        break
-                    _cap_reuse_guard(label, live_prediction, manifest)
-                    panel = to_panel(grid)
-                    gray = slm.create_phase_from_array(panel)
-                    slm.display_data(gray)
-                    live_phase[0] = grid
-                    time.sleep(0.6)
-                    exposure_frames, exposure_clocks = [], []
-
-                    def probe_read(_clocks=exposure_clocks, _frames=exposure_frames):
-                        _clocks.append(
-                            {
-                                **clock(),
-                                "exposure_ms": float(get_camera_exposure_ms(cam)),
-                            }
-                        )
-                        frame = read()
-                        if save_dataset:
-                            _frames.append(frame.copy())
-                        return frame
-
-                    budgets = (exposure_steps,) + (
-                        EXPOSURE_RETRY_STEPS,
-                    ) * EXPOSURE_RETRIES
-                    for attempt, steps in enumerate(budgets, start=1):
-                        setting = adapt_exposure(
-                            cam.reset_exposure_time,
-                            probe_read,
-                            start_ms=exposure,
-                            floor_ms=floor,
-                            ceiling_ms=ceiling,
-                            full_scale=255,
-                            max_steps=steps,
-                            ratio_bounds=EXPOSURE_RATIO_BOUNDS,
-                            on_step=LightGuard(
-                                label=f"probe {label}", max_steps=steps
-                            ).observe,
-                        )
-                        exposure = float(get_camera_exposure_ms(cam))
-                        frames, clocks = [], []
-                        for _ in range(args.frames):
-                            stamp = clock()
-                            frames.append(read().copy())
-                            clocks.append(
-                                {
-                                    **stamp,
-                                    "end_monotonic_ns": time.monotonic_ns(),
-                                    "exposure_ms": float(get_camera_exposure_ms(cam)),
-                                }
-                            )
-                        raw = np.stack(frames)
-                        frame = raw.mean(0)
-                        if setting.status == "ok" and raw.max() < 250:
-                            break
-                        # 阶梯停在了接受带外 (clipped = 峰值达到量程饱和, dim = 到上限仍太暗)。
-                        # 从阶梯**算好、但还没测过**的那一档接着走, 而不是把整条 lane
-                        # 判死: 撞过头只是这一步跨度太大, 换一档就能回来。
-                        if attempt < len(budgets):
-                            logger.warning(
-                                f"{label}: exposure ladder ended {setting.status} "
-                                f"(measured {exposure:.5f} ms -> peak={setting.peak:.1f} "
-                                f"fraction={setting.fraction:.3f}, attempt={attempt}); "
-                                f"resuming at {float(setting.exposure_ms):.5f} ms with "
-                                f"{budgets[attempt]} steps"
-                            )
-                            exposure = float(setting.exposure_ms)
-                    path = f"sample_{len(manifest):04d}.npz"
-                    _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
-                    flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
-                    row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y)
-                    manifest.append(row)
-                    (args.out / "manifest.json").write_text(
-                        json.dumps(manifest, indent=2), encoding="utf-8"
-                    )
-                    with (args.out / "capture_records.pkl").open("wb") as stream:
-                        pickle.dump(manifest, stream, protocol=5)
-                    logger.info(
-                        f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
-                    )
-                    if setting.status != "ok" or raw.max() >= 250:
-                        raise RuntimeError(
-                            f"Unusable exposure for {label} after {attempt} ladder "
-                            f"attempt(s): exposure={exposure:.5f} ms peak={raw.max():.1f} "
-                            f"status={setting.status}; data retained, releasing devices"
-                        )
+                ceiling, exposure, floor, live_label, live_phase, live_prediction, read, session_zero = _cap_session_setup(args, cam, configured_daheng_exposure_limit, get_camera_exposure_ms, get_camera_exposure_range, observer, seed_exposure, slm)
+                early_stopped, exposure, flat_frame_name = _cap_phase_loop(adapt_exposure, args, cam, ceiling, early_stopped, exposure, exposure_steps, flat_frame_name, floor, get_camera_exposure_ms, live_label, live_phase, live_prediction, manifest, read, samples, save_dataset, session_zero, slm, slm_serial)
             finally:
                 slm.display_data(slm.create_phase_from_array(np.zeros((1200, 1920))))
                 time.sleep(0.3)
         # 光路复用探针的**参照条件**: 本次采集用的相机曝光区间与取图格式。
         # 与实测零点 (拟合后写进 frozen_parameters.json 的 origin) 一起构成
         # 「这条光路的条件」, 供下次会话的光路复用判比用。
-        from ao_shaping.tools.slm.transfer.optical_probe import (
-            read_bit_depth as _camera_bit_depth,
-            read_camera_format as _camera_format,
-        )
-
-        probe_record: dict = dict(
-            exposure_range_ms=[float(floor), float(ceiling)],
-            camera_format=_camera_format(cam),
-            bit_depth=_camera_bit_depth(cam),
-            slm_serial=slm_serial[0],
-        )
-        if flat_frame_name is not None:
-            # 平场帧真的落盘了才登记文件名 (形状判比按这个键找帧)。
-            probe_record["flat_frame"] = flat_frame_name
-        (args.out / "_optical_probe.json").write_text(
-            json.dumps(probe_record, indent=2),
-            encoding="utf-8",
-        )
-        # 曝光阶梯落定 (相机还开着): 回读**生效**曝光并记住它 —— 这正是下一次同一条
-        # 光路 `auto` 种子的来源。只在采集真的走完时记录: 阶梯没收住就没有可用曝光,
-        # 记下来只会污染种子。记录本身best-effort, 绝不打断采集。
-        effective_exposure = record_effective_exposure(
-            cam,
-            args.cam_id,
-            exposure,
-            source=exposure_source,
-            backend=args.camera,
-        )
-        # 键名不能叫 `exposure_policy`: 那是 per_block / per_shape 的**配对曝光**策略
-        # 字符串 (artifacts.py 与 validate.py 都按字符串读它)。这里记的是开场种子。
-        config["exposure_seed_policy"] = {
-            "source": exposure_source,
-            "requested": getattr(args, "exposure_ms", None),
-            "seed_ms": seed_exposure,
-            "effective_ms": effective_exposure,
-            "floor_ms": float(floor),
-        }
-        (args.out / "config.json").write_text(
-            json.dumps(config, default=str, indent=2), encoding="utf-8"
-        )
+        _cap_post_capture(args, cam, ceiling, config, exposure, exposure_source, flat_frame_name, floor, seed_exposure, slm_serial)
     (args.out / ".capture_done").write_text(
         json.dumps(
             dict(

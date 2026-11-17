@@ -300,28 +300,59 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
 
 
 
-def run(args, *, on_frame=None):
-    """Run the CCD blocks.
 
-    ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
-    read** -- each frame of every anchored capture and every rung of an exposure
-    ladder -- with that frame plus whatever progress is known; see
-    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`. The CLI /
-    offline path leaves it at ``None`` and is byte-for-byte unchanged.
-    ``workflow`` also passes it on the ``args`` namespace so callers that build a
-    SimpleNamespace need no new call signature.
-    """
-    observer = _resolve_observer(args, on_frame)
-    if getattr(args, "plan_only", False):
-        # Plan mode: no torch, no seed synthesis, no device -- only the derived
-        # work list. It writes plan.json into a *new* directory and returns the
-        # path, so a later reader cannot mistake it for a stage that ran, and a
-        # re-plan cannot silently overwrite an existing one.
-        args.out.mkdir(parents=True, exist_ok=False)
-        plan = session_plan(args)
-        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
-        logger.info(json.dumps(plan, indent=2))
-        return args.out
+def _validate_recorder_setup(args, bit_depth, records, resume):
+# Recorder and camera option assembly lifted verbatim
+    from ao_shaping.utils.io.file import Recorder
+
+    from . import recording
+
+    recorder = Recorder(mark="cv", mode="min")
+    if resume and (args.out/"capture_records.pkl").is_file():
+        # The process recording is cumulative: a resumed stage appends its own
+        # blocks to the captures already archived instead of exporting a table
+        # that silently starts again from the resumed shape.
+        with (args.out/"capture_records.pkl").open("rb") as stream:
+            records.extend(pickle.load(stream))
+    last_phase: dict[str, np.ndarray] = {}
+    # Off by default: overlapping the npz write with the next capture's SLM
+    # settle changes when the bytes reach the disk, never what they contain --
+    # but a campaign compares lanes against each other, so the choice stays
+    # explicit at the call site instead of becoming an invisible default.
+    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
+    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    return camera_options, last_phase, recorder, recording, writer
+
+
+
+
+def _validate_runtime_imports(args, resume):
+# Runtime device imports lifted verbatim
+    blocks_for: dict[str, list[int]] = {}
+    if resume:
+        for shape in args.shapes:
+            # The runner gives each shape its own stage directory. Count only
+            # that directory's completed block rows; never use a stage-global
+            # offset or a sibling shape's checkpoint.
+            blocks_for[shape] = remaining_blocks(
+                args.out, int(getattr(args, "blocks", 0)), resume=True)
+    from .hardware import prepare_camera_sdk
+    prepare_camera_sdk(args.camera)
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
+    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
+
+    args.out.mkdir(parents=True, exist_ok=resume)
+    import hashlib
+    abba = bool(getattr(args, "abba", False))
+    return Santec, abba, adapt_exposure, blocks_for, configured_daheng_exposure_limit, create_camera, get_camera_exposure_ms, get_camera_exposure_range, hashlib
+
+
+
+
+def _validate_param_checks(args):
+# Device params and resume validation lifted verbatim
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         DifferentiableUniformityOptimizer, FrozenDefocusForward, FrozenDefocusParameters, recentre_window,
@@ -352,6 +383,33 @@ def run(args, *, on_frame=None):
             raise ValueError(f"resume bit depth {bit_depth} differs from recorded {saved_depth}")
     full_scale = float(2**bit_depth - 1)
     counts_scale = float(2**(bit_depth-8))
+    return DifferentiableUniformityOptimizer, FrozenDefocusForward, bit_depth, counts_scale, device, explore_temperature, full_scale, params, recentre_window, resume, torch
+
+
+
+def run(args, *, on_frame=None):
+    """Run the CCD blocks.
+
+    ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
+    read** -- each frame of every anchored capture and every rung of an exposure
+    ladder -- with that frame plus whatever progress is known; see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`. The CLI /
+    offline path leaves it at ``None`` and is byte-for-byte unchanged.
+    ``workflow`` also passes it on the ``args`` namespace so callers that build a
+    SimpleNamespace need no new call signature.
+    """
+    observer = _resolve_observer(args, on_frame)
+    if getattr(args, "plan_only", False):
+        # Plan mode: no torch, no seed synthesis, no device -- only the derived
+        # work list. It writes plan.json into a *new* directory and returns the
+        # path, so a later reader cannot mistake it for a stage that ran, and a
+        # re-plan cannot silently overwrite an existing one.
+        args.out.mkdir(parents=True, exist_ok=False)
+        plan = session_plan(args)
+        (args.out/"plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
+        logger.info(json.dumps(plan, indent=2))
+        return args.out
+    DifferentiableUniformityOptimizer, FrozenDefocusForward, bit_depth, counts_scale, device, explore_temperature, full_scale, params, recentre_window, resume, torch = _validate_param_checks(args)
     # Carrier displacement uses both camera axes. The target is kept away from zero order.
     # ``tilt`` (共享的 `--tilt`) switches that carrier ramped; with it off the target stays
     # on the zero order and the boundary check below is skipped (no target_xy given).
@@ -372,24 +430,7 @@ def run(args, *, on_frame=None):
         args, aspect_ratio, centre, forward, prepared, seed_provenance, tilt, xy)
     # Resume: slice this stage's block range to the groups it has not measured
     # yet; a fully measured stage measures nothing and only refreshes its record.
-    blocks_for: dict[str, list[int]] = {}
-    if resume:
-        for shape in args.shapes:
-            # The runner gives each shape its own stage directory. Count only
-            # that directory's completed block rows; never use a stage-global
-            # offset or a sibling shape's checkpoint.
-            blocks_for[shape] = remaining_blocks(
-                args.out, int(getattr(args, "blocks", 0)), resume=True)
-    from .hardware import prepare_camera_sdk
-    prepare_camera_sdk(args.camera)
-    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms, get_camera_exposure_range
-    from ao_shaping.drivers.slm.santec import Santec
-    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
-    from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
-
-    args.out.mkdir(parents=True, exist_ok=resume)
-    import hashlib
-    abba = bool(getattr(args, "abba", False))
+    Santec, abba, adapt_exposure, blocks_for, configured_daheng_exposure_limit, create_camera, get_camera_exposure_ms, get_camera_exposure_range, hashlib = _validate_runtime_imports(args, resume)
     # Resume: the run directory already exists, so its JSON logs are extended,
     # not replaced. An overwrite would erase the record of the blocks that made
     # the resume necessary.
@@ -444,24 +485,7 @@ def run(args, *, on_frame=None):
     # change since the previous capture of the same shape, and the numbers.
     # Exported after the devices are closed, so a slow GIF render cannot hold
     # the camera or the SLM.
-    from ao_shaping.utils.io.file import Recorder
-
-    from . import recording
-
-    recorder = Recorder(mark="cv", mode="min")
-    if resume and (args.out/"capture_records.pkl").is_file():
-        # The process recording is cumulative: a resumed stage appends its own
-        # blocks to the captures already archived instead of exporting a table
-        # that silently starts again from the resumed shape.
-        with (args.out/"capture_records.pkl").open("rb") as stream:
-            records.extend(pickle.load(stream))
-    last_phase: dict[str, np.ndarray] = {}
-    # Off by default: overlapping the npz write with the next capture's SLM
-    # settle changes when the bytes reach the disk, never what they contain --
-    # but a campaign compares lanes against each other, so the choice stays
-    # explicit at the call site instead of becoming an invisible default.
-    writer = _CaptureWriter() if getattr(args, "async_capture_write", False) else None
-    camera_options = {"bit_depth": bit_depth} if args.camera == "daheng" else {}
+    camera_options, last_phase, recorder, recording, writer = _validate_recorder_setup(args, bit_depth, records, resume)
     _run_validate_session(
         DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
         Santec=Santec,
@@ -720,6 +744,83 @@ def _session_capture(_probe_results, args, bit_depth, cam, counts_scale, forward
         raise RuntimeError("saturated capture retained; stop paired comparison")
     return row
 
+
+def _make_tune_exposure(adapt_exposure, args, cam, ceiling, floor, forward, full_scale, get_camera_exposure_ms, observer, slm, xy):
+# Exposure ladder tuning closure factory lifted verbatim
+    def tune_exposure(label, phase, start_ms, objective):
+        # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
+        # 掩模的低峰值误判成 blocked。原整形相位与曝光在 helper 的
+        # finally 中恢复, 随后才基于真实整形相位调曝光。
+        flat_light = flat_phase_light_precheck(
+            cam=cam, slm=slm, args=args, observer=observer,
+            label=label, phase=phase, floor_ms=floor, ceiling_ms=ceiling)
+        exposure_reads, exposure_stamps = [], []
+        np.save(args.out/f"{label}_exposure_phase.npy", phase)
+
+        def read_exposure(_frames=exposure_reads, _stamps=exposure_stamps):
+            exposure_ms = float(get_camera_exposure_ms(cam))
+            _stamps.append(dict(**clock(), exposure_ms=exposure_ms))
+            raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
+            _frames.append(raw)
+            # 曝光阶梯的每一档都是一次 CCD 读出, 所以也逐帧上屏: 一次
+            # 阶梯 12 档 ≈ 48 s, 以前这 48 s 在 ⑥ 里完全看不见。标签带
+            # 上曝光值, 否则逐帧归一化的亮度起伏会被读成波前在变。
+            notify_frame(observer, frame_payload(
+                frame=raw, label=f"{label} · 曝光 {exposure_ms:.3f} ms",
+                phase="exposure", frame_index=len(_frames)))
+            np.save(args.out/f"{label}_exposure_read_{len(_frames):03d}.npy", raw)
+            (args.out/f"{label}_exposure_reads.json").write_text(json.dumps(_stamps, indent=2), encoding="utf-8")
+            if getattr(args, "meter_target", False):
+                # Meter every physical pixel in the core, not just the
+                # sparse optimization grid; retain the unmasked frame.
+                from scipy.ndimage import map_coordinates
+                yy, xx = np.indices(raw.shape)
+                dx = xy[0, 1, 0] - xy[0, 0, 0]
+                dy = xy[1, 0, 1] - xy[0, 0, 1]
+                mask = map_coordinates(objective.core.astype(float),
+                    [(yy-xy[0, 0, 1])/dy, (xx-xy[0, 0, 0])/dx], order=0, mode="constant") > .5
+                return np.where(mask, raw, 0)
+            return raw
+
+        if getattr(args, "fixed_exposure_ms", None) is not None:
+            from types import SimpleNamespace
+            if not floor <= args.fixed_exposure_ms <= ceiling:
+                raise ValueError("fixed exposure outside current session bounds")
+            cam.reset_exposure_time(args.fixed_exposure_ms)
+            for _ in range(3):
+                read_exposure()
+            setting = SimpleNamespace(status="ok")
+        else:
+            # 12 档阶梯 (每档 0.6 s settle + 3 次读出 + npz 落盘):
+            # 光路失效时它会把 48 s 全花在等待上, 然后报一句「曝光
+            # 不收敛」—— 2026-10-28 的实测, 见
+            # report/shape_trials/multishape_scale/
+            # multishape_scale_wallclock_20261028.md §9。
+            # 挂上守卫后, 峰值停在噪声底的阶梯在第 2-3 档就抛
+            # OpticalPathInvalid (退出码 3); 有光的阶梯一行不改。
+            ladder_steps = 12
+            guard = LightGuard(label=f"{label}_exposure",
+                               max_steps=ladder_steps)
+            # Full-frame flat light is the optical-path verdict. A dark
+            # shaped target must not reclassify it as an early-flat fault.
+            guard.seen_light = bool(flat_light["ok"])
+            setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
+                                     floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
+                                     max_steps=ladder_steps, on_step=guard.observe)
+        np.savez_compressed(args.out/f"{label}_exposure.npz", raw_frames=np.stack(exposure_reads), model_phase=phase)
+        (args.out/f"{label}_exposure.json").write_text(json.dumps(dict(frames=exposure_stamps, status=setting.status), indent=2), encoding="utf-8")
+        if setting.status != "ok":
+            # 走到这里说明**有光** (守卫见过高于噪声底的峰值), 只是
+            # 12 档之内没能把峰值落进 (0.25, 0.80) —— 也就是「曝光
+            # 参数/上限不对」这一类, 不是「光路无光」。两条路分开,
+            # 因为处置完全不同。
+            raise RuntimeError("exposure did not converge")
+        forward.exposure_ms = float(get_camera_exposure_ms(cam))
+        return float(get_camera_exposure_ms(cam))
+    return tune_exposure
+
+
+
 def _run_validate_session(
     *,
     DifferentiableUniformityOptimizer: object,
@@ -794,76 +895,7 @@ def _run_validate_session(
 
             last_best = None
             try:
-                def tune_exposure(label, phase, start_ms, objective):
-                    # 先用平面相位证明光路有光; 真正无光在这里就失败, 不会把整形
-                    # 掩模的低峰值误判成 blocked。原整形相位与曝光在 helper 的
-                    # finally 中恢复, 随后才基于真实整形相位调曝光。
-                    flat_light = flat_phase_light_precheck(
-                        cam=cam, slm=slm, args=args, observer=observer,
-                        label=label, phase=phase, floor_ms=floor, ceiling_ms=ceiling)
-                    exposure_reads, exposure_stamps = [], []
-                    np.save(args.out/f"{label}_exposure_phase.npy", phase)
-
-                    def read_exposure(_frames=exposure_reads, _stamps=exposure_stamps):
-                        exposure_ms = float(get_camera_exposure_ms(cam))
-                        _stamps.append(dict(**clock(), exposure_ms=exposure_ms))
-                        raw = np.asarray(cam.get_numpy_image(n_sample=1, skip_first=False)).copy()
-                        _frames.append(raw)
-                        # 曝光阶梯的每一档都是一次 CCD 读出, 所以也逐帧上屏: 一次
-                        # 阶梯 12 档 ≈ 48 s, 以前这 48 s 在 ⑥ 里完全看不见。标签带
-                        # 上曝光值, 否则逐帧归一化的亮度起伏会被读成波前在变。
-                        notify_frame(observer, frame_payload(
-                            frame=raw, label=f"{label} · 曝光 {exposure_ms:.3f} ms",
-                            phase="exposure", frame_index=len(_frames)))
-                        np.save(args.out/f"{label}_exposure_read_{len(_frames):03d}.npy", raw)
-                        (args.out/f"{label}_exposure_reads.json").write_text(json.dumps(_stamps, indent=2), encoding="utf-8")
-                        if getattr(args, "meter_target", False):
-                            # Meter every physical pixel in the core, not just the
-                            # sparse optimization grid; retain the unmasked frame.
-                            from scipy.ndimage import map_coordinates
-                            yy, xx = np.indices(raw.shape)
-                            dx = xy[0, 1, 0] - xy[0, 0, 0]
-                            dy = xy[1, 0, 1] - xy[0, 0, 1]
-                            mask = map_coordinates(objective.core.astype(float),
-                                [(yy-xy[0, 0, 1])/dy, (xx-xy[0, 0, 0])/dx], order=0, mode="constant") > .5
-                            return np.where(mask, raw, 0)
-                        return raw
-
-                    if getattr(args, "fixed_exposure_ms", None) is not None:
-                        from types import SimpleNamespace
-                        if not floor <= args.fixed_exposure_ms <= ceiling:
-                            raise ValueError("fixed exposure outside current session bounds")
-                        cam.reset_exposure_time(args.fixed_exposure_ms)
-                        for _ in range(3):
-                            read_exposure()
-                        setting = SimpleNamespace(status="ok")
-                    else:
-                        # 12 档阶梯 (每档 0.6 s settle + 3 次读出 + npz 落盘):
-                        # 光路失效时它会把 48 s 全花在等待上, 然后报一句「曝光
-                        # 不收敛」—— 2026-10-28 的实测, 见
-                        # report/shape_trials/multishape_scale/
-                        # multishape_scale_wallclock_20261028.md §9。
-                        # 挂上守卫后, 峰值停在噪声底的阶梯在第 2-3 档就抛
-                        # OpticalPathInvalid (退出码 3); 有光的阶梯一行不改。
-                        ladder_steps = 12
-                        guard = LightGuard(label=f"{label}_exposure",
-                                           max_steps=ladder_steps)
-                        # Full-frame flat light is the optical-path verdict. A dark
-                        # shaped target must not reclassify it as an early-flat fault.
-                        guard.seen_light = bool(flat_light["ok"])
-                        setting = adapt_exposure(cam.reset_exposure_time, read_exposure, start_ms=start_ms,
-                                                 floor_ms=floor, ceiling_ms=ceiling, full_scale=full_scale,
-                                                 max_steps=ladder_steps, on_step=guard.observe)
-                    np.savez_compressed(args.out/f"{label}_exposure.npz", raw_frames=np.stack(exposure_reads), model_phase=phase)
-                    (args.out/f"{label}_exposure.json").write_text(json.dumps(dict(frames=exposure_stamps, status=setting.status), indent=2), encoding="utf-8")
-                    if setting.status != "ok":
-                        # 走到这里说明**有光** (守卫见过高于噪声底的峰值), 只是
-                        # 12 档之内没能把峰值落进 (0.25, 0.80) —— 也就是「曝光
-                        # 参数/上限不对」这一类, 不是「光路无光」。两条路分开,
-                        # 因为处置完全不同。
-                        raise RuntimeError("exposure did not converge")
-                    forward.exposure_ms = float(get_camera_exposure_ms(cam))
-                    return float(get_camera_exposure_ms(cam))
+                tune_exposure = _make_tune_exposure(adapt_exposure, args, cam, ceiling, floor, forward, full_scale, get_camera_exposure_ms, observer, slm, xy)
 
                 last_best = _run_validate_shapes(
                     DifferentiableUniformityOptimizer=DifferentiableUniformityOptimizer,
@@ -1232,44 +1264,9 @@ def _dump_shape_history_and_timing(
                 fh.write(json.dumps(timing_row) + "\n")
 
 
-def _run_validate_blocks(
-    *,
-    DifferentiableUniformityOptimizer: object,
-    abba: object,
-    args: object,
-    best: object,
-    blocks: object,
-    capture: object,
-    champion: object,
-    device: object,
-    exposure: object,
-    forward: object,
-    guard: object,
-    iterations: object,
-    objective: object,
-    observer: object,
-    phase_lr: object,
-    policy: object,
-    save_summary: object,
-    shape: object,
-    spectral_mask: object,
-    spectral_weight: object,
-    summary_entries: object,
-    torch: object,
-    tune_exposure: object,
-    xy: object,
-) -> tuple:
-    """#205 batch-26: the per-block refinement stage of the shape loop.
 
-    The block loop moved line-exact at the same indent. best, champion
-    and exposure are rebound per block and read by the code that follows
-    the loop, so they leave through the returned tuple rather than by
-    closure. tune_exposure is passed in, and its nested read_exposure
-    binds objective from tune_exposure own parameter, so no cell is
-    left behind in the shape-loop scope.
-    Moved verbatim.
-    """
-    shape_start = time.monotonic()
+def _validate_block_loop(DifferentiableUniformityOptimizer, abba, args, best, blocks, capture, champion, device, exposure, forward, guard, iterations, objective, observer, phase_lr, policy, save_summary, shape, spectral_mask, spectral_weight, summary_entries, torch, tune_exposure, xy):
+# Per-block refinement loop lifted verbatim
     for block in blocks:
         # Staged objective weights (issue #213 item 4c). Only the
         # optimisation path moves; the acceptance criteria and the
@@ -1414,6 +1411,49 @@ def _run_validate_blocks(
         if len(iterations) > iterations_before:
             with (args.out/"iterations.pkl").open("wb") as stream:
                 pickle.dump(iterations, stream, protocol=5)
+    return best, champion, exposure
+
+
+
+def _run_validate_blocks(
+    *,
+    DifferentiableUniformityOptimizer: object,
+    abba: object,
+    args: object,
+    best: object,
+    blocks: object,
+    capture: object,
+    champion: object,
+    device: object,
+    exposure: object,
+    forward: object,
+    guard: object,
+    iterations: object,
+    objective: object,
+    observer: object,
+    phase_lr: object,
+    policy: object,
+    save_summary: object,
+    shape: object,
+    spectral_mask: object,
+    spectral_weight: object,
+    summary_entries: object,
+    torch: object,
+    tune_exposure: object,
+    xy: object,
+) -> tuple:
+    """#205 batch-26: the per-block refinement stage of the shape loop.
+
+    The block loop moved line-exact at the same indent. best, champion
+    and exposure are rebound per block and read by the code that follows
+    the loop, so they leave through the returned tuple rather than by
+    closure. tune_exposure is passed in, and its nested read_exposure
+    binds objective from tune_exposure own parameter, so no cell is
+    left behind in the shape-loop scope.
+    Moved verbatim.
+    """
+    shape_start = time.monotonic()
+    best, champion, exposure = _validate_block_loop(DifferentiableUniformityOptimizer, abba, args, best, blocks, capture, champion, device, exposure, forward, guard, iterations, objective, observer, phase_lr, policy, save_summary, shape, spectral_mask, spectral_weight, summary_entries, torch, tune_exposure, xy)
 
     _dump_shape_history_and_timing(args=args, shape=shape, iterations=iterations, best=best,
                                    forward=forward, torch=torch, objective=objective,

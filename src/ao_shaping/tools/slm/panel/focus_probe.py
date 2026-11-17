@@ -518,6 +518,82 @@ def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, not
 
 
 
+
+def _fp_sweep_pick_and_verdict(apply_phase, ceiling_ms, centre_px, coarse_points, diopter_range, diopters, discard, floor_ms, frames, measure, measured, notes, panel_shape, pixel_um, radius_px, read_frame, refine_points, set_exposure_ms, wavelength_nm):
+# Tail ranking linearity and blocked verdict lifted verbatim
+    usable = [p for p in measured.values() if p.status == "ok"]
+    skipped = [p for p in measured.values() if p.status != "ok"]
+    if skipped:
+        notes.append(
+            f"{len(skipped)} 个点落在可用曝光带之外"
+            f"（clipped {sum(p.status == 'clipped' for p in skipped)} / "
+            f"dim {sum(p.status == 'dim' for p in skipped)}），未参与排序"
+        )
+
+    best, best_diopter = _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable)
+
+    # Linearity check at the winner. The whole ranking is peak-per-ms, which is
+    # only valid if the sensor is linear in exposure. One extra reading at a
+    # different exposure either confirms it or tells the operator to distrust the
+    # pick. Halving is preferred; when the winner already sits near the floor
+    # (bright bench) there is no room below, so it doubles instead.
+    linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
+
+    gain = _fp_flat_gain(best, measured)
+
+    # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
+    #
+    # 为什么要求「每个点」而不是「最亮的那一个」: 只有当整条扫描线上都找不到光时
+    # 才能说「光没到相机」。有一个点还能看到光斑, 就说明光路是通的, 只是焦面不在
+    # 扫到的范围里 —— 那是另一件事 (退出码 2), 处置完全不同。
+    blocked_reason, path_blocked = _fp_blocked_verdict(measured, notes)
+    return best, best_diopter, blocked_reason, gain, linearity, path_blocked
+
+
+
+
+def _fp_sweep_diopter_branch(coarse_points, diopter_range, diopters, max_extends, measure, measured, notes):
+# Diopter sweep branch lifted verbatim
+    if diopters is not None:
+        grid = [float(d) for d in diopters]
+        measured.update({round(d, 9): measure(d) for d in grid})
+    else:
+        half = int(coarse_points) // 2
+        step = float(diopter_range) / max(half, 1)
+        grid = [step * k for k in range(-half, half + 1)]
+        for d in grid:
+            measure(d)
+
+        # Extend outward while the best point is the last one on either side:
+        # that means the optimum is outside the scanned range, not inside it.
+        for _ in range(int(max_extends)):
+            usable = [p for p in measured.values() if p.status == "ok"] or list(
+                measured.values()
+            )
+            best = max(usable, key=lambda p: p.peak_per_ms)
+            edge_lo, edge_hi = min(grid), max(grid)
+            if best.diopter_m1 >= edge_hi - 1e-9:
+                new = [edge_hi + step * k for k in range(1, half + 1)]
+                notes.append(
+                    f"最优点在扫描右边界 {edge_hi:+.2f} m⁻¹，向右扩展到 "
+                    f"{new[-1]:+.2f} m⁻¹"
+                )
+            elif best.diopter_m1 <= edge_lo + 1e-9:
+                new = [edge_lo - step * k for k in range(1, half + 1)]
+                notes.append(
+                    f"最优点在扫描左边界 {edge_lo:+.2f} m⁻¹，向左扩展到 "
+                    f"{new[-1]:+.2f} m⁻¹"
+                )
+            else:
+                break
+            grid = new
+            for d in new:
+                if round(d, 9) not in measured:
+                    measure(d)
+    return 
+
+
+
 def sweep_focus(
     *,
     apply_phase: Callable[[np.ndarray], None],
@@ -589,69 +665,9 @@ def sweep_focus(
         measured[round(float(d), 9)] = point
         return point
 
-    if diopters is not None:
-        grid = [float(d) for d in diopters]
-        measured.update({round(d, 9): measure(d) for d in grid})
-    else:
-        half = int(coarse_points) // 2
-        step = float(diopter_range) / max(half, 1)
-        grid = [step * k for k in range(-half, half + 1)]
-        for d in grid:
-            measure(d)
+    _fp_sweep_diopter_branch(coarse_points, diopter_range, diopters, max_extends, measure, measured, notes)
 
-        # Extend outward while the best point is the last one on either side:
-        # that means the optimum is outside the scanned range, not inside it.
-        for _ in range(int(max_extends)):
-            usable = [p for p in measured.values() if p.status == "ok"] or list(
-                measured.values()
-            )
-            best = max(usable, key=lambda p: p.peak_per_ms)
-            edge_lo, edge_hi = min(grid), max(grid)
-            if best.diopter_m1 >= edge_hi - 1e-9:
-                new = [edge_hi + step * k for k in range(1, half + 1)]
-                notes.append(
-                    f"最优点在扫描右边界 {edge_hi:+.2f} m⁻¹，向右扩展到 "
-                    f"{new[-1]:+.2f} m⁻¹"
-                )
-            elif best.diopter_m1 <= edge_lo + 1e-9:
-                new = [edge_lo - step * k for k in range(1, half + 1)]
-                notes.append(
-                    f"最优点在扫描左边界 {edge_lo:+.2f} m⁻¹，向左扩展到 "
-                    f"{new[-1]:+.2f} m⁻¹"
-                )
-            else:
-                break
-            grid = new
-            for d in new:
-                if round(d, 9) not in measured:
-                    measure(d)
-
-    usable = [p for p in measured.values() if p.status == "ok"]
-    skipped = [p for p in measured.values() if p.status != "ok"]
-    if skipped:
-        notes.append(
-            f"{len(skipped)} 个点落在可用曝光带之外"
-            f"（clipped {sum(p.status == 'clipped' for p in skipped)} / "
-            f"dim {sum(p.status == 'dim' for p in skipped)}），未参与排序"
-        )
-
-    best, best_diopter = _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable)
-
-    # Linearity check at the winner. The whole ranking is peak-per-ms, which is
-    # only valid if the sensor is linear in exposure. One extra reading at a
-    # different exposure either confirms it or tells the operator to distrust the
-    # pick. Halving is preferred; when the winner already sits near the floor
-    # (bright bench) there is no room below, so it doubles instead.
-    linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
-
-    gain = _fp_flat_gain(best, measured)
-
-    # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
-    #
-    # 为什么要求「每个点」而不是「最亮的那一个」: 只有当整条扫描线上都找不到光时
-    # 才能说「光没到相机」。有一个点还能看到光斑, 就说明光路是通的, 只是焦面不在
-    # 扫到的范围里 —— 那是另一件事 (退出码 2), 处置完全不同。
-    blocked_reason, path_blocked = _fp_blocked_verdict(measured, notes)
+    best, best_diopter, blocked_reason, gain, linearity, path_blocked = _fp_sweep_pick_and_verdict(apply_phase, ceiling_ms, centre_px, coarse_points, diopter_range, diopters, discard, floor_ms, frames, measure, measured, notes, panel_shape, pixel_um, radius_px, read_frame, refine_points, set_exposure_ms, wavelength_nm)
 
     return FocusProbeResult(
         points=tuple(sorted(measured.values(), key=lambda p: p.diopter_m1)),

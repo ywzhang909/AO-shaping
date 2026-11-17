@@ -387,10 +387,10 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         """设置 Adam 学习率, 供外部学习率调度在每次 :meth:`update` 前调用。
 
         同时更新 ``self._lr`` 与底层 ``torch.optim.Adam`` 每个
-        ``param_groups`` 条目里的 ``lr``, 因此下一次 :meth:`update` 立即
+        ``param_groups`` 条目里的 ``lr``,         因此下一次 :meth:`update` 立即
         以新学习率执行。不调用本方法时行为与从前完全一致 (构造时的固定
-        学习率); 离线扫描 ``scripts/slm/sweep_differentiable_lr.py`` 用它
-        驱动余弦/阶梯/预热衰减等调度。
+        学习率); 余弦/阶梯/预热衰减等形状见
+        :mod:`ao_shaping.algorithm.signal_processing.shaping_lr_schedule`。
 
         Args:
             lr: 新的学习率, 必须为正的有限值。

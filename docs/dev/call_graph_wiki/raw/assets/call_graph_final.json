@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 509,
-   "end": 661,
+   "lineno": 517,
+   "end": 669,
    "args": [
     "center",
     "epochs",
@@ -683,8 +683,8 @@
    "qualname": "resample_on_saturation",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 812,
-   "end": 856,
+   "lineno": 822,
+   "end": 866,
    "args": [
     "img",
     "cam",
@@ -951,7 +951,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 1326,
-   "end": 1492,
+   "end": 1493,
    "args": [
     "ctx",
     "params",
@@ -1107,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 585,
-   "end": 774,
+   "lineno": 678,
+   "end": 814,
    "args": [
     "slm",
     "wfs",
@@ -1135,7 +1135,7 @@
    "qualname": "save_zernike_response_matrix",
    "module": "ao_shaping.optimizer.wf.zernike_response_matrix",
    "file": "src/ao_shaping/optimizer/wf/zernike_response_matrix.py",
-   "lineno": 659,
+   "lineno": 675,
    "end": 718,
    "args": [
     "result",
@@ -1177,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 780,
-   "end": 976,
+   "lineno": 931,
+   "end": 1040,
    "args": [
     "slm",
     "wfs",
@@ -1229,7 +1229,7 @@
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
    "lineno": 1818,
-   "end": 1970,
+   "end": 1971,
    "args": [
     "ctx",
     "params"

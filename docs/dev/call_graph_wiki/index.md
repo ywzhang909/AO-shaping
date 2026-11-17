@@ -69,10 +69,10 @@
 | 页面 | 签名 | 位置 |
 |---|---|---|
 | [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:50` |
-| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:509` |
-| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:421` |
+| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:517` |
+| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:429`（2026-11-17 跟进 #205 第 128 批 `7c1b2a31` `_run_combined_session` 提取后重钉，421→429） |
 | [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:894` |
-| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:218` |
+| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:321`（2026-11-17 跟进 #205 第 126 批 `309772d7` `_ga_run_evolution` 提至 `optimizer_ga` 上方后重钉，218→321） |
 | [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:355` |
 | [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1420`（2026-11-16 跟进 #205 第九十九批 `109d5816` 三闭包外提后重钉，1487→1420） |
 | [[functions/spgd-gradient]] | `spgd_gradient(pos_obj, neg_obj, disturb, *, maximize)` | `optimizer/spgd.py:40` |
@@ -82,14 +82,14 @@
 |---|---|---|
 | [[functions/calibrate-dm-matrix]] | `calibrate_dm_response_matrix(dm, wfs, disturb_voltage, …)` | `optimizer/wf/dm_response_matrix.py:702`（2026-11-15 跟进 f9a7dd60 第 87 批 `calibrate_dm_response_matrix` 三缝后重钉，634→702） |
 | [[functions/save-dm-matrix]] | `save_dm_response_matrix(…)` | `optimizer/wf/dm_response_matrix.py:848`（2026-11-15 跟进 f9a7dd60 第 87 批重钉，832→848） |
-| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:659` |
+| [[functions/save-zernike-matrix]] | `save_zernike_response_matrix(…)` | `optimizer/wf/zernike_response_matrix.py:675`（2026-11-17 跟进 #205 第 114 批 `8f2487b6` lift 后重钉，659→675） |
 
 ### 驱动 / 注册表 (drivers/)
 | 页面 | 签名 | 位置 |
 |---|---|---|
 | [[functions/resolve-dm]] | `resolve_dm(dm_type, **kwargs)` | `drivers/dm/_registry.py:230` |
 | [[functions/resolve-wfs]] | `resolve_wfs(wfs_type, **kwargs)` | `drivers/wfs/_registry.py:147` |
-| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:222` |
+| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:228`（2026-11-17 跟进 `0772202b` ccd 叶子拆分致 `create_camera` 自 `:222` 下移后重钉，222→228） |
 
 ### 算法 (algorithm/)
 | 页面 | 签名 | 位置 |

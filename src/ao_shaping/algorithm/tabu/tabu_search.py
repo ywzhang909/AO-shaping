@@ -299,6 +299,84 @@ def should_trigger_search(
 # =============================================================================
 
 
+
+
+def _evaluate_search_candidates(anchor_objective, anchor_v, evaluate_candidate, objective_key, rng, self, tol):
+# Candidate generation and evaluation lifted verbatim
+    if self.candidate_generator == generate_search_candidates:
+        candidates = self.candidate_generator(
+            anchor_v,
+            self.search_state.radius,
+            8,
+            None,
+            rng,
+        )
+    else:
+        # 自定义生成器 - 先尝试关键字参数
+        try:
+            candidates = self.candidate_generator(
+                anchor_v=anchor_v,
+                radius_scale=self.search_state.radius,
+                n_samples=8,
+                active_mask=None,
+                rng=rng,
+            )
+        except TypeError:
+            # 兜底: 位置参数
+            candidates = self.candidate_generator(
+                anchor_v,
+                self.search_state.radius,
+                8,
+                None,
+                rng,
+            )
+
+    best_candidate: dict | None = None
+    tabu_hits = 0
+    safe_rejects = 0
+    evaluated = 0
+
+    for candidate in candidates:
+        # 若指定了边界则施加截断
+        if self.clip_bounds is not None:
+            candidate = np.clip(candidate, self.clip_bounds[0], self.clip_bounds[1])
+
+        # 检查禁忌
+        if self.tabu_memory.contains(candidate):
+            tabu_hits += 1
+            continue
+
+        # 检查安全性
+        if self.safety_check is not None and not self.safety_check(candidate):
+            safe_rejects += 1
+            self.tabu_memory.add(candidate)
+            continue
+
+        # 评估候选
+        candidate_eval = evaluate_candidate(candidate)
+        evaluated += 1
+
+        # 判断这是否算改进
+        candidate_value = candidate_eval.get(
+            objective_key, candidate_eval.get("value", 0)
+        )
+        improved = candidate_value > anchor_objective + tol
+
+        if improved and (
+            best_candidate is None
+            or candidate_value
+            > best_candidate.get(objective_key, best_candidate.get("value", 0))
+        ):
+            best_candidate = {
+                "voltages": candidate.copy(),
+                **candidate_eval,
+                objective_key: candidate_value,
+            }
+        else:
+            self.tabu_memory.add(candidate)
+    return best_candidate, evaluated, safe_rejects, tabu_hits
+
+
 class TabuSearchRunner:
     """编排基于禁忌的自适应邻域搜索。
 
@@ -415,77 +493,7 @@ class TabuSearchRunner:
         )
 
         # 生成候选 - 用位置参数以保证兼容性
-        if self.candidate_generator == generate_search_candidates:
-            candidates = self.candidate_generator(
-                anchor_v,
-                self.search_state.radius,
-                8,
-                None,
-                rng,
-            )
-        else:
-            # 自定义生成器 - 先尝试关键字参数
-            try:
-                candidates = self.candidate_generator(
-                    anchor_v=anchor_v,
-                    radius_scale=self.search_state.radius,
-                    n_samples=8,
-                    active_mask=None,
-                    rng=rng,
-                )
-            except TypeError:
-                # 兜底: 位置参数
-                candidates = self.candidate_generator(
-                    anchor_v,
-                    self.search_state.radius,
-                    8,
-                    None,
-                    rng,
-                )
-
-        best_candidate: dict | None = None
-        tabu_hits = 0
-        safe_rejects = 0
-        evaluated = 0
-
-        for candidate in candidates:
-            # 若指定了边界则施加截断
-            if self.clip_bounds is not None:
-                candidate = np.clip(candidate, self.clip_bounds[0], self.clip_bounds[1])
-
-            # 检查禁忌
-            if self.tabu_memory.contains(candidate):
-                tabu_hits += 1
-                continue
-
-            # 检查安全性
-            if self.safety_check is not None and not self.safety_check(candidate):
-                safe_rejects += 1
-                self.tabu_memory.add(candidate)
-                continue
-
-            # 评估候选
-            candidate_eval = evaluate_candidate(candidate)
-            evaluated += 1
-
-            # 判断这是否算改进
-            candidate_value = candidate_eval.get(
-                objective_key, candidate_eval.get("value", 0)
-            )
-            improved = candidate_value > anchor_objective + tol
-
-            if improved and (
-                best_candidate is None
-                or candidate_value
-                > best_candidate.get(objective_key, best_candidate.get("value", 0))
-            ):
-                best_candidate = {
-                    "voltages": candidate.copy(),
-                    **candidate_eval,
-                    objective_key: candidate_value,
-                }
-            else:
-                self.tabu_memory.add(candidate)
+        best_candidate, evaluated, safe_rejects, tabu_hits = _evaluate_search_candidates(anchor_objective, anchor_v, evaluate_candidate, objective_key, rng, self, tol)
 
         # 处理没有有效候选的情况
         if best_candidate is None:

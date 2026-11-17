@@ -492,6 +492,72 @@ def _zrm_build_result(amplitude_optimization, deviation_response_matrix, exclude
 
 
 
+
+def _zrm_inverses(compute_inverses, response_matrix):
+# Pseudo-inverse and lstsq computation lifted verbatim
+    pinv_matrix = None
+    lstsq_matrix = None
+
+    if compute_inverses:
+        logger.info("计算SVD伪逆矩阵...")
+        pinv_matrix = compute_pinv(response_matrix)
+
+        logger.info("计算最小二乘逆矩阵...")
+        lstsq_matrix = compute_lstsq(response_matrix)
+    return lstsq_matrix, pinv_matrix
+
+
+
+
+def _zrm_measure_mode(cancel_tile, debug_data_callback, deviation_response_matrix, excluded_piston, excluded_tip_tilt, i, initial_valid_mask, magnitude, n_averages, n_cycles, response_matrix, variance_matrix, wait_time, wfs, zslm):
+# Per-mode response measurement block lifted verbatim (display break stays in loop)
+    n_full = wfs.calc_n_zernike_terms(DEFAULT_N_MAX)
+    coeffs_full = np.zeros(n_full, dtype=np.float64)
+    coeff_value = magnitude
+
+    slot = slm_mode_slot(
+        i, excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt
+    )
+    coeffs_full[slot] = coeff_value
+
+    mean_resp, var_resp, mean_dev, var_dev = measure_zernike_mode_response(
+        zslm=zslm,
+        wfs=wfs,
+        zernike_coeffs=coeffs_full,
+        magnitude=coeff_value,
+        n_averages=n_averages,
+        n_cycles=n_cycles,
+        wait_time=wait_time,
+        excluded_piston=excluded_piston,
+        excluded_tip_tilt=excluded_tip_tilt,
+        zernike_order=DEFAULT_N_MAX,
+        mode_index=i,
+        debug_data_callback=debug_data_callback,
+        cancel_tile=cancel_tile,
+    )
+    logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
+
+    # Check intensity for NaN at initially valid positions
+    wfs.take_image(3)
+    current_intensity, _ = wfs.get_spots_statics()
+    nan_at_valid = np.isnan(current_intensity) & initial_valid_mask
+    if np.any(nan_at_valid):
+        nan_positions = np.argwhere(nan_at_valid)
+        current_intensity[nan_at_valid]
+        logger.warning(
+            f"Mode {i}: Intensity NaN detected at {len(nan_positions)} initially valid positions. "
+            f"Shape: {current_intensity.shape}, "
+            f"NaN positions (y,x): {nan_positions.tolist()}, "
+            f"Current amplitude: {coeff_value}λ"
+        )
+
+    response_matrix[:, i] = mean_resp
+    variance_matrix[:, i] = var_resp
+    deviation_response_matrix[:, i] = mean_dev
+    return mean_resp, slot, var_resp
+
+
+
 def calibrate_zernike_response_matrix(
     zslm: ZernikeSLM,
     wfs: WFSManager,
@@ -571,49 +637,7 @@ def calibrate_zernike_response_matrix(
         # index 0 = piston (Z1), index 1 = tip (Z2), index 2 = tilt (Z3), ...
         # When excluded_piston=True, mode i starts from Noll index i+2
         # When excluded_piston=True AND excluded_tip_tilt=True, mode i starts from Noll index i+4
-        n_full = wfs.calc_n_zernike_terms(DEFAULT_N_MAX)
-        coeffs_full = np.zeros(n_full, dtype=np.float64)
-        coeff_value = magnitude
-
-        slot = slm_mode_slot(
-            i, excluded_piston=excluded_piston, excluded_tip_tilt=excluded_tip_tilt
-        )
-        coeffs_full[slot] = coeff_value
-
-        mean_resp, var_resp, mean_dev, var_dev = measure_zernike_mode_response(
-            zslm=zslm,
-            wfs=wfs,
-            zernike_coeffs=coeffs_full,
-            magnitude=coeff_value,
-            n_averages=n_averages,
-            n_cycles=n_cycles,
-            wait_time=wait_time,
-            excluded_piston=excluded_piston,
-            excluded_tip_tilt=excluded_tip_tilt,
-            zernike_order=DEFAULT_N_MAX,
-            mode_index=i,
-            debug_data_callback=debug_data_callback,
-            cancel_tile=cancel_tile,
-        )
-        logger.debug(f'iter {i} rms = {np.sqrt(np.mean(mean_resp ** 2))}')
-
-        # Check intensity for NaN at initially valid positions
-        wfs.take_image(3)
-        current_intensity, _ = wfs.get_spots_statics()
-        nan_at_valid = np.isnan(current_intensity) & initial_valid_mask
-        if np.any(nan_at_valid):
-            nan_positions = np.argwhere(nan_at_valid)
-            current_intensity[nan_at_valid]
-            logger.warning(
-                f"Mode {i}: Intensity NaN detected at {len(nan_positions)} initially valid positions. "
-                f"Shape: {current_intensity.shape}, "
-                f"NaN positions (y,x): {nan_positions.tolist()}, "
-                f"Current amplitude: {coeff_value}λ"
-            )
-
-        response_matrix[:, i] = mean_resp
-        variance_matrix[:, i] = var_resp
-        deviation_response_matrix[:, i] = mean_dev
+        mean_resp, slot, var_resp = _zrm_measure_mode(cancel_tile, debug_data_callback, deviation_response_matrix, excluded_piston, excluded_tip_tilt, i, initial_valid_mask, magnitude, n_averages, n_cycles, response_matrix, variance_matrix, wait_time, wfs, zslm)
 
         # Call callback if provided (after each mode measurement)
         if callback is not None:
@@ -637,15 +661,7 @@ def calibrate_zernike_response_matrix(
                 break
 
     # 计算逆矩阵 (可选)
-    pinv_matrix = None
-    lstsq_matrix = None
-
-    if compute_inverses:
-        logger.info("计算SVD伪逆矩阵...")
-        pinv_matrix = compute_pinv(response_matrix)
-
-        logger.info("计算最小二乘逆矩阵...")
-        lstsq_matrix = compute_lstsq(response_matrix)
+    lstsq_matrix, pinv_matrix = _zrm_inverses(compute_inverses, response_matrix)
 
     result = _zrm_build_result(amplitude_optimization, deviation_response_matrix, excluded_piston, excluded_tip_tilt, lstsq_matrix, magnitude, n_averages, n_cycles, n_max, pinv_matrix, response_matrix, subaperture_mask, variance_matrix, zslm)
 

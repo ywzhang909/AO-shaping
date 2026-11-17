@@ -1062,6 +1062,197 @@ def _round_calibration_stages(config, *, out, suffix, prefix, model_out, checkpo
         options["checkpoint"] = blur_out / "frozen_parameters.json"
 
 
+
+def _wf_round_fit_quality(accepted, anchored_out, config, fit_out, out, round_index, rounds, train_all):
+# Fit quality verdict block lifted verbatim
+    quality = _fit_quality(out, fit_out)
+    measured_correlation = None if quality is None else quality["correlation"]
+    measured_relative_l2 = None if quality is None else quality["relative_l2"]
+    if quality is None:
+        accepted = False
+    else:
+        accepted = (
+            measured_correlation >= config.acceptance_lower
+            and measured_relative_l2 <= config.acceptance_upper
+        )
+    rounds.append(
+        dict(
+            round=round_index,
+            train_all=train_all,
+            measured_correlation=measured_correlation,
+            measured_relative_l2=measured_relative_l2,
+            accepted=accepted,
+            fit_directory=str(fit_out.relative_to(out)),
+            anchored_directory=str(anchored_out.relative_to(out)),
+        )
+    )
+    if config.acceptance_enabled:
+        # Only the looped path writes the round record: with the gate
+        # off the session directory keeps exactly the artifacts it had
+        # before.
+        (out / "rounds.json").write_text(
+            json.dumps(rounds, indent=2), encoding="utf-8"
+        )
+    return accepted, measured_correlation, measured_relative_l2
+
+
+
+
+def _wf_round_online_audit(anchored_out, checkpoint, config, model_out, on_frame, options, out, prefix, stage, suffix, validate):
+# Online calibration audit stages lifted verbatim
+    from .artifacts import audit_run
+
+    if (
+        not config.seed_run and config.initial_phase == "gs"
+    ) or config.calibration_enabled:
+        stage(
+            f"{prefix}CCD_model_blocks",
+            lambda options=options, model_out=model_out: validate.run(
+                SimpleNamespace(
+                    **options,
+                    out=model_out,
+                    seed_run=config.seed_run,
+                    seed_policy=config.seed_policy,
+                    mode="model",
+                    blocks=2,
+                    execute=True,
+                    on_frame=on_frame,
+                )
+            ),
+        )
+        _round_calibration_stages(
+            config,
+            out=out,
+            suffix=suffix,
+            prefix=prefix,
+            model_out=model_out,
+            checkpoint=checkpoint,
+            options=options,
+            stage=stage,
+            on_frame=on_frame,
+        )
+    stage(
+        f"{prefix}CCD_anchored_blocks",
+        lambda options=options, anchored_out=anchored_out, model_out=model_out: validate.run(
+            SimpleNamespace(
+                **options,
+                out=anchored_out,
+                seed_run=config.seed_run
+                if not config.calibration_enabled
+                and (config.seed_run or config.initial_phase != "gs")
+                else model_out,
+                seed_policy=config.seed_policy
+                if config.seed_run and not config.calibration_enabled
+                else "strict",
+                mode="anchored",
+                blocks=config.blocks,
+                execute=True,
+                on_frame=on_frame,
+            )
+        ),
+    )
+
+    def audit(anchored_out=anchored_out, suffix=suffix):
+        result = audit_run(anchored_out)
+        (out / f"audit{suffix}.json").write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
+
+    stage(f"{prefix}raw_data_audit", audit)
+    return audit, suffix
+
+
+
+
+def _wf_round_setup(checkpoint, config, dataset, device, fit, out, round_index, samples, stage, warm_start):
+# Per round output paths and options assembly lifted verbatim
+    last_round = round_index
+    suffix = "" if round_index == 0 else f".round{round_index}"
+    fit_out = out / f"fit{suffix}"
+    model_out = out / f"model{suffix}"
+    anchored_out = out / f"anchored{suffix}"
+    prefix = "" if round_index == 0 else f"acceptance_round_{round_index}_"
+    # Round >= 1 folds the validation phases into training: the acceptance
+    # bound was not met with them held out, so the extra data has to earn
+    # its keep. The first round keeps the split so the bound is measured
+    # on genuinely disjoint phases.
+    train_all = round_index > 0
+    stage(
+        f"{prefix}fit",
+        lambda fit_out=fit_out, train_all=train_all: fit.fit(
+            SimpleNamespace(
+                dataset=dataset,
+                checkpoint=warm_start,
+                out=fit_out,
+                iterations=config.iterations,
+                patience=config.patience,
+                min_delta=config.min_delta,
+                span=120,
+                samples=samples,
+                device=device,
+                amplitude_center_lr=config.amplitude_center_lr,
+                adaptation=config.adaptation if config.checkpoint else "full",
+                train_all=train_all,
+            )
+        ),
+    )
+    checkpoint = fit_out / "frozen_parameters.json"
+    if config.control_grid:
+        from .geometric_seed import export_frozen_parameters
+
+        control_out = out / f"model{config.control_grid}{suffix}"
+        stage(
+            f"{prefix}control_resolution_export",
+            lambda checkpoint=checkpoint, control_out=control_out: export_frozen_parameters(
+                checkpoint, control_out, grid=config.control_grid, fft=config.fft_size
+            ),
+        )
+        checkpoint = control_out / "frozen_parameters.json"
+    zero, reference = _round_geometry_preflight(
+        config, dataset=dataset, checkpoint=checkpoint
+    )
+    # Keep the latest fitted model per SLM serial, both on the first fit and
+    # after every threshold retrain. Offline sessions have no serial and skip.
+    from .latest_model import save_latest_model, serial_from_capture
+
+    # 光路复用探针的**参照条件**随模型一起存进 latest: 曝光区间与取图格式
+    # 来自本次采集写下的侧车, 零点来自本次拟合的 frozen_parameters.json。
+    _write_reference_probe(fit_out, dataset, checkpoint)
+    save_latest_model(checkpoint.parent, serial_from_capture(out))
+    options = dict(
+        checkpoint=checkpoint,
+        zero_xy=zero,
+        period=config.period,
+        side=config.side,
+        window_span=config.window_span,
+        window_step=config.window_step,
+        zero_radius=config.zero_radius,
+        core_margin=config.core_margin,
+        bit_depth=config.bit_depth,
+        initial_phase=config.initial_phase,
+        random_seed=config.seed,
+        phase_lr=config.phase_lr,
+        phase_rms_cap=config.phase_rms_cap,
+        adaptive_step=config.adaptive_step,
+        adaptive_exposure=config.adaptive_exposure,
+        accept_metric=config.accept_metric,
+        objective=config.objective,
+        shapes=list(config.shapes),
+        updates=config.updates,
+        frames=config.frames,
+        abba=config.abba,
+        acceptance_enabled=bool(config.acceptance_enabled),
+        device=device,
+        camera=config.camera,
+        cam_id=config.cam_id,
+        slm_number=config.slm_number,
+        tilt=getattr(config, "tilt", False),
+        aspect_ratio=getattr(config, "aspect_ratio", 2.0),
+    )
+    return anchored_out, checkpoint, fit_out, last_round, model_out, options, prefix, reference, suffix, train_all, zero
+
+
+
 def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_rounds, offline, on_frame, out, rounds, samples, should_stop, stage, stopped_by_user, validate, warm_start):
     """Per-round loop lifted verbatim from run_session. The inner
     `audit` def and the stage/frame lambdas live entirely inside
@@ -1086,89 +1277,7 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
                 "acceptance threshold not met after round {}; retraining with validation data folded in",
                 round_index - 1,
             )
-        last_round = round_index
-        suffix = "" if round_index == 0 else f".round{round_index}"
-        fit_out = out / f"fit{suffix}"
-        model_out = out / f"model{suffix}"
-        anchored_out = out / f"anchored{suffix}"
-        prefix = "" if round_index == 0 else f"acceptance_round_{round_index}_"
-        # Round >= 1 folds the validation phases into training: the acceptance
-        # bound was not met with them held out, so the extra data has to earn
-        # its keep. The first round keeps the split so the bound is measured
-        # on genuinely disjoint phases.
-        train_all = round_index > 0
-        stage(
-            f"{prefix}fit",
-            lambda fit_out=fit_out, train_all=train_all: fit.fit(
-                SimpleNamespace(
-                    dataset=dataset,
-                    checkpoint=warm_start,
-                    out=fit_out,
-                    iterations=config.iterations,
-                    patience=config.patience,
-                    min_delta=config.min_delta,
-                    span=120,
-                    samples=samples,
-                    device=device,
-                    amplitude_center_lr=config.amplitude_center_lr,
-                    adaptation=config.adaptation if config.checkpoint else "full",
-                    train_all=train_all,
-                )
-            ),
-        )
-        checkpoint = fit_out / "frozen_parameters.json"
-        if config.control_grid:
-            from .geometric_seed import export_frozen_parameters
-
-            control_out = out / f"model{config.control_grid}{suffix}"
-            stage(
-                f"{prefix}control_resolution_export",
-                lambda checkpoint=checkpoint, control_out=control_out: export_frozen_parameters(
-                    checkpoint, control_out, grid=config.control_grid, fft=config.fft_size
-                ),
-            )
-            checkpoint = control_out / "frozen_parameters.json"
-        zero, reference = _round_geometry_preflight(
-            config, dataset=dataset, checkpoint=checkpoint
-        )
-        # Keep the latest fitted model per SLM serial, both on the first fit and
-        # after every threshold retrain. Offline sessions have no serial and skip.
-        from .latest_model import save_latest_model, serial_from_capture
-
-        # 光路复用探针的**参照条件**随模型一起存进 latest: 曝光区间与取图格式
-        # 来自本次采集写下的侧车, 零点来自本次拟合的 frozen_parameters.json。
-        _write_reference_probe(fit_out, dataset, checkpoint)
-        save_latest_model(checkpoint.parent, serial_from_capture(out))
-        options = dict(
-            checkpoint=checkpoint,
-            zero_xy=zero,
-            period=config.period,
-            side=config.side,
-            window_span=config.window_span,
-            window_step=config.window_step,
-            zero_radius=config.zero_radius,
-            core_margin=config.core_margin,
-            bit_depth=config.bit_depth,
-            initial_phase=config.initial_phase,
-            random_seed=config.seed,
-            phase_lr=config.phase_lr,
-            phase_rms_cap=config.phase_rms_cap,
-            adaptive_step=config.adaptive_step,
-            adaptive_exposure=config.adaptive_exposure,
-            accept_metric=config.accept_metric,
-            objective=config.objective,
-            shapes=list(config.shapes),
-            updates=config.updates,
-            frames=config.frames,
-            abba=config.abba,
-            acceptance_enabled=bool(config.acceptance_enabled),
-            device=device,
-            camera=config.camera,
-            cam_id=config.cam_id,
-            slm_number=config.slm_number,
-            tilt=getattr(config, "tilt", False),
-            aspect_ratio=getattr(config, "aspect_ratio", 2.0),
-        )
+        anchored_out, checkpoint, fit_out, last_round, model_out, options, prefix, reference, suffix, train_all, zero = _wf_round_setup(checkpoint, config, dataset, device, fit, out, round_index, samples, stage, warm_start)
         if offline:
 
             stage(
@@ -1188,97 +1297,12 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
                 ),
             )
         else:
-            from .artifacts import audit_run
-
-            if (
-                not config.seed_run and config.initial_phase == "gs"
-            ) or config.calibration_enabled:
-                stage(
-                    f"{prefix}CCD_model_blocks",
-                    lambda options=options, model_out=model_out: validate.run(
-                        SimpleNamespace(
-                            **options,
-                            out=model_out,
-                            seed_run=config.seed_run,
-                            seed_policy=config.seed_policy,
-                            mode="model",
-                            blocks=2,
-                            execute=True,
-                            on_frame=on_frame,
-                        )
-                    ),
-                )
-                _round_calibration_stages(
-                    config,
-                    out=out,
-                    suffix=suffix,
-                    prefix=prefix,
-                    model_out=model_out,
-                    checkpoint=checkpoint,
-                    options=options,
-                    stage=stage,
-                    on_frame=on_frame,
-                )
-            stage(
-                f"{prefix}CCD_anchored_blocks",
-                lambda options=options, anchored_out=anchored_out, model_out=model_out: validate.run(
-                    SimpleNamespace(
-                        **options,
-                        out=anchored_out,
-                        seed_run=config.seed_run
-                        if not config.calibration_enabled
-                        and (config.seed_run or config.initial_phase != "gs")
-                        else model_out,
-                        seed_policy=config.seed_policy
-                        if config.seed_run and not config.calibration_enabled
-                        else "strict",
-                        mode="anchored",
-                        blocks=config.blocks,
-                        execute=True,
-                        on_frame=on_frame,
-                    )
-                ),
-            )
-
-            def audit(anchored_out=anchored_out, suffix=suffix):
-                result = audit_run(anchored_out)
-                (out / f"audit{suffix}.json").write_text(
-                    json.dumps(result, indent=2), encoding="utf-8"
-                )
-
-            stage(f"{prefix}raw_data_audit", audit)
+            audit, suffix = _wf_round_online_audit(anchored_out, checkpoint, config, model_out, on_frame, options, out, prefix, stage, suffix, validate)
             # The acceptance verdict for this round: the mean correlation and
             # relative_l2 over the fit's *validation* phases. A missing or
             # unreadable fit artifact yields ``None`` -> the round counts as
             # not accepted and the loop tries again (bounded by the cap).
-            quality = _fit_quality(out, fit_out)
-            measured_correlation = None if quality is None else quality["correlation"]
-            measured_relative_l2 = None if quality is None else quality["relative_l2"]
-            if quality is None:
-                accepted = False
-            else:
-                accepted = (
-                    measured_correlation >= config.acceptance_lower
-                    and measured_relative_l2 <= config.acceptance_upper
-                )
-            rounds.append(
-                dict(
-                    round=round_index,
-                    train_all=train_all,
-                    measured_correlation=measured_correlation,
-                    measured_relative_l2=measured_relative_l2,
-                    accepted=accepted,
-                    fit_directory=str(fit_out.relative_to(out)),
-                    anchored_directory=str(anchored_out.relative_to(out)),
-                )
-            )
-            if config.acceptance_enabled:
-                # Only the looped path writes the round record: with the gate
-                # off the session directory keeps exactly the artifacts it had
-                # before.
-                (out / "rounds.json").write_text(
-                    json.dumps(rounds, indent=2), encoding="utf-8"
-                )
+            accepted, measured_correlation, measured_relative_l2 = _wf_round_fit_quality(accepted, anchored_out, config, fit_out, out, round_index, rounds, train_all)
             if not config.acceptance_enabled:
                 break
             if accepted:

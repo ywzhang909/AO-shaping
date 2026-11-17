@@ -28,6 +28,10 @@ def test_batch_matches_individual_frames(monkeypatch, backend, dtype, high):
     ]
     cam = object.__new__(Camera)
     cam._bit_depth = 8 if dtype == np.uint8 else 16
+    if backend == "daheng":
+        # 2026-11-16 大恒契约: 位深单一存储在公开 `bit_depth` (私有缓存已删),
+        # _full_scale() 只认它; 私有 _bit_depth 保留给 miicam 口径。
+        cam.bit_depth = cam._bit_depth
     iterator = iter(frames)
     monkeypatch.setattr(Camera, shot_name, lambda self: next(iterator))
     batch = cam.get_numpy_image(n_sample=3, skip_first=False)
