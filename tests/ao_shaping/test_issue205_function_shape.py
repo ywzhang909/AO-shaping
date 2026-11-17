@@ -576,6 +576,8 @@ TARGETS = [
     (_CALIBRATION, "_align_report_finalize", 23, 1, 19),
     (_DIFFERENTIABLE_SHAPING, "train_beam_shaping", 150, 3, 139),
     (_DIFFERENTIABLE_SHAPING, "_tbs_prepare_candidates", 56, 3, 51),
+    (_DIFFERENTIABLE_SHAPING, "_run_shaping_loop", 100, 2, 92),
+    (_DIFFERENTIABLE_SHAPING, "_shaping_epoch_loop", 90, 5, 81),
     (_CALIBRATION, "main_shift_calib", 118, 3, 105),
     (_CALIBRATION, "_shift_eval_closures", 40, 3, 36),
     (_CALIBRATION, "_shift_axis_refine", 39, 3, 35),

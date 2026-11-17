@@ -2,6 +2,7 @@
   "src/ao_shaping/algorithm/gradient/adam.py": 862,
   "src/ao_shaping/algorithm/signal_processing/angular_spectrum.py": 928,
   "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py": 1153,
+  "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py": 806,
   "src/ao_shaping/algorithm/signal_processing/square_shaping.py": 1386,
   "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py": 1628,
   "src/ao_shaping/drivers/ccd/base.py": 903,

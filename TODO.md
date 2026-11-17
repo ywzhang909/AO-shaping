@@ -5565,6 +5565,10 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 新增守卫常量 `_DIFFERENTIABLE_SHAPING` + 两行 (150/3/139、56/3/51)
 - 载体: `test_differentiable_shaping` + `_quality` + **`_golden` (逐位一致训练)** + 形状门禁 **529 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
 
+**2026-11-18 · 06f532f3 之后 · 第 142 批: `_run_shaping_loop` 170→92 行 (`differentiable_shaping.py`)**
+- 提取 `_shaping_epoch_loop` 81 行 (14 参数 0 回传, 逐迭代 lr 调度/多候选评分/最优相位回写整环; 环内 2 处 break 由环自身绑定; 状态全经 loss_history/per_holder/张量原地突变流动, 与逐字提取语义一致; 0 回传裸 return 尾行按 ast 剥离)
+- 载体 (golden 逐位兜底): 同前三文件 + 形状门禁 **531 passed**; ruff 全仓绿; term 0; modsize 抬高后绿
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
