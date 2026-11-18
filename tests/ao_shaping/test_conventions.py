@@ -47,6 +47,19 @@ What each guard is for, and why a plain grep is not enough:
   ``_ensure_open`` paradigm). The AST guard below lives in *this* file because
   ``pyproject`` ``addopts --ignore`` prunes ``tests/ao_shaping/drivers/**`` from
   default discovery, so a guard placed there would run for nobody in CI.
+
+* **``print()`` in ``src/`` stays inside the CLI/stdout-contract allow-list.**
+  F-5 slice #2 (print -> loguru, issue #56 / docs/issues_report.md §11.1) is
+  closed by measurement: every *library* debug print is gone; the remaining
+  real call sites are deliberate stdout contracts -- ``device_mutex`` prints
+  probe protocol lines that its own reader parses (``PROBE_NOTE_PREFIX``,
+  device_mutex.py:930 -- loguru would route them to stderr and the reader
+  would idle), ``parallel_fit`` emits a machine-read JSON exit line, the
+  transfer CLI streams ``Session complete:`` for the desktop GUI's subprocess,
+  and ``python -m ao_shaping.tools.slm.shaping`` prints its rendered artifact.
+  The naive "convert every print" would silently break all of those; the
+  guard pins the set as (file, function, count) in both directions so a new
+  debug print fails CI instead of quietly joining the set.
 """
 
 from __future__ import annotations
@@ -5146,3 +5159,75 @@ def test_agents_md_pointer_guard_is_not_vacuous() -> None:
     assert len(AGENT_REF_RE.findall(live)) >= 5, (
         f"only {len(AGENT_REF_RE.findall(live))} pointers parsed in AGENTS.md -- the "
         f"pattern stopped matching how the document spells its references")
+
+
+#: F-5 slice #2 (issue #56): every remaining ``print`` call in ``src/`` is a
+#: CLI or machine-protocol stdout contract, keyed (file relative to src/,
+#: innermost enclosing function) -> exact call count. Rationale per cluster is
+#: in the module docstring; drift in either direction is a CI failure.
+_PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
+    ("drivers/ccd/pixel_size.py", "_main"): 3,
+    ("tools/kernels/device_mutex.py", "_wait_idle_loop"): 9,
+    ("tools/kernels/device_mutex.py", "_resolve_probe_state"): 4,
+    ("tools/kernels/device_mutex.py", "_probe_main"): 2,
+    ("tools/slm/shaping/__main__.py", "main"): 1,
+    ("tools/slm/transfer/fit.py", "fit"): 3,
+    ("tools/slm/transfer/fit.py", "fit_adaptive"): 1,
+    ("tools/slm/transfer/parallel_fit.py", "main"): 1,
+    ("tools/slm/transfer/validate.py", "_hold_best_phase_or_flatten"): 1,
+    ("tools/slm/transfer/validate.py", "_run_validate_shapes"): 1,
+    ("tools/slm/transfer/validate.py", "_validate_block_loop"): 1,
+    ("tools/slm/transfer/workflow.py", "_run_reused_session"): 1,
+    ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
+    ("tools/slm/transfer/workflow.py", "stage"): 1,
+}
+
+
+def _src_print_call_sites() -> dict[tuple[str, str], int]:
+    """AST-only census of real ``print(...)`` calls, keyed to the innermost function."""
+    counts: dict[tuple[str, str], int] = {}
+    root = SRC / "ao_shaping"
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        innermost: dict[int, str] = {}
+        for node in ast.walk(tree):  # BFS: outer first, later (inner) wins
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for line in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+                    innermost[line] = node.name
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                key = (
+                    path.relative_to(root).as_posix(),
+                    innermost.get(node.lineno, "<module>"),
+                )
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def test_src_print_calls_stay_within_cli_contract_allowlist() -> None:
+    """Closing half of F-5 slice #2: no *new* print may join the contract set.
+
+    Both directions are pinned (the ``test_the_baseline_has_not_grown``
+    culture): a converted-away print must leave the allow-list, a debug print
+    must never enter it. Docstring ``>>> print`` examples and commented-out
+    prints are invisible to this AST scan by construction.
+    """
+    counts = _src_print_call_sites()
+    extra = sorted(k for k in counts if k not in _PRINT_CONTRACT_ALLOWLIST)
+    gone = sorted(k for k in _PRINT_CONTRACT_ALLOWLIST if k not in counts)
+    drift = sorted(
+        (k, counts[k], _PRINT_CONTRACT_ALLOWLIST[k])
+        for k in counts
+        if k in _PRINT_CONTRACT_ALLOWLIST and counts[k] != _PRINT_CONTRACT_ALLOWLIST[k]
+    )
+    assert not (extra or gone or drift), (
+        "print() contract set in src/ drifted (F-5 slice #2, issue #56):\n"
+        f"  new print call sites (convert to loguru, or justify + add): {extra}\n"
+        f"  contract sites that vanished (drop from allow-list):        {gone}\n"
+        f"  count drift (site, actual, pinned):                        {drift}"
+    )
+

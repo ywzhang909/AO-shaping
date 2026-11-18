@@ -226,7 +226,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ID | 摘要 | issue |
 |---|---|---|
 | ~~F-4~~ | ✅ **决策已定（2026-10-14）：保留 `src/ml/` 为独立顶层包，不迁移**（依赖方向是 ml→主包，torch 可选性靠 PEP-562 惰性隔离已验证，迁移 155 文件零收益）。`gsnet_runner.py` 顶层 `from ml...` 属 GSNet 专用 runner、被 `_LAZY_RUNNERS` 惰性加载，`import ao_shaping.runners` 不拖 torch，**无需改动** | [#55](https://github.com/ywzhang909/AO-shaping/issues/55) |
-| F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做。**切片 1 已完成（2026-10-14）：`src/ao_shaping` + `scripts` 41 个文件补齐 `from __future__ import annotations`（tests 67 与 `__init__.py` 39 有意跳过）** → archive §5.36；余 3 片（print→loguru / 宽泛 except / 大文件）未动 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
+| F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做。**切片 1 已完成（2026-10-14）：`src/ao_shaping` + `scripts` 41 个文件补齐 `from __future__ import annotations`（tests 67 与 `__init__.py` 39 有意跳过）** → archive §5.36；**切片 #2 print→loguru 已收口**（2026-11-18：AST 复扫库内调试 print 归零，余 30 处全为 CLI/机器协议 stdout 并被双向守卫钉死，见 `test_src_print_calls_stay_within_cli_contract_allowlist` 与 issues_report §11.1 修订）；**切片 #3 宽泛 except 实质已由 #174 收口**（未标注盲捕棘轮 = 0，逐处判定）；**切片 #4 大文件** = `check_module_size.py` 棘轮门禁已上线（增量必红，存量按基线跟踪），长函数拆分另轨 #205/b166 终判 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
 | F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/oopao_impact_report/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
 | F-11 | ✅ **已收口 (2026-10-25)**：三路序列号对应**两台 SLM**（用户 2026-10-05 定论"实验室有 532/1064 两台"，关闭 #58 时定调"保留配置文件默认行为即可"）：SLM#1 = **22030108 @1064nm 2π=993**（唯一读数，权威）；532nm 台 = **23020026 @532nm 2π=998**（2026-09-16 起各报告一致）；**22030102** 为 532nm 台 09-15 标定 session 的早期读数（`daily_2026-09-15.md` §9 明文"⚠️ 与前几轮 22030102 不同"，09-16 起统一 23020026），2π=998 两读数一致系 532nm 台属性。结论已回写 `drivers/AGENTS.md` 硬件表（新增 SLM#2 行 + 引用规则）；代码侧 `slm-gs-refine --slm_wavelength` 默认 0=询问设备波长保持不变，满足定调。532nm 台物理序列号的最终设备端核对（needs-hardware）不再阻塞，如需对 532nm 台做设备端序列号复核可另开 issue | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
@@ -5717,6 +5717,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_hw_forward_model_fidelity_ladder` **21 passed** (+2: 对称并列带契约 + monkeypatch 复刻 CI 精确翻转方向 [transpose +2.5 ulp 仍须判 identity]; 两测在旧代码上 **2 failed** 证锁得住); scripts 全分片 3490 passed
 - 环境: `test_script_imports_resolve[gui_entry/capture_transfer_desktop_screens]` 2 失败为 master 既有 (容器缺 PySide6, CI 镜像有), 与本改动无关
 - 门禁: ruff 全仓绿; modsize=0 (scripts 仅报告); term 0 (中途代码注释用了 1 个左列违规词, 已就地改写 —— ㊿ 教训同样适用于**代码注释**, 扫描器不分文档/代码); conventions 72 passed (本批 lift 未移动任何被引用行)
+
+**2026-11-18 · 042b0a00 之后 · F-5 切片 #2 收口: print→loguru (库内调试 print 清零 + 双向 AST 守卫, #56)**
+- AST 复扫 (只数 `ast.Call` 真调用, docstring doctest 与注释天然免疫): `src/ao_shaping` 全树仅剩 **30 处真实 print**, 全部是 CLI/机器协议 stdout —— `device_mutex` 探针协议行 (同文件 :930 读取端按 `PROBE_NOTE_PREFIX` 解析, loguru 走 stderr 会让读取端空转)、`parallel_fit` 机读 JSON 退出行、transfer CLI 流式 `Session complete:`/逐 stage 行 (桌面 GUI 子进程解析)、`shaping.__main__` 的产物输出
+- ⚠️ issues_report §11.1 原指令"**所有 print() 改为 logger**"照做会**出事** (打断上述三组协议)。按 §4 惯例在原文就地加更正块 + 状态行改 ✅, 不删历史快照
+- 守卫: `test_src_print_calls_stay_within_cli_contract_allowlist` —— 14 组 (文件, 内层函数) 键 + 逐对数量, **双向**钉死 (新增调试 print 红、契约消失也红, `test_the_baseline_has_not_grown` 同款文化); 非空洞性已由首轮键前缀漂移的红状态实证
+- 载体: `test_conventions` 全量 **73 passed** / 1 skipped (原 72+新守卫); ruff 全仓绿; term 0
+- §3 F-5 行同步三切片状态: #2 本批收口; #3 宽泛 except 实质已由 #174 收口 (未标注盲捕棘轮 = 0, 逐处判定); #4 大文件 = `check_module_size.py` 棘轮门禁已上线 (增量必红, 存量基线跟踪, 拆分另轨 #205/b166 终判)。#56 本体留待按三条证据终审关闭, 本批不抢关
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
