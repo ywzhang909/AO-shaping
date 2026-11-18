@@ -364,19 +364,6 @@ def qt_app():
     yield app
 
 
-def test_app_scope_hint_is_read_only_and_distinguishes_model_page(qt_app) -> None:
-    """诊断页说明阈值和页面边界, 冷启动不打开任何信号源。"""
-    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
-
-    window = BeamQualityApp()
-    text = window._scope_hint.text()
-    assert "饱和占比按灰度 >=255 统计" in text
-    assert "不代表相机物理满量程" in text
-    assert "迁移学习闭环整形页" in text
-    assert window._source is None
-    window.close()
-
-
 def test_app_smoke_with_sim_source(qt_app) -> None:
     """离屏实例化主窗口 + 仿真源跑一会儿 + 关闭不崩、不留运行中的源。"""
     from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp, SOURCE_KINDS

@@ -5,7 +5,8 @@
 
 * 没有目录 / 不存在 / 是文件 / 没有段级产物 → 一行降级说明, 树为空, 不抛异常;
 * 有段有块 → 页头计数与 ``.totals`` 一致, 块列与 ``BlockRow`` 字段一致;
-* 饱和像素 > 0 的块 **不** 比 0 的块多任何颜色 (GUI 不设阈值, G3 才管);
+* 饱和按 G3 判据着色: 核心峰值越限的块验收改印 ✗ + 红字 (仅停本块), 其余饱和
+  像素只在「说明」列黄警、不改验收判定; 段行只做黄色汇总指针, 永不红;
 * 验收 ✓ / ✗ / — 照搬数据层判定;
 * 「读取实测」与「刷新」都会重读, 换主题只重上色不重读。
 
@@ -21,6 +22,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
 from ao_shaping.gui.slm.transfer_desktop import page as page_mod
@@ -45,7 +47,13 @@ def _row(label: str, cv: float, *, core_peak: float, peak: float | None, saturat
     return row
 
 
-def _write_campaign(root: Path, *, blocks: int = 2, saturated_first: int = 0) -> Path:
+def _write_campaign(
+    root: Path,
+    *,
+    blocks: int = 2,
+    saturated_first: int = 0,
+    core_peak_first: float = 200.0,
+) -> Path:
     """合成一个 1 段 × ``blocks`` 块的 campaign 目录 (沿用 test_campaign_progress 的布局)。
 
     journal 写 ``square/seed`` 为 complete, 其余阶段不写 → 数据层只看见这一段。
@@ -56,7 +64,8 @@ def _write_campaign(root: Path, *, blocks: int = 2, saturated_first: int = 0) ->
     rows = [_row("square_seed", 0.80, core_peak=102.0, peak=380.0, saturated=0)]
     for index in range(blocks):
         saturated = saturated_first if index == 0 else 0
-        rows.append(_row(f"square_{index}_A1", 0.90 - 0.01 * index, core_peak=200.0 + index,
+        core_peak = core_peak_first if index == 0 else 200.0 + index
+        rows.append(_row(f"square_{index}_A1", 0.90 - 0.01 * index, core_peak=core_peak,
                          peak=900.0, saturated=saturated))
     rows.append(_row("square_final", 0.70, core_peak=230.0, peak=3600.0, saturated=0))
     (stage_dir / "manifest.json").write_text(json.dumps(rows), encoding="utf-8")
@@ -188,10 +197,9 @@ def test_missing_block_values_print_a_dash_never_zero(make_page, tmp_path) -> No
     assert child.text(5) == MISSING
 
 
-def test_saturated_block_is_printed_but_not_coloured(make_page, tmp_path) -> None:
-    # 块 0 饱和 (7 px) 且 accepted=True; 块 1 不饱和 (0 px) 且 accepted=False。
-    # 验收列本来就按判定上色 (✓ 绿 / ✗ 红), 所以两块的验收列颜色不同是正常的 ——
-    # 这里只比「饱和 → 颜色」: 把验收列排除在外, 其余 6 列必须一致。
+def test_non_core_saturation_only_warns_the_note(make_page, tmp_path) -> None:
+    # 块 0: 7 px 饱和但核心峰值 200 < 4014 → 只黄警「说明」列, 验收仍是数据层的 ✓。
+    # 块 1: 0 px 且 accepted=False → ✗ 红。饱和列 / CV 列不因饱和改色。
     campaign = _write_campaign(tmp_path / "camp", blocks=2, saturated_first=7)
     page = make_page()
 
@@ -201,8 +209,39 @@ def test_saturated_block_is_printed_but_not_coloured(make_page, tmp_path) -> Non
     saturated, clean = top.child(0), top.child(1)
     assert saturated.text(2) == "7"
     assert clean.text(2) == "0"
-    for column in (0, 1, 2, 3, 4, 6):
+    assert saturated.text(5) == "✓"
+    assert "黄警" in saturated.text(6)
+    warn = QColor(page._colors["warn"])
+    assert saturated.foreground(6).color() == warn
+    assert clean.foreground(6).color() != warn
+    # 数 / CV / 曝光列的颜色不因饱和改变。
+    for column in (1, 2, 3, 4):
         assert saturated.foreground(column).color() == clean.foreground(column).color()
+    # 段行只做汇总指针: 有饱和块也还是黄字, 不是红。
+    assert "饱和黄警 1 块" in top.text(6)
+    assert top.foreground(6).color() == warn
+
+
+def test_core_saturation_voids_only_that_block(make_page, tmp_path) -> None:
+    campaign = _write_campaign(tmp_path / "camp", blocks=2, core_peak_first=4100.0)
+    page = make_page()
+
+    page.set_campaign_dir(campaign)
+
+    top = _tree_top_rows(page)[0]
+    stopped, clean = top.child(0), top.child(1)
+    error = QColor(page._colors["error"])
+    # 数据层对块 0 写了 accepted=True, G3 仍把这一块的验收改印 ✗。
+    assert stopped.text(5) == "✗"
+    assert stopped.foreground(5).color() == error
+    assert "核心饱和" in stopped.text(6)
+    assert "仅停本块" in stopped.text(6)
+    assert stopped.foreground(6).color() == error
+    # 其余块照旧按数据层判定 (块 1 accepted=False → ✗), 不受影响。
+    assert clean.text(5) == "✗"
+    # 段行仍只黄不红, 并指出有几块核心饱和。
+    assert "核心饱和 1 块（仅停本块）" in top.text(6)
+    assert top.foreground(6).color() == QColor(page._colors["warn"])
 
 
 def test_verdict_colour_follows_accepted_not_saturation(make_page, tmp_path) -> None:

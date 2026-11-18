@@ -52,12 +52,10 @@ MiiCam 两台相机 (不开相机、不探针 SLM), 把 ① 的相机类型与 c
 
 from __future__ import annotations
 
-import json
 import shutil
 import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -98,7 +96,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ao_shaping.gui.slm.transfer_desktop import campaign_plan, params
+from ao_shaping.gui.slm.transfer_desktop import campaign_plan, gates, params
+from ao_shaping.gui.slm.transfer_desktop.verdict_lines import (
+    _reuse_failure_note,
+    acceptance_progress_line,
+    acceptance_verdict_line,
+    model_weight_saved_line,
+    reuse_latest_verdict_line,
+)
 from ao_shaping.gui.slm.transfer_desktop.check_task import (
     CcdDetectTask,
     HardwareCheckTask,
@@ -187,6 +192,13 @@ _CAMPAIGN_HEADER_TIPS = (
 
 _CAMPAIGN_HINT_UNSET = "在 ⑦ 填整轮目录后显示逐块读数"
 
+#: P4 段边界闸的按钮字面: 状态直接写在按钮上, 免得操作员点开才知道现在是开是关。
+_CONFIRM_OFF_TEXT = "段边界等确认：关"
+_CONFIRM_ON_TEXT = "段边界等确认：开"
+_PAUSE_REQUEST_TEXT = "本段后暂停"
+_PAUSE_CLEAR_TEXT = "取消暂停请求"
+
+
 
 def _fmt_num(value: object, spec: str) -> str:
     """数值 → 文字; 非数 / 布尔 / 格式不过的一律「—」, 绝不是 0。"""
@@ -265,356 +277,6 @@ def _stage_summary(stage: Mapping[str, Any]) -> str:
     return " · ".join(f"{metric['label']} {metric['text']}" for metric in metrics)
 
 
-def acceptance_verdict_line(session_dir: Path) -> str:
-    """会话目录 → 一行验收阈值结论 (缺失产物绝不抛)。
-
-    核心 lane 的 :func:`~ao_shaping.tools.slm.transfer.workflow.acceptance_verdict`
-    只读 ``session.json`` / ``rounds.json`` 等文件得出 ``{metric, lower, upper,
-    measured_correlation, measured_relative_l2, accepted, rounds}``；是否开过验收
-    循环则看 ``session.json`` 里 ``resolved.acceptance == "looped"``。本函数把
-    两者压成给操作员看的一行字。目录不存在、产物缺失或该会话根本没开验收循环时
-    返回空串（调用方自行决定何时显示）。
-    """
-    if not session_dir or not Path(session_dir).is_dir():
-        return ""
-    from ao_shaping.tools.slm.transfer.workflow import acceptance_verdict
-
-    # 只开过 ABBA 交错测量 或纯模型验收的会话不予显示; 只有 acceptance=="looped" 才算
-    # 开了验收阈值循环。
-    enabled = False
-    try:
-        cfg = json.loads(Path(session_dir).joinpath("session.json").read_text(encoding="utf-8"))
-        enabled = cfg.get("resolved", {}).get("acceptance") == "looped"
-    except Exception:  # policy: 会话产物缺失/损坏时不显示该行，绝不把完成界面打崩
-        return ""
-    if not enabled:
-        return ""
-    try:
-        verdict = acceptance_verdict(session_dir)
-    except Exception:  # 读文件失败也绝不把完成界面打崩
-        logger.warning("读取验收阈值结论失败: {}", session_dir)
-        return ""
-    accepted = bool(verdict.get("accepted"))
-    rounds = int(verdict.get("rounds") or 0)
-    corr = verdict.get("measured_correlation")
-    l2 = verdict.get("measured_relative_l2")
-    if not accepted and (corr is None or l2 is None):
-        return ""
-    tail = "通过" if accepted else "未达标至上限后停止"
-    lower = verdict.get("lower")
-    upper = verdict.get("upper")
-    metrics = []
-    for label, value, bound, is_lower in (
-        ("相关性", corr, lower, True),
-        ("相对 L2", l2, upper, False),
-    ):
-        if value is None:
-            continue
-        if bound is None:
-            try:
-                metrics.append(f"{label} {float(value):.3f}")
-            except (TypeError, ValueError):
-                metrics.append(f"{label} —")
-            continue
-        metrics.append(_metric_with_shortfall(label, value, bound, lower_bound=is_lower))
-    if not metrics and not accepted:
-        return ""
-    return "验收阈值: " + " · ".join(metrics + [f"{rounds} 轮"]) + f" · {tail}"
-
-
-def _metric_with_shortfall(
-    label: str, value, bound, *, lower_bound: bool
-) -> str:
-    """格式化单个验收指标; 未达标时追加「（还差 X · 阈值 Y）」。
-
-    ``lower_bound=True`` 表示指标 >= 阈值才算达标 (相关性下界), False 表示
-    <= (相对 L2 上界)。值 / 阈值无法解析时退化为纯值或 ``—``。
-    """
-    try:
-        value_f = float(value)
-    except (TypeError, ValueError):
-        return f"{label} —"
-    text = f"{label} {value_f:.3f}"
-    try:
-        bound_f = float(bound)
-    except (TypeError, ValueError):
-        return text
-    if lower_bound:
-        if value_f >= bound_f:
-            return text
-        deficit = bound_f - value_f
-    else:
-        if value_f <= bound_f:
-            return text
-        deficit = value_f - bound_f
-    return f"{text}（还差 {deficit:.3f} · 阈值 {bound_f:.3f}）"
-
-
-def acceptance_progress_line(session_dir: Path) -> str:
-    """运行中 (非完成) 的验收阈值实时读数; 未开循环 / 无轮次 / 已达标返回空串。
-
-    取 ``rounds.json`` 最后一轮的实测值, 未达标时给出「当前 X · 还差 Y」,
-    便于操作员在循环进行时看见还差多少。绝不抛异常。
-    """
-    if not session_dir or not Path(session_dir).is_dir():
-        return ""
-    try:
-        cfg = json.loads(Path(session_dir).joinpath("session.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    if not isinstance(cfg, dict):
-        return ""
-    if cfg.get("resolved", {}).get("acceptance") != "looped":
-        return ""
-    from ao_shaping.tools.slm.transfer.workflow import acceptance_verdict
-
-    try:
-        verdict = acceptance_verdict(session_dir)
-    except Exception:  # policy: 阈值读数是展示层附加信息, 读不到只隐藏该行, 不打断面板
-        logger.warning("读取验收阈值实时读数失败: {}", session_dir)
-        return ""
-    rounds = int(verdict.get("rounds") or 0)
-    if rounds <= 0 or bool(verdict.get("accepted")):
-        return ""
-    corr = verdict.get("measured_correlation")
-    l2 = verdict.get("measured_relative_l2")
-    lower = verdict.get("lower")
-    upper = verdict.get("upper")
-    parts = []
-    if corr is not None and lower is not None:
-        parts.append(_metric_with_shortfall("相关性", corr, lower, lower_bound=True))
-    if l2 is not None and upper is not None:
-        parts.append(_metric_with_shortfall("相对 L2", l2, upper, lower_bound=False))
-    if not parts:
-        return ""
-    return f"验收阈值（第 {rounds} 轮）: " + " · ".join(parts)
-
-
-def reuse_latest_verdict_line(session_dir: Path) -> str:
-    """会话目录 → 一行光路复用结论 (缺失产物 / 未开启绝不抛)。
-
-    ``run_session`` 的复用快路径把判定写进 ``<out>/optical_probe.json``（键
-    ``serial`` / ``latest`` / ``same_path`` / ``verdict`` / ``current`` /
-    ``reference``）。目录不存在、产物缺失或当前会话根本没走复用 (没写该文件)
-    时返回空串 (调用方自行决定何时显示)。
-
-    通过时一行简短结论; 未通过时**列出每一条不通过的原因** (0 级零点漂移 /
-    相机曝光上界 / 取图格式 / 像素位深 / SLM 序列号 / 无 latest 参照),
-    便于操作员定位是哪一项光路变了。
-    """
-    if not session_dir or not Path(session_dir).is_dir():
-        return ""
-    probe = Path(session_dir).joinpath("optical_probe.json")
-    if not probe.is_file():
-        return ""
-    try:
-        data = json.loads(probe.read_text(encoding="utf-8"))
-    except Exception:  # policy: 光路复用结论产物缺失/损坏时降级为空行
-        logger.warning("读取光路复用结论失败: {}", session_dir)
-        return ""
-    same = bool(data.get("same_path"))
-    if data.get("skipped"):
-        # 光路复用被跳过 (未开启 / 探针失败 / 无序列号 / 无 latest): 说明原因。
-        from ao_shaping.tools.slm.transfer.optical_probe import format_probe_skip_line
-
-        reason = data.get("reason")
-        return format_probe_skip_line(reason if isinstance(reason, str) else "")
-    if same:
-        return "光路复用：一致 → 已复用最近一次模型；差异已并入本场"
-    # 未采用: 列出每一条不通过的原因 (尽量详细)。
-    reason = _reuse_latest_failure_reason(data)
-    if reason:
-        return f"光路复用：未采用（{reason}） → 走正常全流程"
-    # 兜底: 用 workflow 写入的 verdict 字符串 (可能只有粗粒度文案)。
-    verdict = data.get("verdict")
-    if isinstance(verdict, str) and verdict.strip():
-        return f"光路复用：{verdict.strip()}"
-    return "光路复用：已变化 → 走正常全流程"
-
-
-def _reuse_latest_failure_reason(data: dict) -> str:
-    """从 ``optical_probe.json`` 的 current/reference 探针里推断不通过的**具体原因**。
-
-    每条 reason 对应 ``same_path`` 的一个判据 (光斑形状 / 零点 / 曝光 / 格式 /
-    位深 / 序列号), 任一项不满足就 listed。绝不抛异常; 读不到字段时给「不可比」。
-    """
-    try:
-        from ao_shaping.tools.slm.transfer.optical_probe import (
-            DEFAULT_TOL_EXPOSURE_FACTOR,
-            DEFAULT_TOL_ZERO_PX,
-        )
-    except Exception:  # policy: 探针默认容差是可选依赖, 拿不到就按「不可比」隐藏该行
-        return ""
-    cur = data.get("current")
-    ref = data.get("reference")
-    serial = data.get("serial")
-    if not isinstance(cur, dict) or not isinstance(ref, dict):
-        if ref is None:
-            return f"无 latest 参照模型 (SLM 序列号 {serial or '—'} 下没有已保存的 latest，或探针失败)"
-        return "当前 / 参照探针数据不完整，无法比对"
-    reasons: list[str] = []
-    # 光斑形状 (主判据): 产物里带 ``criteria`` 且形状这条真的**未过**时才追加一行。
-    # 「无平场帧, 形状判据不可用」是退路文案 (不是未过), 不追加 —— 没有形状信息
-    # 时输出与既往一字不差。
-    criteria = data.get("criteria")
-    if isinstance(criteria, dict):
-        shape = criteria.get("shape")
-        if isinstance(shape, str) and (
-            shape.startswith("形状判据未过") or shape.startswith("平场帧不可比")
-        ):
-            reasons.append(f"光斑形状已变 ({shape})")
-    # SLM 序列号
-    cur_serial = cur.get("slm_serial")
-    if cur_serial is not None and serial is not None and str(cur_serial) != str(serial):
-        reasons.append(f"SLM 序列号不同 (当前 {cur_serial} vs 参照 {serial})")
-    # 0 级光斑零点
-    try:
-        cx, cy = cur["zero_xy"]
-        rx, ry = ref["zero_xy"]
-        dx, dy = abs(float(cx) - float(rx)), abs(float(cy) - float(ry))
-        if dx > DEFAULT_TOL_ZERO_PX or dy > DEFAULT_TOL_ZERO_PX:
-            reasons.append(
-                f"0 级光斑零点漂移 Δx={dx:.1f}px Δy={dy:.1f}px "
-                f"(容忍 {DEFAULT_TOL_ZERO_PX}px)"
-            )
-    except (KeyError, TypeError, ValueError, IndexError):
-        reasons.append("0 级光斑零点不可比")
-    # 相机曝光上界
-    try:
-        cur_hi = float(cur["exposure_range_ms"][1])
-        ref_hi = float(ref["exposure_range_ms"][1])
-        if ref_hi > 0 and not (
-            ref_hi / DEFAULT_TOL_EXPOSURE_FACTOR
-            <= cur_hi
-            <= ref_hi * DEFAULT_TOL_EXPOSURE_FACTOR
-        ):
-            reasons.append(
-                f"相机曝光上界 {cur_hi:.3f}ms vs 参照 {ref_hi:.3f}ms "
-                f"(容忍 ×{DEFAULT_TOL_EXPOSURE_FACTOR})"
-            )
-    except (KeyError, TypeError, ValueError, IndexError):
-        reasons.append("相机曝光不可比")
-    # 取图格式
-    cf_cur = cur.get("camera_format")
-    cf_ref = ref.get("camera_format")
-    if cf_cur is None or cf_ref is None or cf_cur != cf_ref:
-        reasons.append(f"相机取图格式 {cf_cur!r} vs 参照 {cf_ref!r}")
-    # 像素位深
-    bd_cur = cur.get("bit_depth")
-    bd_ref = ref.get("bit_depth")
-    if bd_cur is None or bd_ref is None or bd_cur != bd_ref:
-        reasons.append(f"像素位深 {bd_cur!r} vs 参照 {bd_ref!r}")
-    if not reasons:
-        reasons.append("探针参数不可比")
-    return "；".join(reasons)
-
-
-def _reuse_failure_note(session_dir: Path) -> str:
-    """光路复用**不通过**时的原因行, 供阶段表「说明」列追加。
-
-    只认真实判为「不通过」的会话 (``same_path`` 为假且未跳过): 复用 ``
-    _reuse_latest_failure_reason`` 的逐条原因, 拼成一行。通过 / 被跳过 / 产物
-    缺失或损坏时返回空串 (调用方不追加)。绝不抛。
-
-    Args:
-        session_dir: 会话目录 (读 ``optical_probe.json``)。
-    """
-    if not session_dir or not Path(session_dir).is_dir():
-        return ""
-    probe = Path(session_dir).joinpath("optical_probe.json")
-    if not probe.is_file():
-        return ""
-    try:
-        data = json.loads(probe.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError) as exc:
-        logger.warning("读取光路复用结论失败: {}: {}", session_dir, exc)
-        return ""
-    if data.get("skipped") or bool(data.get("same_path")):
-        return ""
-    reason = _reuse_latest_failure_reason(data)
-    if reason:
-        return f"光路复用未通过：{reason}"
-    verdict = data.get("verdict")
-    if isinstance(verdict, str) and verdict.strip():
-        return f"光路复用未通过：{verdict.strip()}"
-    return "光路复用未通过：光路已变化"
-
-
-#: 本场会话里模型权重 (冻结参数) 的候选位置, 按优先级排列 (相对会话目录)。
-_WEIGHT_GLOBS = (
-    "model*/frozen_parameters.json",
-    "fit*/frozen_parameters.json",
-    "initial/frozen_parameters.json",
-)
-
-
-def _newest_file(paths: Iterable[Path]) -> Path | None:
-    """mtime 最新的一个文件; 全读不到 (不存在 / 无权限) 时返回 ``None``。"""
-    newest: Path | None = None
-    newest_mtime = float("-inf")
-    for path in paths:
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        if mtime > newest_mtime:
-            newest, newest_mtime = path, mtime
-    return newest
-
-
-def model_weight_saved_line(session_dir: Path) -> str:
-    """会话目录 → 一行「所用模型权重 · 保存于 …」(缺产物返回空串, 绝不抛)。
-
-    日期口径是权重文件在文件系统里的 mtime。复用光路时本场没拟合新模型, 用的是
-    ``<models_root>/<serial>/latest`` 里那一份 (见 ``optical_probe.json`` 的
-    ``latest`` / ``same_path``), 所以优先读它; 否则取本场 ``model*`` → ``fit*``
-    → ``initial`` 里最新的 ``frozen_parameters.json``。
-    """
-    root = Path(session_dir) if session_dir else None
-    if root is None or not root.is_dir():
-        return ""
-    weight: Path | None = None
-    probe = root / "optical_probe.json"
-    if probe.is_file():
-        try:
-            data = json.loads(probe.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        if not isinstance(data, dict):
-            data = {}
-        latest = data.get("latest")
-        if data.get("same_path") and latest:
-            candidate = Path(str(latest)) / "frozen_parameters.json"
-            if candidate.is_file():
-                weight = candidate
-    if weight is None:
-        for pattern in _WEIGHT_GLOBS:
-            weight = _newest_file(p for p in root.glob(pattern) if p.is_file())
-            if weight is not None:
-                break
-    if weight is None:
-        # 兜底: 更深一层子目录 (如 ``model*/run/`` 之类) 里的冻结参数。
-        weight = _newest_file(
-            p for p in root.glob("**/frozen_parameters.json") if p.is_file()
-        )
-    if weight is None:
-        return ""
-    try:
-        shown = weight.relative_to(root).as_posix()
-    except ValueError:
-        # 复用来的 latest 在 models_root 下, 不在本场目录: 用末三级定位。
-        parts = list(weight.parts)
-        shown = "/".join(parts[-3:]) if len(parts) >= 3 else str(weight)
-    # 权重文件在但读不出/不可解析 → 明确的「模型加载失败」而不是空行。
-    try:
-        mtime = weight.stat().st_mtime
-        json.loads(weight.read_text(encoding="utf-8"))
-    except OSError:
-        return f"模型加载失败：{shown} 读取失败"
-    except ValueError:  # JSONDecodeError / UnicodeDecodeError 都是 ValueError
-        return f"模型加载失败：{shown} 损坏或不可解析"
-    saved = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-    return f"模型权重：{shown} · 保存于 {saved}"
 
 
 def _section(title: str) -> tuple[QGroupBox, QVBoxLayout]:
@@ -823,6 +485,12 @@ class TransferPage(QWidget):
         self._campaign_progress: campaign_progress.CampaignProgress | None = None
         self._campaign_status_text = ""
         self._campaign_header_text = ""
+        # P4 段边界闸的状态行原文 (换主题只重上色, 不重读目录)。
+        self._gate_state_text = ""
+        self._gate_state_kind = "warn"
+        # G2b 零级漂移的最近一次判定; ``_refresh_progress`` 写入, 换主题时原样重画。
+        self._drift_verdict: tuple[str, str] = ("", "")
+
 
         self._poll = QTimer(self)
         self._poll.setInterval(_POLL_MS)
@@ -927,6 +595,44 @@ class TransferPage(QWidget):
         head.addWidget(self._campaign_refresh, 0)
         layout.addLayout(head)
 
+        # P4: 「确认后继续」/「本段后暂停」都只写整轮目录里的小标记,
+        # runner 在段边界用 campaign_control 读它们 —— 页面不另造状态文件。
+        gate_row = QHBoxLayout()
+        gate_row.setContentsMargins(0, 0, 0, 0)
+        gate_row.setSpacing(8)
+        self._confirm_toggle = QPushButton(_CONFIRM_OFF_TEXT)
+        self._confirm_toggle.setCheckable(True)
+        self._confirm_toggle.setToolTip(
+            "打开后，runner 每跑完一段就停下等这里的答复；关掉只是拆掉挂起标记"
+        )
+        self._confirm_toggle.clicked.connect(self._toggle_confirm_gate)
+        self._confirm_yes = QPushButton("确认继续")
+        self._confirm_yes.setToolTip("答复当前段边界：继续跑下一段")
+        self._confirm_yes.clicked.connect(self._confirm_continue)
+        self._confirm_no = QPushButton("否决停下")
+        self._confirm_no.setToolTip("答复当前段边界：不再往下跑（与超时同义）")
+        self._confirm_no.clicked.connect(self._confirm_reject)
+        self._pause_btn = QPushButton(_PAUSE_REQUEST_TEXT)
+        self._pause_btn.setToolTip("在当前段跑完后停下；已得结果保留")
+        self._pause_btn.clicked.connect(self._toggle_pause_request)
+        for widget in (
+            self._confirm_toggle,
+            self._confirm_yes,
+            self._confirm_no,
+            self._pause_btn,
+        ):
+            widget.setEnabled(False)
+            gate_row.addWidget(widget, 0)
+        gate_row.addStretch(1)
+        layout.addLayout(gate_row)
+
+        # 闸的状态单独一行: 只有「在等答复 / 暂停已挂起 / 刚提交答复」时才出现。
+        self._gate_state = QLabel("")
+        self._gate_state.setWordWrap(True)
+        self._gate_state.setTextFormat(Qt.TextFormat.RichText)
+        self._gate_state.setVisible(False)
+        layout.addWidget(self._gate_state)
+
         # 降级文案 (无目录 / 不存在 / 空 …) 单独一行, 树为空时才显示。
         self._campaign_status = QLabel()
         self._campaign_status.setWordWrap(True)
@@ -974,6 +680,8 @@ class TransferPage(QWidget):
             return
         raw = self._cost_dir.text().strip()
         path: Path | None = Path(raw).expanduser() if raw else None
+        # 闸标记与逐块产物分开读: 目录可读但还没有段级产物时, 闸按钮照样该能用。
+        self._refresh_gate_state()
         if path is None:
             self._show_campaign_message(_CAMPAIGN_HINT_UNSET)
             return
@@ -1005,7 +713,9 @@ class TransferPage(QWidget):
     def _paint_campaign_progress(self) -> None:
         """把缓存的快照铺进树: 段一行, 块作为子行。缺值一律印「—」。
 
-        不做任何判断 (不分好坏、不上色告警): 饱和 / CV 的阈值属于 G3, 这里只印数。
+        CV / 曝光的阈值不属于本页, 照旧只印数。饱和是 G3 (判据从
+        :mod:`replay_phases` 复用, 页面不另设阈值): 核心越限的块验收改印 ✗ + 红字,
+        其余饱和像素只黄警「说明」列; 段行只做黄色汇总指针, 永远不红。
         """
         progress = self._campaign_progress
         tree = self._campaign_tree
@@ -1032,12 +742,15 @@ class TransferPage(QWidget):
             status = _CAMPAIGN_STATUS_LABELS.get(stage.status, stage.status)
             # 全幅峰值缺 (旧 manifest 没有 peak 列) → 「—」, 不是 0。
             peak_full = _fmt_num(stage.peak_full, "{:.0f}")
+            stage_mark = gates.stage_saturation(stage)
             cells = (
                 f"{shape_name} / {stage_name}",
                 status,
                 f"{_fmt_num(stage.seed_cv, '{:.4f}')} → {_fmt_num(stage.final_cv, '{:.4f}')}",
                 f"{_fmt_num(stage.peak_inside, '{:.0f}')} · {peak_full}",
                 _fmt_num(stage.exposure_ms, "{:.1f}"),
+                "",
+                stage_mark.note,
             )
             top = QTreeWidgetItem(tree, list(cells))
             # 段行是「一组块」的抬头: 加粗把两级行分开, 否则缩进很浅时容易读串行。
@@ -1047,8 +760,16 @@ class TransferPage(QWidget):
                 top.setTextAlignment(column, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 top.setFont(column, stage_font)
             top.setTextAlignment(4, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            top.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
+            if stage_mark.note:
+                # G3 的停止点是块: 段行只当「这里有几块有事」的指针, 所以永远黄、不红。
+                top.setToolTip(6, stage_mark.detail)
+                top.setForeground(6, QColor(self._colors.get("warn", self._muted())))
             for block in stage.blocks:
                 note = block.note if isinstance(block.note, str) and block.note else MISSING
+                mark = gates.block_saturation(block)
+                if mark.note:
+                    note = mark.note if note == MISSING else f"{note} · {mark.note}"
                 child = QTreeWidgetItem(top, [
                     str(block.index),
                     _fmt_num(block.cv, "{:.4f}"),
@@ -1059,15 +780,25 @@ class TransferPage(QWidget):
                     note,
                 ])
                 # 说明列最容易被挤窄: 单元格省略号外的全文挂 tooltip, 不丢信息。
-                child.setToolTip(6, note)
+                child.setToolTip(6, mark.detail if mark.detail else note)
                 for column in (1, 2, 3, 4):
                     child.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 child.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
-                mark, kind = _accept_mark(block.accepted)
-                child.setText(5, mark)
-                # 未知判定 (—) 用次级色; 配色键只认 ok / error, 不查 ``self._colors`` 里没有的键。
-                color = self._colors[kind] if kind in self._colors else self._muted()
-                child.setForeground(5, QColor(color))
+                if mark.level == "stop":
+                    # G3 核心饱和: 数据层就算写了 accepted=True, 这块的验收也已作废。
+                    child.setText(5, "✗")
+                    child.setToolTip(5, mark.detail)
+                    child.setForeground(5, QColor(self._colors.get("error", self._muted())))
+                    child.setForeground(6, QColor(self._colors.get("error", self._muted())))
+                else:
+                    accept_mark, kind = _accept_mark(block.accepted)
+                    child.setText(5, accept_mark)
+                    # 未知判定 (—) 用次级色; 配色键只认 ok / error, 不查 ``self._colors`` 里没有的键。
+                    color = self._colors[kind] if kind in self._colors else self._muted()
+                    child.setForeground(5, QColor(color))
+                    if mark.level == "warn":
+                        # 全幅有饱和像素、核心没越限: 只黄警, 不改验收判定。
+                        child.setForeground(6, QColor(self._colors.get("warn", self._muted())))
         tree.expandToDepth(0)
         # 首列是 Interactive: 铺完后按内容定宽, 再留一口气 —— 加粗的长段名紧贴
         # 「状态」列会被读成一行 (ResizeToContents 正好算到像素, 没有呼吸空间)。
@@ -1078,6 +809,7 @@ class TransferPage(QWidget):
         if not getattr(self, "_campaign_ready", False):
             return
         self._campaign_status.setStyleSheet(f"color: {self._muted()};")
+        self._style_gate_state()
         if self._campaign_progress is not None:
             self._paint_campaign_progress()
 
@@ -1092,6 +824,140 @@ class TransferPage(QWidget):
     def campaign_status_text(self) -> str:
         """逐块页降级说明; 树已经填上内容时为 ``""``。"""
         return self._campaign_status_text
+
+    # -------------------------------------------------------- P4 段边界闸
+
+    def _campaign_dir_path(self) -> Path | None:
+        """⑦ 目录框里的路径; 空串 / 控件还没建时为 ``None`` (不读盘)。"""
+        line = getattr(self, "_cost_dir", None)
+        text = line.text().strip() if line is not None else ""
+        return Path(text).expanduser() if text else None
+
+    def _refresh_gate_state(self) -> None:
+        """重读整轮目录的闸标记, 只改按钮文字 / 可用性与一行说明。"""
+        if not getattr(self, "_campaign_ready", False):
+            return
+        path = self._campaign_dir_path()
+        usable = path is not None and path.is_dir()
+        for widget in (
+            self._confirm_toggle,
+            self._confirm_yes,
+            self._confirm_no,
+            self._pause_btn,
+        ):
+            widget.setEnabled(usable)
+        if not usable:
+            self._confirm_toggle.setChecked(False)
+            self._confirm_toggle.setText(_CONFIRM_OFF_TEXT)
+            self._pause_btn.setText(_PAUSE_REQUEST_TEXT)
+            self._set_gate_state_text("")
+            return
+        state = gates.stage_gate_state(path)
+        self._confirm_toggle.setChecked(state.confirm_pending)
+        self._confirm_toggle.setText(
+            _CONFIRM_ON_TEXT if state.confirm_pending else _CONFIRM_OFF_TEXT
+        )
+        self._pause_btn.setText(
+            _PAUSE_CLEAR_TEXT if state.pause_requested else _PAUSE_REQUEST_TEXT
+        )
+        # 只有闸真的挂着时, 「确认继续 / 否决停下」才有答复对象。
+        self._confirm_yes.setEnabled(state.confirm_pending)
+        self._confirm_no.setEnabled(state.confirm_pending)
+        if state.confirm_pending:
+            self._set_gate_state_text(
+                "正在等人工确认：runner 停在段边界，点「确认继续」或「否决停下」",
+                "warn",
+            )
+        elif state.pause_requested:
+            self._set_gate_state_text(
+                "已挂暂停请求：本段跑完后停，可点「取消暂停请求」撤销", "warn"
+            )
+        else:
+            self._set_gate_state_text("")
+
+    def _set_gate_state_text(self, text: str, kind: str = "warn") -> None:
+        """记下闸状态行原文并上色; 空串表示这一行收起。"""
+        self._gate_state_text = text
+        self._gate_state_kind = kind
+        self._style_gate_state()
+
+    def _style_gate_state(self) -> None:
+        """按当前主题色重画闸状态行 (换主题时只重上色)。"""
+        label = getattr(self, "_gate_state", None)
+        if label is None:
+            return
+        text = getattr(self, "_gate_state_text", "")
+        if not text:
+            label.setText("")
+            label.setVisible(False)
+            return
+        kind = getattr(self, "_gate_state_kind", "warn")
+        color = self._colors.get(kind, self._muted())
+        label.setText(f'<span style="color:{color}">{escape(text)}</span>')
+        label.setVisible(True)
+
+    def _toggle_confirm_gate(self) -> None:
+        """「段边界等确认」开 / 关: 写 / 拆 campaign_control 的挂起标记。"""
+        path = self._campaign_dir_path()
+        if path is None or not path.is_dir():
+            self._refresh_gate_state()
+            return
+        try:
+            if self._confirm_toggle.isChecked():
+                gates.arm_confirm_gate(path)
+            else:
+                gates.disarm_confirm_gate(path)
+        except OSError as exc:
+            logger.warning("段边界闸写入失败: {}", exc)
+            # 按钮的勾选状态已随点击翻转, 先按目录里的实际标记复位, 再报错。
+            self._refresh_gate_state()
+            self._set_gate_state_text(f"闸标记写入失败：{_brief_exception(exc)}", "error")
+            return
+        self._refresh_gate_state()
+
+    def _toggle_pause_request(self) -> None:
+        """「本段后暂停」/「取消暂停请求」: 以目录里的实际标记为准切换。"""
+        path = self._campaign_dir_path()
+        if path is None or not path.is_dir():
+            self._refresh_gate_state()
+            return
+        try:
+            if gates.stage_gate_state(path).pause_requested:
+                gates.clear_pause_request(path)
+            else:
+                gates.request_pause(path)
+        except OSError as exc:
+            logger.warning("段间暂停标记写入失败: {}", exc)
+            self._refresh_gate_state()
+            self._set_gate_state_text(f"暂停标记写入失败：{_brief_exception(exc)}", "error")
+            return
+        self._refresh_gate_state()
+
+    def _confirm_continue(self) -> None:
+        self._answer_confirm(True)
+
+    def _confirm_reject(self) -> None:
+        self._answer_confirm(False)
+
+    def _answer_confirm(self, confirmed: bool) -> None:
+        """答复段边界: 只写答复标记; 挂起标记留给 runner 消费后再清。"""
+        path = self._campaign_dir_path()
+        if path is None or not path.is_dir():
+            self._refresh_gate_state()
+            return
+        try:
+            gates.answer_confirm_gate(path, confirmed=confirmed)
+        except OSError as exc:
+            logger.warning("段边界答复写入失败: {}", exc)
+            self._set_gate_state_text(f"答复写入失败：{_brief_exception(exc)}", "error")
+            return
+        self._refresh_gate_state()
+        self._set_gate_state_text(
+            "已提交答复："
+            + ("确认继续" if confirmed else "否决停下")
+            + "，等 runner 在段边界读取",
+            "ok" if confirmed else "error",
+        )
 
     def _build_header(self) -> QWidget:
         """标题与一句话说明。"""
@@ -1472,6 +1338,14 @@ class TransferPage(QWidget):
         self._replay_btn.clicked.connect(self._open_replay)
         head.addWidget(self._replay_btn, 0)
         layout.addLayout(head)
+
+        # G2b: 零级漂移黄警。只有「有参照零点且超黄警」时才出现; 正常 / 无参照
+        # 时整行隐藏 —— 常驻一行「漂移 2 px」只会把要看的行挤走。
+        self._drift_warning = QLabel("")
+        self._drift_warning.setWordWrap(True)
+        self._drift_warning.setTextFormat(Qt.TextFormat.RichText)
+        self._drift_warning.setVisible(False)
+        layout.addWidget(self._drift_warning)
 
         self._bar = QProgressBar()
         self._bar.setRange(0, 1)
@@ -2505,6 +2379,16 @@ class TransferPage(QWidget):
         """会话跑完: 停轮询, 把最终产物再读一遍, 放回可编辑状态。"""
         self._settle("complete", f"会话完成：{out}")
         self._show_exports(True)
+        # #242 G2: 拟合验证相关性低于会话阈值 → 红字说明「后续形状别再跑」。
+        # 只读判定层的 correlation_red_stop; 页面不重算 0.85, 也不锁死「开始运行」
+        # (换曝光 / 重测之后重跑是正当操作)。
+        stop_line = gates.correlation_red_stop_line(Path(out))
+        if stop_line:
+            color = self._colors.get("error", self._muted())
+            self._status.setText(
+                f"{self._status.text()}<br>"
+                f'<span style="color:{color}">{_rich(stop_line)}</span>'
+            )
         # 开过验收阈值循环的会话, 补一行「验收阈值: 通过 / 未达标至上限后停止」。
         # 只读文件, 产物缺失时 :func:`acceptance_verdict_line` 返回空串、绝不抛。
         line = acceptance_verdict_line(Path(out))
@@ -2683,6 +2567,26 @@ class TransferPage(QWidget):
                 for key in ("complete", "running", "pending", "skipped", "failed")
             )
         )
+        # G2b: 会话目录里 optical_probe.json 有参照零点且漂移超黄警时, 补一行黄字。
+        self._paint_drift_warning(
+            gates.zero_drift_warning(self._session_dir) if self._session_dir else ("", "")
+        )
+
+    def _paint_drift_warning(self, verdict: tuple[str, str]) -> None:
+        """G2b 行: ``(级别, 文案)`` → 一行黄字; ``ok`` / 无证据时整行收起。"""
+        self._drift_verdict = verdict
+        label = getattr(self, "_drift_warning", None)
+        if label is None:
+            return
+        level, text = verdict
+        if not text:
+            label.setText("")
+            label.setVisible(False)
+            return
+        kind = "error" if level == "hard" else "warn"
+        color = self._colors.get(kind, self._muted())
+        label.setText(f'<span style="color:{color}">G2b：{_rich(text)}</span>')
+        label.setVisible(True)
 
     def _sync_table(
         self, stages: Sequence[Mapping[str, Any]], reuse_note: str = ""
@@ -2909,6 +2813,8 @@ class TransferPage(QWidget):
         self._render_check()
         self._render_zero()
         self._set_run_state(self._status_kind, self._status_message)
+        # G2b 漂移行: 只按新配色重画已记下的判定, 不重读目录。
+        self._paint_drift_warning(self._drift_verdict)
         # G1 的提示行用次级色: 换主题只重上色, **不重建**勾选行 —— 系统明暗切换
         # (或日落自动切换) 不是「改了参数」, 顺手作废一遍确认只会让人白勾一次。
         if getattr(self, "_ack_hint", None):

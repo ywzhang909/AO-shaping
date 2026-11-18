@@ -316,14 +316,12 @@ class BeamQualityApp(QMainWindow):
         info_layout.addWidget(self._info_label)
         layout.addWidget(info_box)
 
-        self._scope_hint = QLabel(
-            "分析口径: 半高阈值包围椭圆 (二阶矩); >1080p 先 2x2 binning\n"
-            "饱和占比按灰度 >=255 统计, 不代表相机物理满量程\n"
-            "物理预测与任意形状整形: 迁移学习闭环整形页"
+        hint = QLabel(
+            "分析口径: 半高阈值包围椭圆 (二阶矩)\n>1080p 画面先 2x2 binning 再分析"
         )
-        self._scope_hint.setWordWrap(True)
-        self._scope_hint.setStyleSheet("color: #808088;")
-        layout.addWidget(self._scope_hint)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #808088;")
+        layout.addWidget(hint)
         layout.addStretch(1)
 
         self._open_btn.clicked.connect(self.open_source)
