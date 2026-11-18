@@ -1266,9 +1266,8 @@ FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时物理预测模型的输出�
 apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量都是几何量,
         越界意味着模型已经离开它能解释的物理范围。
 
-        夹边界**不是**逐轮信任域 —— 逐轮信任域在
-        :mod:`ao_shaping.optimizer.wfless.slm_model_in_loop` 那一层, 它管的是
-        「这一轮最多能走多远」, 这里管的是「参数不许越界」。
+        夹边界**不是**逐轮信任域 —— 逐轮信任域属于已移除的 model-in-loop
+        调度层, 它管的是「这一轮最多能走多远」, 这里管的是「参数不许越界」。
         """
         torch = _torch()
         if self._affine is not None:

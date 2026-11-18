@@ -210,7 +210,7 @@ def masked_cv(
 
     R3 之前 "框内 CV" 有四份实现 —— :func:`compute_square_metrics` 的区域版、
     ``multishape_objective.image_metrics``、
-    ``slm_model_in_loop._metrics_at`` 的非方路径、
+    已移除的 MIL 链 ``slm_model_in_loop._metrics_at`` 的非方路径、
     ``hw_square_carrier_probe.metrics`` —— 分子分母与退化策略各不相同; 现全部
     收敛到本函数。各自的退化策略 (``0.0`` / ``None`` / ``nan``) 保留在调用点:
     那是消费者契约, 不是指标定义。
@@ -256,7 +256,7 @@ def masked_energy_fraction(
         mask: 同 :func:`masked_cv`。
         floor: 分母下限防护 (各调用点的历史口径: 1e-10 / 1e-9 / 1.0 / 无)。
         nonnegative: 分子分母都先把负强度截断为 0
-            (``slm_model_in_loop._metrics_at`` 非方路径的口径: 读噪声的负计数
+            (已移除的 MIL 链 ``slm_model_in_loop._metrics_at`` 非方路径的口径: 读噪声的负计数
             不计入能量)。
 
     Returns:

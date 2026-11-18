@@ -18,9 +18,9 @@
 固定离焦、照明和几何参数。本文件为实验设计，没有新增设备测量。
 
 依据：[第二轮重标定](defocus_differentiable_20261023_r2.md)、
-[旧离焦物理预测模型实验](../model_in_loop/physical_forward_defocus_live_20261022.md)、
+[历史离焦物理预测实验（见物理预测经验总结）](../physical_forward_experience.md)、
 [闪耀光栅报告](../../slm/diffraction_efficiency/hw_blaze_20261023/report.md)，并参考
-[采样及响应补测](../model_in_loop/physical_forward_sampling_20261022_r2.md)。
+[采样及响应补测（见物理预测经验总结）](../physical_forward_experience.md)。
 本方案接续上述证据，取代旧方案中“主实验先叠加旧聚焦补偿”的现场假设。
 
 当前最新参考是最佳补偿焦度 `0.0000 m⁻¹`、参考 FWHM `12.2 px`，

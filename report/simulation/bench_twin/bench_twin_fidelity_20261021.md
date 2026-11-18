@@ -1,11 +1,10 @@
 # 数字孪生保真度验证: 理想孪生 vs 误差参数反演后的孪生 (20261021)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/generate_bench_twin_report.py`](../../../scripts/slm/generate_bench_twin_report.py)
-> **复现命令**: `python scripts/slm/generate_bench_twin_report.py --run-dir data/debug/slm_model_in_loop/20261019_103208 --n-train 5 --maxiter 3 --popsize 5 --maxiter-fine 8 --seed 0`
-> **数据/关联脚本**: [`src/ao_shaping/runners/slm/model_in_loop_runner.py`](../../../src/ao_shaping/runners/slm/model_in_loop_runner.py)
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/_archive/generate_bench_twin_report.py.bak`](../../../scripts/slm/_archive/generate_bench_twin_report.py.bak)
 > **运行环境**: 离线
-> **说明**: 2f 实验系统数字孪生 (bench_twin) 的保真度验证与误差参数反演: 读 2026-10-19 那次 MIL 实验落盘的探针 npz / bench_geometry.json / run_config.json / recorder pkl, 把 300×300 相机像元窗口换算到 115×115 模型采样点 (旋转象限由落盘 model_grid 逐像素反推, 偏差 7.44e-08), 比较理想孪生与反演后孪生在训练集/验证集上的 SSIM / Pearson r / 标度无关能量比 (验证集: SSIM 0.1526→0.5116, 能量比 4.7044→1.1656), 并与 MIL 自己的物理预测模型在 1024² 网格上同口径对拍 (复现其落盘的验证集相关 0.3918); **焦面标度口径已统一**: 孪生按实测标度 2.614022 经 BenchTwinConfig.from_measured_scale 反推等效焦距 311.32 mm (解析/实测比 1.000000000), 标称 122.4060 mm 的解析标度与之差 2.54 倍仅作提醒; 反演走 bench_twin_calibrate.fit_twin 自己的两阶段路径, 过程 GIF 由拟合期间临时包一层模块级 twin_loss 取优化器真实访问过的候选序列
+> **说明**: 2f 实验系统数字孪生 (bench_twin) 的保真度验证与误差参数反演: 读 2026-10-19 那次 MIL 实验落盘的探针 npz / bench_geometry.json / run_config.json / recorder pkl, 把 300×300 相机像元窗口换算到 115×115 模型采样点 (旋转象限由落盘 model_grid 逐像素反推, 偏差 7.44e-08), 比较理想孪生与反演后孪生在训练集/验证集上的 SSIM / Pearson r / 标度无关能量比 (验证集: SSIM 0.1526→0.5116, 能量比 4.7044→1.1656), 并与 MIL 自己的物理预测模型在 1024² 网格上同口径对拍 (复现其落盘的验证集相关 0.3918); **焦面标度口径已统一**: 孪生按实测标度 2.614022 经 BenchTwinConfig.from_measured_scale 反推等效焦距 311.32 mm (解析/实测比 1.000000000), 标称 122.4060 mm 的解析标度与之差 2.54 倍仅作提醒; 反演走 bench_twin_calibrate.fit_twin 自己的两阶段路径, 过程 GIF 由拟合期间临时包一层模块级 twin_loss 取优化器真实访问过的候选序列; 原报告生成脚本已归档, 不再承诺复现
 <!-- provenance:end -->
 
 **问题.** `src/ao_shaping/drivers/sim/bench_twin.py` 的参数化 2f 数字孪生, 能不能定量解释实验系统真实拍到的画面? 反演出的误差参数, 是不是真的把**验证集** (未参与拟合的独立相位探针) 上的残差压下去了?

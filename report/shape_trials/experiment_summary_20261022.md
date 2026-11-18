@@ -2,10 +2,10 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/slm/analyze_model_in_loop_loss.py`](../../scripts/slm/analyze_model_in_loop_loss.py)
+> **数据/关联脚本**: [`scripts/slm/_archive/analyze_model_in_loop_loss.py.bak`](../../scripts/slm/_archive/analyze_model_in_loop_loss.py.bak)
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../scripts/slm/probe_optical_path_validity.py)
-> **数据/关联脚本**: [`scripts/slm/model_in_loop_selfcal_bakeoff.py`](../../scripts/slm/model_in_loop_selfcal_bakeoff.py)
-> **数据/关联脚本**: [`scripts/slm/model_in_loop_hw_ab.py`](../../scripts/slm/model_in_loop_hw_ab.py)
+> **数据/关联脚本**: [`scripts/slm/_archive/model_in_loop_selfcal_bakeoff.py.bak`](../../scripts/slm/_archive/model_in_loop_selfcal_bakeoff.py.bak)
+> **数据/关联脚本**: [`scripts/slm/_archive/model_in_loop_hw_ab.py.bak`](../../scripts/slm/_archive/model_in_loop_hw_ab.py.bak)
 > **运行环境**: 人工撰写
 > **说明**: 2026-10-22 MIL + 离焦测试的联合分析: 把 10-21~22 的 MIL 损失审计、硬件离焦/多阶泽尼克测试与当天四轮 campaign 的失败现场串成一条因果链; 不含任何新测量, 全部数字引自已落盘产物; 含 10 条规律、scripts/slm/ 脚本盘点与去留、以及阶段 0~6 的后续实验计划
 <!-- provenance:end -->
@@ -34,7 +34,7 @@
 
 ### 1.1 起点：2026-10-21 的 MIL 单次运行
 
-[model_in_loop_record_20261021_172309.md](model_in_loop/model_in_loop_record_20261021_172309.md) 记录了 `20261021_172236` campaign 的 `baseline_a` 变体（运行目录 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`）：
+[MIL 单次运行记录（历史明细已归档，见 Model-in-loop 历史总述）](model_in_loop/model_in_loop_overview.md) 记录了 `20261021_172236` campaign 的 `baseline_a` 变体（运行目录 `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309`）：
 
 | 对象 | 复合分数 | CV | EE | IoU |
 |---|---|---|---|---|
@@ -62,7 +62,7 @@
 
 **这与 §1.1 是同一件事的两面**：MIL 的几何标定在 10-21 报 `waist NOT identifiable`，在 10-22 报「焦面标定相位可能带着未矫正的离焦」—— 因为 **MIL 的采集路径里根本没有焦面矫正这一步**。
 
-> 口径澄清（不可回避）：10-19 那次 MIL **确实**做过聚焦 + 彗差组合校正（最佳焦度 +0.644356158432213 m⁻¹，FWHM 47.23 → 13.75 px，见 [model_in_loop_live_20261019.md](model_in_loop/model_in_loop_live_20261019.md)），但它是**一次性的人工相位文件**（`--phase-disturbance-file`）注入的，不是采集的一等阶段；那份报告自己写明「下一步应在组合校正**始终叠加**的条件下**重新测量**照明范围和传播几何」—— 这一步至今没有做。因此 10-21（平场 FWHM 40.578 px）与 10-22（48.1 px @5 ms、74.2 px @20 ms）全部回到了**未矫正焦面**。
+> 口径澄清（不可回避）：10-19 那次 MIL **确实**做过聚焦 + 彗差组合校正（最佳焦度 +0.644356158432213 m⁻¹，FWHM 47.23 → 13.75 px，见 [model_in_loop_live_20261019.md（历史明细已归档，见 Model-in-loop 历史总述）](model_in_loop/model_in_loop_overview.md)），但它是**一次性的人工相位文件**（`--phase-disturbance-file`）注入的，不是采集的一等阶段；那份报告自己写明「下一步应在组合校正**始终叠加**的条件下**重新测量**照明范围和传播几何」—— 这一步至今没有做。因此 10-21（平场 FWHM 40.578 px）与 10-22（48.1 px @5 ms、74.2 px @20 ms）全部回到了**未矫正焦面**。
 
 ### 1.4 今天四轮 campaign 的失败链
 
@@ -290,7 +290,7 @@ score = 0.6 · EE + 0.4 / (1 + CV)
 | **3**（~30 min） | **信噪比与宽度估计器** | 2–3 档曝光（10 / 20 / 50 ms）× 每档帧数（2 / 5 / 10）对同一组固定相位重复采集；每档给出 **FWHM** 与**二阶矩半径**两种宽度估计的重复性（σ 与相对分辨率）；同时记录 settle 时间（今天 7 s 判据反复不收敛）与几何 sweep 的默认参数 | 选出的组合满足：**宽度相对分辨率 ≲ 25%**、**峰值相对分辨率 ≲ 50%**、**离焦显著性 ≥ 3× 合并标准误**（探针自带阈值）。据此把几何 sweep 的默认曝光/帧数写死（建议 50 ms × 10 帧）。**同时**确认 `KeyError` 的诊断化分支（已由提交 `01eb96df` 落库：`SweepCalibrationError` + 「提高信噪比 / 改用二阶矩半径」的下一步提示）在真实链路上确实触发，并补一条回归测试 | **~30 min** | 50 ms × 10 帧仍达不到 25% ⇒ 改用**二阶矩半径**作宽度估计器，并接受「宽度响应弱」这一事实，转而以**峰值响应**作为几何标定的判据 |
 | **4**（~40 min） | **信任域对照实验**（历史数据里缺失的对照） | 同一探针集下 `--trust-region-c-l2` 取 **0.5 / 1.0 / 2.0** 各跑一轮（CLI 默认 0.5 rad，`src/ao_shaping/runners/runner_common.py:3099-3109`；夹取点 `slm_model_in_loop.py:3112-3122`）；保留落盘**未截断**的原始步长 `step_l2_raw` | 只看**验证集**：拟合系数 vs c=0 的 holdout 相对增益必须 **> 0**（今天代表轮 **−2.2%**）且相关增益 **> 0**（今天 **−0.0054**）；撞满率从 **89.29%** 下降 | **~40 min**（3 轮 × ~13 min） | 三档都撞满且验证集增益都为负 ⇒ 撞满是**保护**而非限制 ⇒ 保留 0.5，把结论写进审计的「假设 C」栏 |
 | **5**（~60 min） | **先验相位探测训练集** —— 标定模型的**系统误差** | **主组**（与今天 MIL 的 `region=128` 同网格）：`logs/mil_loss_audit/20261022_100603/candidates/r128*.npy`，**region=128 的 7 条**（落盘形状 128×128、瞳面膜 12892 px；两两 L2 距离 **212.00–350.76 rad**）。**补充组**：`candidates/c*.npy`，**region=64 的 10 条**（落盘形状 64×64、瞳面膜 3228 px；两两 L2 距离 **117.04–160.45 rad**，中位 142.99）—— ⚠️ **这是 64×64 的模型网格，相位可重采样到 128 但有重采样损失，只能当补充组**。实验探测得到「相位 → 实测远场」对，用它标定模型的系统误差（能量尺度 / 宽度 / 位置三类），再用标定后的模型跑 MIL | 用**独立**验证集探针：宽度比 ∈ **1.0 ± 0.10**、质心偏移 ≤ **0.5 模型格**、原始 Pearson r ≥ **0.90**、峰值归一化 MSE ≤ **0.002**（今天 0.005343） | **~60 min** | 不过 ⇒ 回阶段 2 逐项查三类系统误差；仍不过就放弃「MIL 直接驱动」路线，改走 GS + Zernike + SPGD（`scripts/slm/run_gs_refine_zernike_sweep.py`） |
-| **6**（交替迭代直到停） | 让整形光斑指标停止改善 | 交替 Step A（重拟合像差）/ Step B（反向优化相位）；**判据改成分量指标**：EE / CV / 位置偏移各自的相对改善 > 噪声地板 3σ 才算一轮**有效**改善；连续 **N = 3** 轮无有效改善即停。**产物补齐**：当前 recorder **缺梯度范数与每迭代模型远场**（见 [model_in_loop_record_20261021_172309.md](model_in_loop/model_in_loop_record_20261021_172309.md) §4「逐迭代梯度范数：未记录」与 §8「每迭代的模型远场未落盘」）⇒ 要补这两项落盘 | 每轮产出：逐迭代 loss、逐迭代**梯度范数**、逐迭代**模型远场**、逐分量指标（EE / CV / 位置偏移）+ 复合分数（仅参考） | 每轮 ~13 min | 任一阶段失败 ⇒ 回到阶段 2 复验「模型与实验系统」的一致性，**不**用加迭代的方式掩盖 |
+| **6**（交替迭代直到停） | 让整形光斑指标停止改善 | 交替 Step A（重拟合像差）/ Step B（反向优化相位）；**判据改成分量指标**：EE / CV / 位置偏移各自的相对改善 > 噪声地板 3σ 才算一轮**有效**改善；连续 **N = 3** 轮无有效改善即停。**产物补齐**：当前 recorder **缺梯度范数与每迭代模型远场**（见 [model_in_loop_record_20261021_172309.md（历史明细已归档，见 Model-in-loop 历史总述）](model_in_loop/model_in_loop_overview.md) §4「逐迭代梯度范数：未记录」与 §8「每迭代的模型远场未落盘」）⇒ 要补这两项落盘 | 每轮产出：逐迭代 loss、逐迭代**梯度范数**、逐迭代**模型远场**、逐分量指标（EE / CV / 位置偏移）+ 复合分数（仅参考） | 每轮 ~13 min | 任一阶段失败 ⇒ 回到阶段 2 复验「模型与实验系统」的一致性，**不**用加迭代的方式掩盖 |
 
 ### 8.1 阶段 5 的「主组 / 补充组」口径
 
@@ -330,9 +330,9 @@ score = 0.6 · EE + 0.4 / (1 + CV)
 |---|---|
 | 损失审计 | `logs/mil_loss_audit/20261022_100603/summary.md`、`audit.json`、`candidates.json`、`candidates/`（相位数组）；生成脚本 `scripts/slm/analyze_model_in_loop_loss.py` |
 | 离焦 + 泽尼克 | [hw_defocus_zernike_20261022.md](hw_defocus_zernike/hw_defocus_zernike_20261022.md)（§0、§0.3、§1.2 噪声地板、§2 离焦扫描、§5 限制）；生成脚本 `scripts/slm/generate_hw_defocus_zernike_report.py` |
-| MIL 单次运行记录 | [model_in_loop_record_20261021_172309.md](model_in_loop/model_in_loop_record_20261021_172309.md)；生成脚本 `scripts/slm/generate_model_in_loop_record_report.py` |
+| MIL 单次运行记录 | [model_in_loop_record_20261021_172309.md（历史明细已归档，见 Model-in-loop 历史总述）](model_in_loop/model_in_loop_overview.md)；生成脚本 `scripts/slm/generate_model_in_loop_record_report.py` |
 | campaign 失败现场 | `data/debug/model_in_loop_hw_ab/20261022_133250/`、`.../20261022_135318/`、`.../20261022_153356/`、`.../20261022_164859/`（`summary.md` / `manifest.json` / `baseline_*/stage.log`；**15:33 那轮连 `summary.md` 都没落**，只有 `light.log` + `baseline_a/panel_scan/`，因为 campaign 在变体阶段就中止了） |
 | 光路有效性探针 | `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`（判定 ok 的那一轮）与 `.../20261022_{062235Z,063917Z,064720Z,081646Z}/`（驱动板不应答的四轮）；生成脚本 `scripts/slm/probe_optical_path_validity.py` |
-| 2026-10-19 的焦面 + 彗差组合校正 | [model_in_loop_live_20261019.md](model_in_loop/model_in_loop_live_20261019.md) §10:23 / §11:01 |
-| 已有的实验方案（本文是其上位总结，不重复） | [physical_forward_defocus_plan_20261022.md](physical_forward_defocus_plan_20261022.md)、[physical_forward_defocus_live_20261022.md](model_in_loop/physical_forward_defocus_live_20261022.md) |
+| 2026-10-19 的焦面 + 彗差组合校正 | [model_in_loop_live_20261019.md（历史明细已归档，见 Model-in-loop 历史总述）](model_in_loop/model_in_loop_overview.md) §10:23 / §11:01 |
+| 已有的实验方案（本文是其上位总结，不重复） | [physical_forward_defocus_plan_20261022.md / physical_forward_defocus_live_20261022.md（历史明细已归档，见物理预测经验总结）](physical_forward_experience.md) |
 | 前一轮跨系列总结 | [experiment_summary_20261016.md](experiment_summary_20261016.md) |

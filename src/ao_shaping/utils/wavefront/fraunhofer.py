@@ -51,7 +51,7 @@ def focal_field(field: torch.Tensor, out_size: int) -> torch.Tensor:
     Zero-padding here is a *sampling* change only — it does not change the
     physical field of view (still ``lambda * f / d_slm``), it merely samples the
     same far field at ``out_size / n`` times the fineness (documented with
-    bench measurements in ``report/slm/model_in_loop_bench_calibration.md``).
+    bench measurements in ``report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md``).
 
     Args:
         field: Complex or real field whose last two dims are the square pupil

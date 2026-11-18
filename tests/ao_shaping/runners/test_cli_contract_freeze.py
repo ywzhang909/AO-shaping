@@ -58,7 +58,6 @@ EXPECTED_COMMANDS = (
     "slm-gs-refine",
     "slm-gsnet",
     "slm-lut",
-    "slm-model-in-loop",
     "slm-pib",
     "slm-transfer-shapes",
     "wf",

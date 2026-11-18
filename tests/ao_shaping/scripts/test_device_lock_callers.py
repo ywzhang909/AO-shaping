@@ -1,6 +1,6 @@
-"""设备互斥的三个调用方: 迁移后的契约 (不碰硬件)。
+"""设备互斥的两个调用方: 迁移后的契约 (不碰硬件)。
 
-迁移清单上的三条 (``probe_optical_path_validity`` / ``model_in_loop_hw_ab`` /
+迁移清单上的两条 (``probe_optical_path_validity`` /
 ``capture_prior_phase_dataset``) 都必须:
 
 * 用**权威模块**的规范等待 (:func:`ao_shaping.tools.kernels.device_mutex.wait_until_idle`),
@@ -46,7 +46,6 @@ def _load(name: str, relative: str):
 
 
 probe_script = _load("probe_optical_path_validity_lock", "scripts/slm/probe_optical_path_validity.py")
-campaign = _load("model_in_loop_hw_ab_lock", "scripts/slm/model_in_loop_hw_ab.py")
 capture = _load("capture_prior_phase_dataset_lock", "scripts/slm/capture_prior_phase_dataset.py")
 
 
@@ -338,77 +337,3 @@ class TestOpticalPathProbeLock:
         with pytest.raises(RuntimeError):
             probe_script.main([])
         assert lock.is_locked() is False, "抛异常也必须放锁"
-
-
-# ---------------------------------------------------------------------------
-# model_in_loop_hw_ab
-# ---------------------------------------------------------------------------
-class TestCampaignLock:
-    def test_zero_budget_disables_waiting(self):
-        args = campaign.parse_args(["--wait-until-idle", "0"])
-        lock, record = campaign.acquire_device_lock(args)
-        assert lock is None
-        assert record == "skipped"
-
-    def test_an_ok_verdict_yields_a_held_lock(self, tmp_path, monkeypatch):
-        fake_lock = DeviceLock(tmp_path / "bench.lock")
-        monkeypatch.setattr(
-            campaign.device_mutex,
-            "wait_until_idle",
-            lambda *a, **kw: _ok_verdict(fake_lock),
-        )
-        args = campaign.parse_args(["--wait-until-idle", "600"])
-
-        lock, record = campaign.acquire_device_lock(args)
-        try:
-            assert lock is fake_lock
-            assert lock.is_locked()
-            assert record == "idle after waiting"
-        finally:
-            lock.release()
-
-    def test_a_stale_verdict_is_refused_with_the_power_cycle_advice(self, monkeypatch):
-        monkeypatch.setattr(
-            campaign.device_mutex, "wait_until_idle", lambda *a, **kw: _stale_verdict()
-        )
-        args = campaign.parse_args(["--wait-until-idle", "600"])
-
-        with pytest.raises(RuntimeError) as excinfo:
-            campaign.acquire_device_lock(args)
-        assert "物理断电" in str(excinfo.value)
-
-    def test_the_campaign_releases_the_lock_after_it_finishes(self, tmp_path, monkeypatch):
-        fake_lock = DeviceLock(tmp_path / "bench.lock")
-        monkeypatch.setattr(
-            campaign.device_mutex,
-            "wait_until_idle",
-            lambda *a, **kw: _ok_verdict(fake_lock),
-        )
-        seen: dict = {}
-
-        def _fake_campaign(args, plan, session_dir, manifest):
-            seen["held"] = fake_lock.is_locked()
-            return 0
-
-        monkeypatch.setattr(campaign, "run_campaign", _fake_campaign)
-
-        rc = campaign.main(["--out-root", str(tmp_path / "campaign"),
-                            "--wait-until-idle", "600", "--stage", "light"])
-
-        assert rc == 0
-        assert seen["held"] is True, "整轮跑的时候锁必须在手里"
-        assert fake_lock.is_locked() is False, "跑完必须放锁"
-
-    def test_a_stale_bench_marks_the_campaign_device_unavailable(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            campaign.device_mutex, "wait_until_idle", lambda *a, **kw: _stale_verdict()
-        )
-
-        rc = campaign.main(["--out-root", str(tmp_path / "campaign"),
-                            "--wait-until-idle", "600", "--stage", "light"])
-
-        assert rc == 2
-        manifest_path = next((tmp_path / "campaign").glob("*/manifest.json"))
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        assert manifest["campaign_state"] == "device_unavailable"
-        assert any("物理断电" in note for note in manifest["notes"])

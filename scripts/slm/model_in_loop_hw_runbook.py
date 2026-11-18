@@ -49,14 +49,20 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
 )
 from ao_shaping.drivers.ccd.common import create_camera
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+from ao_shaping.optimizer.wfless.bench_geometry import (
     BenchGeometry,
-    CalibrationRecord,
-    StepBConfig,
     calibrate_bench_geometry,
-    calibrate_shared_aberration,
-    shape_phase_with_frozen_aberration,
+)
+from ao_shaping.optimizer.wfless.bench_geometry_common import (
+    CalibrationRecord,
     square_metrics_at_zero_order,
+)
+from ao_shaping.optimizer.wfless.bench_shared_aberration import (
+    calibrate_shared_aberration,
+)
+from ao_shaping.optimizer.wfless.frozen_aberration_shaping import (
+    StepBConfig,
+    shape_phase_with_frozen_aberration,
 )
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
@@ -664,7 +670,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     correlate. Smooth modes *do* produce a measurable response, and a tilt sweep
     fixes the far-field scale with no assumption about f, pitch or pixel size.
     """
-    from ao_shaping.optimizer.wfless.model_in_loop_shaping import SweepRecord
+    from ao_shaping.optimizer.wfless.bench_sweep import SweepRecord
     from ao_shaping.utils.io.file import Recorder
 
     pupil = _pupil_center(args)
@@ -939,8 +945,8 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
 
 def stage_calibrate_sweep(args: argparse.Namespace, out_dir: Path) -> BenchGeometry:
     """Solve the geometry from the tilt + defocus sweep."""
-    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
-        SweepRecord,
+    from ao_shaping.optimizer.wfless.bench_sweep import SweepRecord
+    from ao_shaping.optimizer.wfless.bench_sweep_fit import (
         calibrate_bench_geometry_from_sweep,
     )
 

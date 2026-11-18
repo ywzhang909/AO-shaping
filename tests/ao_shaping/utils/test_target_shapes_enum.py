@@ -2,8 +2,7 @@
 
 Pins the contract of :mod:`ao_shaping.utils.image.target.shapes`: exactly five
 members, string-comparable, labels covering the members, and the coercion
-helper.  Also guards the GUI re-export so ``shaping_controls`` keeps exposing
-``MIL_TARGET_SHAPE_LABELS`` for existing callers.
+helper.
 """
 
 from __future__ import annotations
@@ -55,10 +54,3 @@ class TestCoerce:
             match=r"valid values: square, rectangle, triangle, star, circle",
         ):
             coerce_target_shape("hexagon")
-
-
-class TestGuiReExport:
-    def test_shaping_controls_still_exposes_mil_labels(self) -> None:
-        from ao_shaping.gui.slm.shaping_controls import MIL_TARGET_SHAPE_LABELS
-
-        assert MIL_TARGET_SHAPE_LABELS == TARGET_SHAPE_LABELS

@@ -22,7 +22,7 @@ python src/ao_shaping/main.py hadamard-matrix       # Hadamard 响应矩阵
 ## CLI Structure (main.py 注册关系)
 
 ```
-main (click.group)                                  # 20 个命令，逐个由 cli.add_command 注册
+main (click.group)                                  # 19 个命令，逐个由 cli.add_command 注册
 ├── wf                ← runners.nlight_dm.wf_runner
 ├── pib               ← runners.nlight_dm.axis_beam_runner
 ├── pipeline          ← runners.nlight_dm.pipeline_runner
@@ -39,13 +39,12 @@ main (click.group)                                  # 20 个命令，逐个由 c
 ├── slm-pib           ← runners.slm.slm_shaping_runner         (click 组: spgd / heuristic / square)
 ├── slm-gsnet         ← runners.slm.gsnet_runner
 ├── slm-gs-refine     ← runners.slm.gs_refine_runner
-├── slm-model-in-loop ← runners.slm.model_in_loop_runner
 ├── slm-transfer-shapes ← runners.slm.transfer_shapes_runner  (物理预测模型多形状闭环整形: 从零训练 + 逐形状整形)
 ├── slm-lut           ← tools.slm.calibration.lut_runner       (来自 tools/，不经 _LAZY_RUNNERS)
 └── slm-diagnose      ← tools.slm.panel.diagnose               (同上)
 ```
 
-`main (click.group)` # 20 个命令，逐个由 cli.add_command 注册
+`main (click.group)` # 19 个命令，逐个由 cli.add_command 注册
 
 - 一个模块导出多个命令时必须显式给出 attr（`_IMPORT_ATTRS`），否则落到默认 attr `run` 会取回错误的命令。
 - `combined` 命令仍注册于 main.py 且功能可用，作为 legacy 保留。`pipeline_runner.py` 是推荐的 WF→PIB 串行方案。

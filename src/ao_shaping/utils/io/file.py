@@ -175,7 +175,7 @@ def debug_run_dir(root_dir: str | Path, prefix: str) -> Path:
         <root_dir>/debug/<prefix>/<YYYYmmdd_HHMMSS>/
 
     where ``<prefix>`` is the runner's *script* name (``slm_gs_refine``,
-    ``slm_pib_shape``, ``slm_model_in_loop``, …) and the second level is the run
+    ``slm_pib_shape``, …) and the second level is the run
     stamp. This two-level shape is the single on-disk convention for
     ``data/debug``; :func:`debug_run_stem` names the files inside it. Runners
     that also emit non-debug companions (CSV, best phase / best image) pass the

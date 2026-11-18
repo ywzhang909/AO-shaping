@@ -688,4 +688,6 @@ model's far-field propagation.
 
 ## 与 slm-model-in-loop 的关系
 
+> 注（2026-11-18）：MIL（model-in-loop）执行链已退役，`slm-model-in-loop` 命令不再存在；本节保留为历史说明，标定流程本身仍由 `optimizer/wfless/bench_sweep_fit.py::calibrate_bench_geometry_from_sweep` 等中立模块提供。
+
 slm-model-in-loop 复用了本文件所述的实验系统几何自校准流程：通过 calibrate_bench_geometry 拟合几何参数，并在运行时检查实测远场与模型预测的相关性（--min-geometry-correlation）。当相关性低于阈值时，命令会拒绝整形并提示改用 slm-gs-refine。此外，它在 Step A 中交替拟合单个共享 Zernike 像差以校正物理预测模型，再在 Step B 中冻结该像差并合成目标光斑相位，从而避免两步互相抵消。

@@ -1,7 +1,7 @@
 """K-fold cross-validation harness for the Zernike holdout.
 
 The 8 bench calibration probes are currently split by a **fixed seed offset** in the
-hardware twin (``ao_shaping.optimizer.wfless.slm_model_in_loop``): train probes are
+(now removed) hardware-twin MIL pipeline: train probes are
 seeded ``seed + index*1000 + k`` and holdout probes ``seed + 1_000_000 + index*1000 + k``.
 That is one fixed partition, not cross-validation, so a model change is scored against
 whichever probes happened to be held out -- an optimistic and fragile read.

@@ -22,8 +22,9 @@ AO-Shaping 解决一个具体问题：**让激光远场变成想要的样子**�
    `closed-loop`、`rms-zernike`、`ga-zernike`、`greedy-zernike`。
 2. **无波前传感器（WFS-less）的闭环**：只看 CCD 远场，用 PIB（Power-in-Bucket）、
    方形光斑均匀度、环围能量等目标驱动 SPGD、启发式搜索、可微分优化或
-   “物理预测模型在环”合成。入口：`pib`、`combined`、`slm-pib`、`slm-pib square`、
-   `slm-gsnet`、`slm-gs-refine`、`slm-model-in-loop`、`slm-transfer-shapes`。
+   物理预测模型迁移合成。入口：`pib`、`combined`、`slm-pib`、`slm-pib square`、
+   `slm-gsnet`、`slm-gs-refine`、`slm-transfer-shapes`（原 `slm-model-in-loop` 已于 2026-11-18 退役，
+   见 [`report/shape_trials/model_in_loop/removal_report.md`](report/shape_trials/model_in_loop/removal_report.md)）。
 3. **数字孪生与学习型模型**：2f-Fourier 实验系统的仿真后端，带湍流、
    热晕扰动与相机噪声模型；`src/ml/` 提供相位预测、Zernike 正向/逆向模型与
    GSNet 训练。没有硬件时，同一套 runner 用 `--cam-type sim` 即可回归。
@@ -33,7 +34,7 @@ AO-Shaping 解决一个具体问题：**让激光远场变成想要的样子**�
 | 能力 | 从哪里开始 | 说明 |
 |---|---|---|
 | WFS 闭环校正 | `wf` / `pipeline` / `zernike-matrix` | DM 电压或 SLM 相位；响应矩阵标定 + 闭环 |
-| 无波前整形 | `pib` / `slm-pib` / `slm-model-in-loop` | CCD 反馈；PIB、方斑、全频随机相位、物理预测模型在环 |
+| 无波前整形 | `pib` / `slm-pib` / `slm-gs-refine` / `slm-transfer-shapes` | CCD 反馈；PIB、方斑、全频随机相位、物理预测模型迁移 |
 | 器件标定与自检 | `dm-matrix` / `hadamard-matrix` / `slm-lut` / `slm-diagnose` | 响应矩阵、灰度-相位 LUT、逐级硬件自检 |
 | 数字孪生回归 | `--cam-type sim`（部分命令支持 `--slm-type sim`） | 无硬件跑完整闭环；可选 OOPAO 后端 |
 | 机器学习 | `src/ml/`、`ao-train` | U-Net+GAN、Zernike 前向/逆向、GSNet、硬件语料 Dataset |
@@ -271,7 +272,6 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-gsnet` | [docs/slm/slm_gsnet.md](docs/slm/slm_gsnet.md) | SLM 全频随机相位方形整形（SPGD / 启发式） |
 | `slm-pib` | [docs/slm/slm_pib.md](docs/slm/slm_pib.md) | SLM Zernike PIB 优化（`spgd` / `heuristic` / `square`） |
 | `slm-gs-refine` | [docs/slm/slm_gs_refine.md](docs/slm/slm_gs_refine.md) | GS 预矫正 + 全频随机相位 SPGD 细化 |
-| `slm-model-in-loop` | [docs/slm/slm_model_in_loop.md](docs/slm/slm_model_in_loop.md) | 物理预测模型闭环校正 + 目标光斑相位合成（反复迭代） |
 | `slm-transfer-shapes` | [docs/slm/slm_transfer_workflow.md](docs/slm/slm_transfer_workflow.md) | 物理预测模型多形状整形（model → shaping → replay → record 四阶段） |
 
 > `slm-pib` 是 Click group：不带子命令等价于 `spgd`；`square` 是方形远场整形
@@ -306,7 +306,6 @@ python -m ao_shaping.runners.slm.slm_shaping_runner spgd      # slm-pib spgd
 python -m ao_shaping.runners.slm.slm_shaping_runner square    # slm-pib square
 python -m ao_shaping.runners.slm.gsnet_runner                 # slm-gsnet
 python -m ao_shaping.runners.slm.gs_refine_runner             # slm-gs-refine
-python -m ao_shaping.runners.slm.model_in_loop_runner         # slm-model-in-loop
 python -m ao_shaping.runners.slm.transfer_shapes_runner      # slm-transfer-shapes
 python -m ao_shaping.tools.slm.calibration.lut_runner         # slm-lut
 python -m ao_shaping.tools.slm.panel.diagnose                 # slm-diagnose
@@ -373,7 +372,7 @@ streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 # SLM 校准
 streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 
-# 多 SLM 控制器（相位图案生成/下发，含闭环整形：GS+SPGD / 物理预测模型）
+# 多 SLM 控制器（相位图案生成/下发，含 GS+SPGD 闭环整形）
 streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 
 # 1300 陶瓷单元查看器（网格浏览 + 图片标注）
@@ -395,7 +394,7 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 各页面的用户手册与需求规格说明书见 [`docs/gui.md`](docs/gui.md) 的文档索引。
 其中 `multi_slm_controller.py` 是 Santec SLM-200 的 Streamlit 前端页面，支持最多
 两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场
-光束整形（GS+SPGD 与物理预测模型闭环）。完整操作手册与需求规格说明书见
+光束整形（GS+SPGD 闭环）。完整操作手册与需求规格说明书见
 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md)
 与
 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md)。
@@ -436,5 +435,6 @@ AO-shaping/
 ## 近期更新
 
 版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.19.0**，2026-10-19）。
-最近一轮要点：物理预测模型在环（model-in-loop）闭环成型、GS→Zernike 阶数扫描立项、
-`scripts/` 按处理对象重组、ruff 硬门禁恢复入库。
+最近一轮要点：GS→Zernike 阶数扫描立项、`scripts/` 按处理对象重组、ruff 硬门禁恢复入库。
+v0.19.0 交付的 MIL（model-in-loop）闭环已于 2026-11-18 退役，见
+[`report/shape_trials/model_in_loop/removal_report.md`](report/shape_trials/model_in_loop/removal_report.md)。

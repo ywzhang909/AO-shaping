@@ -86,6 +86,22 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/model_in_loop/removal_report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note="MIL 链条移除报告（手写归档），记录删除范围、证据、迁移映射、风险与验证。",
+    ),
+    "report/shape_trials/candidate_parallelism_20261117.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（仅 GPU，RTX 5080 Laptop；未占用 SLM / CCD / 激光）",
+        note=(
+            "模型内 8 候选并行的改动与实测代价（手写）：`train_beam_shaping` 默认 "
+            "`n_candidates=8`，单候选路径逐位不变；300 次迭代下 8 候选比单候选慢 "
+            "4.6-5.8 倍，换非凸目标 1.4-2.2 % 最终损失改善，单盆地目标无收益（0.07 %）。"
+            "数据与两个临时基准脚本在 `data/debug/parallel_candidates_20261117/`，"
+            "不属于仓库脚本入口。"
+        ),
+    ),
     "report/shape_trials/multishape1200/wall_clock_budget_20261111.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",
@@ -201,7 +217,7 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/model_direction_hw_20261117/model_direction_hw_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 上机采集；报告本体不占用设备）",
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
         note=(
             "冻结模型 14 帧方向诊断（data/debug/square1000_model_diag_20261117_140741）、"
             "窗口对照（win0/win163）、M3 以实测峰为中心复核（m3_peak_centred_20261117.json）、"
@@ -221,13 +237,13 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/model_optim_efficiency_20261116/model_optim_efficiency_20261116.md": ReportProvenance(
         script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实机锚定闭环后离线汇总；报告本体不占用设备）",
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实验锚定闭环后离线汇总；报告本体不占用设备）",
         note=(
-            "物理前向模型（FrozenDefocusForward / M3，grid 128 / FFT 512）驱动可微闭环的优化效果与效率汇总："
+            "物理预测模型（FrozenDefocusForward / M3，grid 128 / FFT 512）驱动可微闭环的优化效果与效率汇总："
             "模型侧 model_cv 3.89→0.66（随机起步规避焦斑盆地）、方向 cosine 0.696 过 ≥0.50 门禁；"
             "硬件侧实测核心 CV 停在 6.08/5.01 未达 ≤0.10，model_cv 与 measured_cv_window 同掩膜分叉约 7.5×（绝对强度表征误差）。"
             "效率：M3 闭环 ~0.30 s/iter（settle+capture 0.18 / 计算 0.11），比 model640 ~0.92 s/iter 快约 3×；"
-            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度实机数据待 SLM #1 上线补采"
+            "历史预算证 LCOS settle 占会话 99%、优化器 <0.05%。绝对强度保真度实验数据待 SLM #1 上线补采"
             "（探针 absolute_fidelity_probe_20261116.py，commit 807d456a）。输入为两次锚定运行 timing/device_log/iterations、"
             "direction_variants_20261112、wall_clock_budget_20261111、shape_transition_timing_20261107。人工撰写。"
         ),
@@ -1430,12 +1446,7 @@ REPORTS: dict[str, ReportProvenance] = {
         note="本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的四项能力（系统松弛 / 混合拟合 / 低参数 vs 深度 / 样本查询与不确定性采样），并与 `shape_trials` 的实验、物理预测模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2/T4 定量表由本目录 `t1_noise_relaxation.py`、`t2_mixed_fitting.py`、`t4_uncertainty_sampling.py` 生成（`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，1064 nm 实际光路)；不触碰硬件写入路径",
     ),
     "report/simulation/bench_twin/bench_twin_fidelity_20261021.md": ReportProvenance(
-        script="scripts/slm/generate_bench_twin_report.py",
-        command=(
-            "python scripts/slm/generate_bench_twin_report.py "
-            "--run-dir data/debug/slm_model_in_loop/20261019_103208 "
-            "--n-train 5 --maxiter 3 --popsize 5 --maxiter-fine 8 --seed 0"
-        ),
+        script=HANDWRITTEN,
         environment="离线",
         note=(
             "2f 实验系统数字孪生 (bench_twin) 的保真度验证与误差参数反演: 读 2026-10-19 那次 "
@@ -1448,9 +1459,11 @@ REPORTS: dict[str, ReportProvenance] = {
             "BenchTwinConfig.from_measured_scale 反推等效焦距 311.32 mm (解析/实测比 "
             "1.000000000), 标称 122.4060 mm 的解析标度与之差 2.54 倍仅作提醒; 反演走 "
             "bench_twin_calibrate.fit_twin 自己的两阶段路径, 过程 GIF 由拟合期间临时包一层"
-            "模块级 twin_loss 取优化器真实访问过的候选序列"
+            "模块级 twin_loss 取优化器真实访问过的候选序列; 原报告生成脚本已归档, 不再承诺复现"
         ),
-        extra_scripts=("src/ao_shaping/runners/slm/model_in_loop_runner.py",),
+        extra_scripts=(
+            "scripts/slm/_archive/generate_bench_twin_report.py.bak",
+        ),
     ),
     "report/simulation/sim_credibility/sim_credibility_20261030.md": ReportProvenance(
         script="scripts/slm/render_sim_credibility_report.py",
@@ -1577,31 +1590,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/diagnose_defocus_sampling.py",
             "scripts/slm/validate_defocus_exposure.py",
             "scripts/slm/fit_forward_sampling_variants.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note="固定物理参数的采样收敛、像素积分与曝光偏置补测；训练集选择有效展宽及联合 CV 微调，逐步保留原始与派生数据。",
-        extra_scripts=(
-            "scripts/slm/diagnose_defocus_sampling.py",
-            "scripts/slm/diagnose_defocus_radiometry.py",
-            "scripts/slm/refit_defocus_uniformity_model.py",
-            "scripts/slm/summarize_defocus_sampling.py",
-            "scripts/slm/validate_defocus_exposure.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note="2026-10-22 当前功率与主动离焦下的聚焦、斜坡及未补偿/补偿配对相位采集和低参数物理预测模型验证；保留失败边界。",
-        extra_scripts=(
-            "scripts/slm/capture_defocus_forward_dataset.py",
-            "scripts/slm/fit_defocus_forward_dataset.py",
-            "scripts/slm/evaluate_defocus_forward_dataset.py",
-            "scripts/slm/validate_defocus_exposure.py",
-            "scripts/slm/summarize_defocus_forward_experiment.py",
-            "src/ao_shaping/tools/slm/panel/alignment_probe.py",
         ),
     ),
     "report/shape_trials/no_gs_ccd_moved/live_20261027.md": ReportProvenance(
@@ -1835,28 +1823,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "G0 前置门禁、逐轮交替的判决口径与记录要求；不含任何新测量。"
         ),
         extra_scripts=(
-            "src/ao_shaping/runners/slm/model_in_loop_runner.py",
             "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-        ),
-    ),
-    "report/shape_trials/physical_forward_no_gs_plan_20261027.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线（历史报告分析与下一轮实验规划；未连接设备）",
-        note="无 GS 相位起点：分层指标、物理参数与局部响应校正、CCD 验收及缓漂实验设计；不新增实验测量结论。",
-        extra_scripts=(
-            "src/ao_shaping/utils/image/physical_model_metrics.py",
-            "src/ao_shaping/tools/slm/transfer/fit.py",
-            "src/ao_shaping/tools/slm/transfer/validate.py",
-        ),
-    ),
-    "report/shape_trials/physical_forward_defocus_plan_20261022.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线",
-        note="基于现有离焦、Zernike 与 model-in-loop 报告及工作区代码拟定实验方案；没有新增设备测量。",
-        extra_scripts=(
-            "scripts/slm/hw_gs_defocus_probe.py",
-            "scripts/slm/model_in_loop_hw_runbook.py",
-            "scripts/slm/model_in_loop_hw_ab.py",
         ),
     ),
     "report/shape_trials/experiment_summary_20261016.md": ReportProvenance(
@@ -1878,10 +1845,10 @@ REPORTS: dict[str, ReportProvenance] = {
             "脚本盘点与去留、以及阶段 0~6 的后续实验计划"
         ),
         extra_scripts=(
-            "scripts/slm/analyze_model_in_loop_loss.py",
+            "scripts/slm/_archive/analyze_model_in_loop_loss.py.bak",
             "scripts/slm/probe_optical_path_validity.py",
-            "scripts/slm/model_in_loop_selfcal_bakeoff.py",
-            "scripts/slm/model_in_loop_hw_ab.py",
+            "scripts/slm/_archive/model_in_loop_selfcal_bakeoff.py.bak",
+            "scripts/slm/_archive/model_in_loop_hw_ab.py.bak",
         ),
     ),
     "report/shape_trials/defocus_differentiable/diffopt_efficiency_20261108.md": ReportProvenance(
@@ -2003,144 +1970,6 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
-    "report/shape_trials/model_in_loop/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note=(
-            "2026-10-16/17 物理预测模型闭环方斑均匀度实验：固定曝光交错重放比较软边缘 CV "
-            "目标与两轮热启动 (SLM 22030108 + 大恒 FJB24112232, 1064 nm)；"
-            "并实测照明半径、据以把 GUI 侧栏的曝光与照明半径改为可探测。"
-            "2026-10-17 追加节记录两次由实测数据揭出的实现缺陷 (半径用 edge/2 而非 "
-            "edge−centre；曝光探测不校验确认帧是否截断) 及其修复。"
-            "2026-10-26 追加节记录会话曝光上限估计的修正 (逐档取最小改为拟合 + 两道斜率证据门)："
-            "同一条 2026-10-24 实测阶梯的上限 0.3178 → 0.4696 ms，工作曝光 0.159 → 0.235 ms"
-        ),
-        extra_scripts=(
-            "src/ao_shaping/gui/slm/bench_settings.py",
-            "src/ao_shaping/tools/slm/panel/beam_extent.py",
-            "src/ao_shaping/tools/slm/panel/panel_locate.py",
-            "src/ao_shaping/utils/image/exposure_control.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_live_20261019.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note=(
-            "2026-10-19 相机位置调整后物理预测模型校正与多形状整形 (Santec #1 22030108 + "
-            "大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、"
-            "平均镜像误差改善约 30.4%；新几何标准相位族验证集相关性约 0.78–0.87，"
-            "但全频随机相位验证集仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
-            "独立模型门槛，无匀化验收结论；文内两张原标题为「X/Y 光强截面」的表实为相位与"
-            "远场图，已由 generate_shape_trial_profiles.py 从记录的原始 CCD 帧补出真正的"
-            "X/Y 光强截面（切点为扣背景后的光强质心）"
-        ),
-        extra_scripts=(
-            "scripts/slm/model_in_loop_auto.py",
-            "scripts/slm/model_in_loop_hw_runbook.py",
-            "scripts/slm/generate_shape_trial_profiles.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_hw_ab_20261021.md": ReportProvenance(
-        script="scripts/slm/generate_model_in_loop_hw_ab_report.py",
-        command=(
-            "python scripts/slm/generate_model_in_loop_hw_ab_report.py "
-            "--session data/debug/model_in_loop_hw_ab/20261021_172236 --stamp 20261021"
-        ),
-        environment="离线+硬件",
-        note=(
-            "2026-10-21 model-in-loop 实验系统 A/B campaign 的离线报告 (Santec #1 22030108 + "
-            "大恒 FJB24112232, 1064 nm)：验证集门槛不动 (0.5) vs 强制放开 (0) 两个变体实测对比 —— "
-            "两个变体结局相同 (bake_off_rejected, 整形未打赢平场) ⇒ **本轮验证集门槛不是限制项**, "
-            "10-19 那条「门槛按构造不可达」未被沿用; 含当天曝光窗口、sweep 几何标定 "
-            "(相关性 0.7188)、全板定位扫描证据、逐变体实测探针与模型预测并排的 GIF, "
-            "以及三个拦路缺陷与处置 (曝光上限估计被噪声底毒化 / 全板定位严格模式在噪声底上"
-            "误拒 / 驱动改曝光后的陈旧帧)"
-        ),
-        extra_scripts=(
-            "scripts/slm/model_in_loop_hw_ab.py",
-            "scripts/slm/diagnose_light_level.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_record_20261021_172309.md": ReportProvenance(
-        script="scripts/slm/generate_model_in_loop_record_report.py",
-        command=(
-            "python scripts/slm/generate_model_in_loop_record_report.py "
-            "--run-dir data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/"
-            "slm_model_in_loop/20261021_172309 --stamp 20261021_172309"
-        ),
-        environment="离线",
-        note=(
-            "2026-10-21 baseline_a 变体的 MIL 单次运行记录 (离线读盘, 不碰设备)："
-            "Step A 像差系数 + 信赖域截断、Step B 600 步轨迹、逐探针实测/预测远场与"
-            "相关/SSIM、逐轮 CV/EE/IoU、bake_off_rejected 结论 (整形 0.3451 未打赢"
-            "平场 0.4025, 落盘相位为零相位平场)；过程动画每帧给相位/实测/预测远场"
-            "(叠目标掩模轮廓) + 差值 + 物理预测模型 metrics + 目标 metrics"
-        ),
-        extra_scripts=(
-            "scripts/slm/model_in_loop_hw_ab.py",
-            "scripts/slm/generate_shape_trial_profiles.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_live_20261016.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note=(
-            "2026-10-16 物理预测模型闭环 Step B 匀化权重与 Step A 重拟合消融 "
-            "(SLM 22030108 + 大恒 FJB24112232, 1064 nm，另有 CPU 仿真)；提高 Step B "
-            "均匀度权重未改善方斑 (固定 0.200 ms 交错重放平均 CV 0.8027 升至 0.8989、"
-            "EE 0.6919 降至 0.5177)，Step A=0 只有有代价的小幅 CV 趋势 "
-            "(CV 0.8028 降至 0.7887，同时 EE 0.7071 降至 0.5888)，两者均被复合质量分拒绝；"
-            "结论为保留默认 Step A=80 与 0.4/0.6 权重"
-        ),
-        extra_scripts=(
-            "scripts/slm/check_flat_stability.py",
-            "scripts/slm/replay_model_in_loop_config.py",
-            "scripts/slm/generate_shape_trial_profiles.py",
-            "src/ao_shaping/tools/slm/model_in_loop_replay.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_live_20261015.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note=(
-            "2026-10-15 物理预测模型闭环实验预检 (feat/r71-r84-closed-loop worktree; "
-            "SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，"
-            "固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，"
-            "恢复实验须先重扫面板入射位置"
-        ),
-        extra_scripts=(
-            "src/ao_shaping/tools/slm/panel/panel_locate.py",
-            "scripts/slm/check_flat_stability.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_live_20261014.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="2026-10-14 物理预测模型闭环实验复核（exp/model-in-loop-20261014 worktree）；"
-        "随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，"
-        "本日未重新独立标定其尺度/入射振幅/面板配准；图内 X/Y 光强截面由 "
-        "generate_shape_trial_profiles.py 从记录的原始 CCD 帧重新生成",
-        extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_live_20261013.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="2026-10-13 物理预测模型闭环整形实验记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=(
-            "scripts/slm/generate_gif_from_pkl.py",
-            "scripts/slm/generate_shape_trial_profiles.py",
-        ),
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_next_steps_20261013.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="2026-10-13 物理预测模型闭环暂停后续步骤记录",
-    ),
-    "report/shape_trials/model_in_loop/model_in_loop_pause_handoff_20261013.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note="2026-10-13 物理预测模型闭环暂停交接记录；当前状态、证据、工程变更摘要",
-    ),
     "report/shape_trials/gs_refine/gsnet_hybrid_offline_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",
@@ -2169,14 +1998,16 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/online_recal_efficiency/online_recal_efficiency.md": ReportProvenance(
-        script="scripts/slm/generate_online_recal_efficiency_report.py",
-        command="python scripts/slm/generate_online_recal_efficiency_report.py",
+        script=HANDWRITTEN,
         environment="离线",
         note=(
             "光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导"
             "(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 "
             "default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; "
-            "§7 为提案, 本报告不含任何新测量"
+            "§7 为提案, 本报告不含任何新测量; 原生成脚本已归档, 不再承诺复现"
+        ),
+        extra_scripts=(
+            "scripts/slm/_archive/generate_online_recal_efficiency_report.py.bak",
         ),
     ),
     "report/shape_trials/fast_recal_adapter/fast_recal_adapter.md": ReportProvenance(
@@ -2205,18 +2036,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实验记录为 GS 输给平相"
         ),
     ),
-    "report/shape_trials/model_in_loop_cv/model_in_loop_cv.md": ReportProvenance(
-        script="scripts/slm/generate_model_in_loop_cv_report.py",
-        command="python scripts/slm/generate_model_in_loop_cv_report.py",
-        environment="离线",
-        note=(
-            "model-in-loop 验证集探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "
-            "轮换划分的配对对比; 经 probe_split_hook / holdout_on_sim 两个默认关闭的 "
-            "开关驱动真实 optimize_slm_model_in_loop, 不复刻 Step A; "
-            "统计量全部取自 ml.zernike.cv_harness 与 ml.zernike.eval_stats"
-        ),
-    ),
-    # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
@@ -2240,21 +2059,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="测试用例跑 --quick 生成的冒烟版本",
     ),
     # -- shape trials ---------------------------------------------------------
-    "report/shape_trials/model_in_loop/uncertainty_probe_hw_20261016.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note=(
-            "commit 080e0ac9 (issue #134 R-86) 不确定性采样探针验收；"
-            "线上默认 bandlimit_sigma=1.5 下机制不成立（闭环 8 组配对种子 "
-            "p=0.4219、机制 0/10 种子胜），关掉带限后闭环 8/8 改善、p=0.0078"
-            "（n=8 下限），但实验复现显示无带限探针只把 53% 能量送进相机窗口，"
-            "故结论为暂不进闭环、需先把 U(p) 裁到相机窗口"
-        ),
-        extra_scripts=(
-            "scripts/slm/verify_uncertainty_probes_sim.py",
-            "scripts/slm/verify_uncertainty_probes_hw.py",
-        ),
-    ),
     "report/shape_trials/gs_refine/gs_uniformity_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
@@ -2658,6 +2462,41 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py",
         ),
     ),
+    "report/shape_trials/ideal_path_static_test_20261117/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
+        note=(
+            "静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案"
+            "（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward"
+            "（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设"
+            "再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。"
+            "人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/ideal_path_static_test_20261117.py",
+            "scripts/slm/render_ideal_path_compare_20261117.py",
+        ),
+    ),
+    "report/shape_trials/model_in_loop/model_in_loop_overview.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="历史/归档（离线归纳历史报告与落盘产物；无新测量，不占用设备）",
+        note=(
+            "model-in-loop 优化链移除后的唯一历史总述：合并原先多份 MIL 明细报告的判定性证据——"
+            "所有端到端变体 bake_off_rejected；验证集门槛非限制项；CV 0.5627→0.4454 但未达可验收匀化；"
+            "全频随机相位 holdout 相关性 0.108–0.277 低于 0.5 阈值；固定划分单分数不能当模型属性（K 折）；"
+            "固定相位重复性与历史标定失败/教训；无实测 MIL 优势。代码已移除，不宣称可从已删脚本复现。"
+        ),
+    ),
+    "report/shape_trials/physical_forward_experience.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="历史/归档（离线归纳历史报告；无新测量，不占用设备）",
+        note=(
+            "物理预测经验总结：只压缩已被历史实测支持的移除/放弃路径，保留关键数字"
+            "（M4 相关性 0.8856/0.9474 但 CV 不过 0.05；采样/积分相对 L2 ≤0.7%；"
+            "联合 CV 拟合 0.02558→0.00738、CV 误差 0.0975/0.0888、质心 7.68/4.64 px；"
+            "固定相位重复 CV ±0.01）；明确区分历史证据与当时未成为事实的计划。"
+        ),
+    ),
 }
 
 
@@ -2862,18 +2701,3 @@ def render_index() -> str:
     if pending:
         out.append("")
     return "\n".join(out)
-    "report/shape_trials/ideal_path_static_test_20261117/README.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
-        note=(
-            "静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案"
-            "（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward"
-            "（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设"
-            "再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。"
-            "人工撰写。"
-        ),
-        extra_scripts=(
-            "scripts/slm/ideal_path_static_test_20261117.py",
-            "scripts/slm/render_ideal_path_compare_20261117.py",
-        ),
-    ),

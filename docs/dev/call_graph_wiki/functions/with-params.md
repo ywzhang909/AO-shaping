@@ -50,7 +50,6 @@ Attach the click options of ``arg_class`` to a click command.
 - [[commands/alt-voltage|`run`]]
 - [[commands/slm-gs-refine|`run`]]
 - [[commands/slm-gsnet|`run`]]
-- [[commands/slm-model-in-loop|`run`]]
 - [[commands/slm-pib|`run`]]
 - [[commands/closed-loop|`closed_loop_run`]]
 - [[commands/slm-lut|`run`]]

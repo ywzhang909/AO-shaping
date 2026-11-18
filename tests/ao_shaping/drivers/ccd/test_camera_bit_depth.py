@@ -317,7 +317,7 @@ def test_daheng_does_not_discard_frames_when_bit_depth_unchanged(monkeypatch):
 
 
 def test_daheng_set_bit_depth_stops_stream_before_writing_pixel_format(monkeypatch):
-    """拉流中 ``PixelFormat`` 不可写 (2026-11-17 真机实测): 写格式前必须先
+    """拉流中 ``PixelFormat`` 不可写 (2026-11-17 实验系统实测): 写格式前必须先
     ``stream_off()``, 写完回读再 ``stream_on()``, 顺序固定 —— 拉流中直接写会被
     SDK 静默拒绝 (只 print ``PixelFormat.set: is not writeable`` 并保留旧格式)。
     """

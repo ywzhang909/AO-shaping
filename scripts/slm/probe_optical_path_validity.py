@@ -5,7 +5,7 @@
 2026-10-22 的 MIL 硬件 campaign 两次死在几何标定, 报的是
 ``no swept mode produced a usable width response; the spot width does not
 respond to any of them on this bench``
-(``optimizer/wfless/model_in_loop_shaping.py::calibrate_bench_geometry_from_sweep``)。
+(现位于 ``optimizer/wfless/bench_sweep_fit.py::calibrate_bench_geometry_from_sweep``)。
 那条报错只说「宽度不响应」, 完全没提**信噪比不足**这一层: 当时的曝光窗口是
 1-10 ms (峰值 24-213 counts), 而几何 sweep 靠「光斑宽度随扫描模式变化」来拟合
 焦面标度 —— 那个宽度响应整个淹在噪声里。

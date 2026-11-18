@@ -202,37 +202,6 @@ class TestShapingDoesNotDoubleApply:
         gs = sc.GsRefineMethod("slm1", 1).build_params(values)
         assert gs.blaze_period_px == -1
 
-        mil_values = {
-            "n_rounds": 1,
-            "seed": 0,
-            "target_shape": "square",
-            "target_side": 60,
-            "w_uniformity": 0.4,
-            "w_efficiency": 0.6,
-            "probe_count": 6,
-            "probe_spread": 4.0,
-            "step_a_iterations": 80,
-            "step_b_iterations": 300,
-            "holdout_probe_count": 2,
-            "min_holdout_correlation": 0.5,
-            "region": 64,
-            "far_field_padding": 8,
-            "panel_span_px": 900,
-            "pupil_center": "960,720",
-            "cam_type": "daheng",
-            "cam_id": 0,
-            "camera_pixel_um": 2.2,
-            "exposure_time_ms": 0.2,
-            "max_exposure_ms": 0.6,
-            "cam_size": 300,
-            "slm_number": 1,
-            "blaze_period_px": 128,
-            "blaze_direction": "vertical",
-            "bench_prefix": "slm1",
-        }
-        mil = sc.ModelInLoopMethod("slm1", 1).build_params(mil_values)
-        assert mil.blaze_period_px == -1
-
 
 class TestTransferSkipsTheSendOverlay:
     """迁移学习的相位自带 ``ramp_matrix`` 载波，所以它**不接**侧栏发送叠加层。
@@ -248,7 +217,6 @@ class TestTransferSkipsTheSendOverlay:
         # The base default stays True: the flag is opt-out, not opt-in.
         assert sc.ShapingMethod.applies_send_overlay is True
         assert sc.GsRefineMethod.applies_send_overlay is True
-        assert sc.ModelInLoopMethod.applies_send_overlay is True
 
     def test_prepare_config_never_assigns_send_overlay(self, monkeypatch) -> None:
         from ao_shaping.gui.slm import shaping_controls as sc
