@@ -5711,6 +5711,13 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_quoted_source_paths_in_live_text_exist_in_the_git_index` + conventions 全量 **72 passed**; term 0; ruff 全仓绿
 - ㊺ 三连证实: 上游合入**新文件同样能带红** (不必改旧文件): 技能/文档类提交落库后必须复跑 term + conventions, 已在 rebase 检查清单内
 
+**2026-11-18 · 285f522d 之后 · 修复 #248: 取向择优加确定性 tie-break (保真度阶梯脚本, CI scripts blocking 分片随机红绿根治)**
+- 根因 (issue #248 已定位, 本批实测证实): 对称高斯预测下 identity/transpose 的 `intensity_correlation` 差 ~1-2 ulp@1.0 (本地 numpy 2.5.4 差 -1.11e-16, CI 镜像 +5.55e-16), `sweep_axis_convention` 裸 `max()` 的胜者由末位舍入决定 ⇒ 同一测试随镜像红绿翻转 (run 44219825135 红 / 6273265d 绿)
+- 修复 (issue 推荐选项 1): `_hw_fidelity_ladder_sections.py` 新增 `ORIENTATION_TIE_TOL = 1e-9` 绝对带; 并列带内取 `_AXIS_CANDIDATES` **表首** (identity 表首, 两处镜像表逐字同序已核); 真实取向失配差 ≫ tol 行为不变; 全非有限退回表首 = 旧 `max()` 同分选择
+- 载体: `test_hw_forward_model_fidelity_ladder` **21 passed** (+2: 对称并列带契约 + monkeypatch 复刻 CI 精确翻转方向 [transpose +2.5 ulp 仍须判 identity]; 两测在旧代码上 **2 failed** 证锁得住); scripts 全分片 3490 passed
+- 环境: `test_script_imports_resolve[gui_entry/capture_transfer_desktop_screens]` 2 失败为 master 既有 (容器缺 PySide6, CI 镜像有), 与本改动无关
+- 门禁: ruff 全仓绿; modsize=0 (scripts 仅报告); term 0 (中途代码注释用了 1 个左列违规词, 已就地改写 —— ㊿ 教训同样适用于**代码注释**, 扫描器不分文档/代码); conventions 72 passed (本批 lift 未移动任何被引用行)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

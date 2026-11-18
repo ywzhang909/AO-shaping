@@ -271,6 +271,12 @@ def apply_axis(arr: np.ndarray, cmp_metrics: dict[str, Any]) -> np.ndarray:
     return out
 
 
+#: 取向择优的并列判定带 (绝对相关度差, issue #248)。对称图样下
+#: identity/transpose 的相关度差实测 ~1e-16 量级, 远低于任何真实取向
+#: 失配 (翻转/转置类真实错配在 1e-3 以上), 1e-9 是两者之间的安全留白。
+ORIENTATION_TIE_TOL = 1e-9
+
+
 def sweep_axis_convention(
     opt_mod: Any,
     model: np.ndarray,
@@ -297,14 +303,27 @@ def sweep_axis_convention(
             "flip_rows": bool(flip_rows),
             "flip_cols": bool(flip_cols),
         }
-    best_key = max(
-        candidates,
-        key=lambda key: (
+    scored = {
+        key: (
             candidates[key]["intensity_correlation"]
             if np.isfinite(candidates[key]["intensity_correlation"])
             else -np.inf
-        ),
-    )
+        )
+        for key in candidates
+    }
+    # 确定性 tie-break (issue #248): 对称图样让 identity/transpose 数值并列
+    # (实测差 ~1-2 ulp@1.0, 方向随 numpy/BLAS 构建翻转), 裸 max() 的胜者
+    # 由末位舍入决定 ⇒ CI 随机红绿、实验 ladder 输出不可复现。并列带
+    # (ORIENTATION_TIE_TOL) 内取候选表最先者 (identity 表首); 真实取向差
+    # >> tol, 行为不变。全部非有限时退回表首 = 旧 max() 在同分下的选择。
+    best_val = max(scored.values())
+    best_key = opt_mod._AXIS_CANDIDATES[0][0]
+    if np.isfinite(best_val):
+        best_key = next(
+            name
+            for name, _t, _fr, _fc in opt_mod._AXIS_CANDIDATES
+            if best_val - scored[name] <= ORIENTATION_TIE_TOL
+        )
     best = candidates[best_key]
     best["orientation_match"] = best_key
     return best

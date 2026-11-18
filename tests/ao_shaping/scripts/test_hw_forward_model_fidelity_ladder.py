@@ -464,6 +464,72 @@ def test_sweep_axis_convention_recovers_a_transposed_field(opt, spec) -> None:
     assert identity_corr < float(cmp["intensity_correlation"])
 
 
+def test_orientation_tie_break_prefers_identity_on_symmetric_input(opt, spec) -> None:
+    """A transpose-degenerate pattern must decide deterministically (issue #248).
+
+    The centred Gaussian is symmetric, so identity/transpose score within
+    ``ORIENTATION_TIE_TOL`` of each other; the old bare ``max()`` picked its
+    winner on ~1-2 ulp rounding and flipped between numpy builds (the CI
+    red/green flake). Ties inside the band resolve to the table-first candidate
+    (identity); the asymmetric test above still pins the real-orientation path.
+    """
+    m = int(spec.m_grid)
+    c = int(spec.centre_index)
+    ax = np.arange(m, dtype=np.float64) - c
+    yy, xx = np.meshgrid(ax, ax, indexing="ij")
+    model = np.exp(-(xx**2 + yy**2) / (2.0 * 5.0**2))
+    measured = (model + model.T) / 2.0  # exactly transpose-symmetric
+    assert np.array_equal(measured, measured.T)
+
+    identity_corr = opt.compare_farfields(
+        model, measured, transpose_measured=False
+    )["intensity_correlation"]
+    transpose_corr = opt.compare_farfields(
+        model, measured.T, transpose_measured=False
+    )["intensity_correlation"]
+    assert abs(identity_corr - transpose_corr) <= sec.ORIENTATION_TIE_TOL
+
+    out = sec.sweep_axis_convention(opt, model, measured)
+    assert out["orientation_match"] == "identity"
+    assert out["transpose"] is False
+
+
+def test_orientation_tie_band_resolves_to_table_first_when_transpose_wins(
+    opt, spec, monkeypatch
+) -> None:
+    """The exact CI flip (transpose higher by ~2.5 ulp, run 44219825135) must
+    still report identity: inside the tie band the table-first candidate wins,
+    not the raw argmax (issue #248 — the regression the band exists for).
+    """
+    real = opt.compare_farfields
+    calls = {"n": 0}
+
+    def rigged(model_, variant_, *, transpose_measured=False):
+        out = real(model_, variant_, transpose_measured=transpose_measured)
+        calls["n"] += 1
+        # _AXIS_CANDIDATES order: identity=1st, transpose=2nd. Hand the
+        # transpose candidate the ulp advantage the CI image produced.
+        if calls["n"] == 2:
+            out = dict(
+                out,
+                intensity_correlation=out["intensity_correlation"] + 5.6e-16,
+            )
+        return out
+
+    monkeypatch.setattr(opt, "compare_farfields", rigged)
+
+    m = int(spec.m_grid)
+    c = int(spec.centre_index)
+    ax = np.arange(m, dtype=np.float64) - c
+    yy, xx = np.meshgrid(ax, ax, indexing="ij")
+    model = np.exp(-(xx**2 + yy**2) / (2.0 * 5.0**2))
+    measured = (model + model.T) / 2.0
+
+    out = sec.sweep_axis_convention(opt, model, measured)
+    assert calls["n"] == len(opt._AXIS_CANDIDATES)
+    assert out["orientation_match"] == "identity"
+
+
 # ---------------------------------------------------------------------------
 # End-to-end dry run (subprocess: a clean interpreter is the only honest way to
 # assert "no driver was ever imported").
