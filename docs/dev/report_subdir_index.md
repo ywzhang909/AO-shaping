@@ -36,7 +36,7 @@ report/<topic>/<系列名>/
 | `gs_golden_reference/` | `scripts/slm/generate_gs_golden_reference.py` | `gs_golden_reference.md` |
 | `gs_refine_fwdmodel/` | `scripts/slm/generate_gs_refine_fwdmodel_report.py` | `gs_refine_fwdmodel_calibration.md` |
 | `gs_refine_zernike/` | `scripts/slm/generate_gs_refine_zernike_report.py` | `gs_refine_zernike_uniformity.md` |
-| `model_in_loop_cv/` | `scripts/slm/generate_model_in_loop_cv_report.py` | `model_in_loop_cv.md` |
+| `model_in_loop_cv/` | 已归档（`scripts/slm/_archive/generate_model_in_loop_cv_report.py.bak`） | 已删除；仅存图 `figures/model_in_loop_cv.png` |
 | `online_recal_efficiency/` | `scripts/slm/generate_online_recal_efficiency_report.py` | `online_recal_efficiency.md` |
 | `gui_closed_loop_shaping/` | `scripts/generate_gui_shaping_hw_report.py` | `gui_closed_loop_shaping_20261014.md` |
 | `fast_recal_adapter/` | `scripts/ml/exp_fast_recal_adapter_report.py` | `fast_recal_adapter.md` |
@@ -44,7 +44,7 @@ report/<topic>/<系列名>/
 | `multishape1200/` | `scripts/slm/generate_multishape1200_report.py` | `multishape1200_20261027.md` |
 | `transfer_square1200/` | `scripts/slm/generate_transfer_square1200_report.py` | `transfer_square1200_20261027.md` |
 | `gs_refine/` | 手工撰写（GS 系列） | `gs_issue_live_20261015.md` 等 9 份 |
-| `model_in_loop/` | 手工撰写（MIL 系列） | `model_in_loop_live_20261013.md` 等 9 份 |
+| `model_in_loop/` | 手工撰写（MIL 系列；MIL 脚本归档于 `scripts/slm/_archive/*.py.bak`） | `model_in_loop_overview.md`、`removal_report.md`（仅存 2 份） |
 | `physical_refine/` | 手工撰写（`sim2f_fov_hw_session.py` / `sim2f_fov_hw_refine.py`） | `physical_refine_plan_20261102.md`、`physical_refine_results_20261102.md`、`physical_refine_results_20261103.md`、`forward_model_transfer_plan_20261104.md`、`forward_model_transfer_20261107.md` |
 | `mask_closed_loop/` | `scripts/ml/sim2f_shape_trials.py` | `mask_closed_loop_20261031.md` |
 | `fov_generalization/` | `scripts/ml/sim2f_fov_extrapolation.py` | `fov_generalization_20261101.md` |

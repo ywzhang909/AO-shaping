@@ -59,7 +59,6 @@ source: main.py + src/ao_shaping/main.py:73
 | `slm-pib square` | `runners.slm.slm_shaping_runner.square` | [[functions/optimize-slm-square]] |
 | `slm-gsnet` | `runners.slm.gsnet_runner.run`（`spgd`/`heuristic`/`train`） | freeform SPGD / FourierGSNet 训练 |
 | `slm-gs-refine` | `runners.slm.gs_refine_runner.run` | GS 开环预矫正 + SPGD 细化（经 `runner_common`） |
-| `slm-model-in-loop` | `runners.slm.model_in_loop_runner.run` | 正向模型闭环（经 `runner_common`） |
 | `slm-lut` | `tools.slm.calibration.lut_runner.run` | [[functions/slm-lut]]（LUT 反演） |
 | `slm-diagnose` | `tools.slm.panel.diagnose.main` | 面板逐级自检（纯驱动调用） |
 

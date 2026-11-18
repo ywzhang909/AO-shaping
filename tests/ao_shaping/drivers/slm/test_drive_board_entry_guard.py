@@ -170,7 +170,6 @@ WIRED_FILES = (
     "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py",
     "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
     "src/ao_shaping/optimizer/wfless/slm_gs_refine.py",
-    "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py",
     "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
 )
 

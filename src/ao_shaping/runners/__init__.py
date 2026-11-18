@@ -52,7 +52,6 @@ __all__ = [
     "slm_pib_run",
     "slm_gs_refine_run",
     "slm_gsnet_run",
-    "slm_model_in_loop_run",
     "slm_transfer_shapes_run",
 ]
 
@@ -78,7 +77,6 @@ _LAZY_RUNNERS: dict[str, str] = {
     # eager imports this module used to carry, so main.py's `slm-gsnet`
     # registration depended on an accident rather than on a declaration.
     "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner",
-    "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner",
     "slm_transfer_shapes_run": "ao_shaping.runners.slm.transfer_shapes_runner",
 }
 
@@ -103,7 +101,6 @@ _IMPORT_ATTRS: dict[str, str] = {
     "hadamard_matrix_run": "hadamard_matrix_run",
     "combined_run": "run",
     "slm_gsnet_run": "run",
-    "slm_model_in_loop_run": "run",
     "slm_transfer_shapes_run": "run",
 }
 

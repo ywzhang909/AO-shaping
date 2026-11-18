@@ -95,7 +95,7 @@ class TestBenchConstants:
         assert float(constants["tilt_shift_scale"]) == float(TILT_SHIFT_SCALE)
 
     def test_max_defocus_fit_rms_matches_the_fitter(self, gen: Any) -> None:
-        from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        from ao_shaping.optimizer.wfless.bench_sweep_fit import (
             _MAX_DEFOCUS_FIT_RMS,
         )
 

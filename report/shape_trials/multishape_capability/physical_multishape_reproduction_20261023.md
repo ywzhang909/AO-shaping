@@ -444,7 +444,7 @@ $checkpoint = "$base/fit/frozen_parameters.json"
 
 ### 12.1 历史分析对应的设计选择
 
-[采样与像元积分诊断](../model_in_loop/physical_forward_sampling_20261022_r2.md)提示，整幅图相关性较高仍可能伴随 CV 预测偏差，应同时检查传播采样、像元积分、曝光偏置与剩余峰宽。[诊断与迁移记录](diagnosis_and_transfer_20261023.md)及本报告方向检查说明，应区分正向预测误差和自动微分实现误差；不能在物理预测模型失配时只增加逆向迭代。[离焦可微优化记录](../defocus_differentiable/defocus_differentiable_20261023_r2.md)也应与后续 CCD 配对结果一起阅读。
+[采样与像元积分诊断（见物理预测经验总结）](../physical_forward_experience.md)提示，整幅图相关性较高仍可能伴随 CV 预测偏差，应同时检查传播采样、像元积分、曝光偏置与剩余峰宽。[诊断与迁移记录](diagnosis_and_transfer_20261023.md)及本报告方向检查说明，应区分正向预测误差和自动微分实现误差；不能在物理预测模型失配时只增加逆向迭代。[离焦可微优化记录](../defocus_differentiable/defocus_differentiable_20261023_r2.md)也应与后续 CCD 配对结果一起阅读。
 
 因此，小幅功率变化先更新共享强度尺度；小幅入射偏移先更新入射中心和 CCD 光轴原点；验证不足时才重新拟合离焦、光束宽度和静态像差。每阶段保留零次光学更新的候选，避免本来只有亮度变化却产生不必要的像差补偿。
 

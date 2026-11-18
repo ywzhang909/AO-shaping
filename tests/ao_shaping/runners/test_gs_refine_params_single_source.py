@@ -303,19 +303,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PITCH_LITERAL_FILES = (
     "src/ao_shaping/runners/runner_common.py",
     "src/ao_shaping/optimizer/wfless/slm_gs_refine.py",
-    "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py",
 )
 
 
 class TestCameraPitchComesFromTheDriver:
     def test_both_cli_defaults_are_zero(self):
-        from ao_shaping.runners.runner_common import (
-            SlmGsRefineParams,
-            SlmModelInLoopParams,
-        )
+        from ao_shaping.runners.runner_common import SlmGsRefineParams
 
         assert SlmGsRefineParams().camera_pixel_um == 0.0
-        assert SlmModelInLoopParams().camera_pixel_um == 0.0
 
     @pytest.mark.parametrize("flag", ["--camera-pixel-um"])
     def test_the_help_says_zero_means_the_camera_model(self, flag: str):
@@ -331,7 +326,6 @@ class TestCameraPitchComesFromTheDriver:
         import ao_shaping.drivers.ccd.pixel_size as pixel_size
         from ao_shaping.runners.runner_common import (
             SlmGsRefineParams,
-            SlmModelInLoopParams,
             _resolve_camera_pixel_um,
         )
 
@@ -344,15 +338,12 @@ class TestCameraPitchComesFromTheDriver:
         monkeypatch.setattr(pixel_size, "camera_pixel_size_um_for", fake)
         monkeypatch.setattr(pixel_size, "probe_daheng_models", lambda: [])
 
-        for params in (
-            SlmGsRefineParams(cam_type="sim", cam_id=1),
-            SlmModelInLoopParams(cam_type="sim", cam_id=1),
-        ):
+        for params in (SlmGsRefineParams(cam_type="sim", cam_id=1),):
             value, source = _resolve_camera_pixel_um(params)
             assert value == pytest.approx(3.45)
             assert source.startswith("derived:")
 
-        assert calls == [("sim", 1), ("sim", 1)]
+        assert calls == [("sim", 1)]
 
     def test_a_positive_value_passes_through_untouched(
         self, monkeypatch: pytest.MonkeyPatch

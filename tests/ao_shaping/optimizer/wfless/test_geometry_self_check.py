@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+from ao_shaping.optimizer.wfless.bench_geometry import (
     GEOMETRY_MAX_SPOT_WINDOW_FRACTION,
     BenchGeometry,
 )

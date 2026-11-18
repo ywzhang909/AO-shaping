@@ -24,7 +24,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
 from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+from ao_shaping.optimizer.wfless.frozen_aberration_shaping import (
     StepBConfig,
     shape_phase_with_frozen_aberration,
 )

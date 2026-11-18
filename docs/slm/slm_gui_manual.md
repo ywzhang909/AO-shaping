@@ -114,7 +114,7 @@ classDiagram
 | multi_slm_controller.py | Streamlit 页面：设备发现、连接、相位控制、周期切换后台线程 |
 | pattern_controls.py     | 图案类型注册表 + 相位生成流水线（generate_phase_gray）     |
 | bench_settings.py       | 侧栏「CCD参数设置」区块 + 三态（探测/人工）session 契约  |
-| shaping_controls.py     | 闭环整形主区：GS+SPGD 闭环 / 物理预测模型闭环 / 迁移学习闭环，三个适配器共用一个方法选择器（render_closed_loop_shaping） |
+| shaping_controls.py     | 闭环整形主区：GS+SPGD 闭环 / 迁移学习闭环，两个适配器共用一个方法选择器（render_closed_loop_shaping） |
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 | multishape_campaign_ui.py | 独立的多形状整形 campaign 操作台（形状 + 尺寸是唯一必填，参数由 `tools/slm/transfer/campaign.py` 派生；不在本说明书范围） |
 | precheck.py             | 上述操作台的运行前检查卡（六项，红停 + 黄勾选；无设备可用） |
@@ -625,14 +625,14 @@ flowchart LR
 > （Zernike SPGD 与未标定 GS 从未产出过均匀方形），见
 > [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与
 > [`report/shape_trials/gs_refine/online_20261010.md`](../../report/shape_trials/gs_refine/online_20261010.md)。
-> 取而代之的是下方 §8「闭环整形」区（GS+SPGD 闭环 / 物理预测模型闭环，均走已验证的闭环管线）。
+> 取而代之的是下方 §8「闭环整形」区（GS+SPGD 闭环，走已验证的闭环管线）。
 
 ---
 
 ## 8. 闭环整形
 
 `render_closed_loop_shaping(slm_num)`（`src/ao_shaping/gui/slm/shaping_controls.py`）在
-单/双 SLM 布局中渲染为独立的「闭环整形」区，取代上文已移除的开环方形整形。**三种方法**
+单/双 SLM 布局中渲染为独立的「闭环整形」区，取代上文已移除的开环方形整形。**两种方法**
 共用**一个方法选择器**与一条运行路径（`ShapingMethod` 适配器 + `shaping_session` 装饰器）：
 每个方法只实现 `execute` / `build_params` / `validate`，均
 **在 GUI 内调用 canonical 优化器管线**（与对应 CLI 同一代码路径），并在结束后把最佳
@@ -641,8 +641,10 @@ flowchart LR
 | 方法 | 代码路径（与 CLI 等价） | 说明 |
 | --- | --- | --- |
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
-| **物理预测模型闭环整形（前沿，需 torch）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需 torch；硬件上**必须有可复用的 sweep 几何**，否则运行前即被校验拒绝（§8.1.1） |
 | **迁移学习闭环整形（物理预测模型，需 torch）** | `TransferSession` → `ao_shaping.tools.slm.transfer.workflow.run_session`（同 `python -m ao_shaping.tools.slm.transfer`） | 单一入口、GUI 侧不做编排；阶段进度条由 `on_stage` 回调驱动；相位**自带载波**（`ramp_matrix`） |
+
+> 注：原「物理预测模型闭环整形（模型闭环）」方法已移除，其取舍与去向见
+> [`report/shape_trials/model_in_loop/removal_report.md`](../../report/shape_trials/model_in_loop/removal_report.md)。
 
 **共有的部分只有一份实现**：曝光校验 `validate_exposure`（GS+SPGD 固定曝光，物理预测模型允许
 自动曝光令牌）、torch 可用性 `validate_torch`、目标入窗校验 `validate_target_fits_window`；
@@ -664,12 +666,7 @@ flowchart LR
    （两次一致的交替重放）。⚠️ `cam_type` / `pupil_center` / `camera_pixel_um` 已不在主区，
    改由侧栏「CCD参数设置」提供（见 §8.1）。
 
-2. **物理预测模型闭环整形（前沿）**：每轮用强随机探针重拟合物理预测模型的 Zernike 像差
-   （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
-   需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但未成为被接受的均匀方形，
-   见 [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)。
-
-3. **迁移学习闭环整形（物理预测模型）**：少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，
+2. **迁移学习闭环整形（物理预测模型）**：少参数物理预测模型 + 当前光路重测几何 + 检查点迁移，
    再用 CCD 锚定短块与 A–B–B–A 配对验收生成目标相位。GUI **不做任何编排** —— 它把
    `TransferSession`（参数对象**就是** config）直接交给 `run_session`，与
    `python -m ao_shaping.tools.slm.transfer` 同一入口，因此阶段序列、journal、审计与
@@ -686,9 +683,9 @@ flowchart LR
 > （`set_phase_overlay(None)` —— 侧栏的载波与离焦都在这一层），**运行期间不施加侧栏的
 > 载波 / 离焦叠加**（两者都由模型自己拟合）。下发接受相位时也只临时摘掉侧栏的**载波层**，
 > 底相位与离焦照常叠加，下发后立刻恢复，之后每次发送仍是操作员选的那一套。
-> 其余两种方法相反：载波 / 离焦作为叠加层由优化器装在自己打开的句柄上。
+> 另一种方法相反：载波 / 离焦作为叠加层由优化器装在自己打开的句柄上。
 
-> **设备生命周期**：三种方法的优化器都在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
+> **设备生命周期**：两种方法的优化器都在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
 > GUI 与标定按钮共用 `with_slm_ownership(slm_num)`：停背景相位切换 → 释放目标 SLM 句柄 →
 > `finally` 重连（只释放目标 SLM，另一台保持连接）。整个过程在 session 里置 `bench_busy`，
 > 侧栏光路控件据此 `disabled=True`。
@@ -737,16 +734,16 @@ widget key 会抛 `StreamlitAPIException`。所以两段式：点击 → 写 `{p
 key 并清空 pending，再实例化控件。**不使用 `_safe_set_state()` 做标定回填** —— 它吞异常会让
 回填静默失败；它只保留给「运行后重连」那条晚于侧栏渲染的路径。
 
-标定走 `ao_shaping.runners.slm.model_in_loop_session.calibrate_session` —— 与 CLI
-`slm-model-in-loop` **同一个入口**（入射定位 → 曝光探测 → sweep 几何；该函数抛**普通异常**，
-不是 click 异常；相关度 < 0.50 直接中止、不提交相位）。只在**换光路 / 换 SLM / 换相机**后重标；
+标定走 `ao_shaping.runners.slm.session_calibration.calibrate_session`（入射定位 → 曝光探测 →
+sweep 几何；该函数抛**普通异常**，不是 click 异常；相关度 < 0.50 直接中止、不提交相位），
+即侧栏「CCD参数设置」里闭环整形标定控件的共用入口。只在**换光路 / 换 SLM / 换相机**后重标；
 这也是闭环整形运行唯一读到的标定结果 —— 运行路径**不再**重测（§8.1.1）。
 
 ### 8.1.1 光路标定只在侧栏执行一次，运行直接复用
 
 **运行路径不测量光路。** 唯一的测量入口是侧栏「CCD参数设置」→「SLM N · 光路几何与
 标定」这一块里的**一个**主按钮「标定 SLM N 光路」（`bench_settings.run_session_calibration`，
-与 CLI `slm-model-in-loop` 共用 `calibrate_session`）。折叠标题自带状态标记
+即侧栏标定控件的共用 `calibrate_session` 入口）。折叠标题自带状态标记
 （`● 已标定` / `○ 未标定`），展开后**顶部是光路摘要卡**（入射中心 / 相关度 / 曝光 /
 几何文件，未标定时那行直接指向下面的按钮），再往下是 D 组（面板几何与离焦）与
 E 组（几何来源 / 标定按钮 / 三态回填 / 证据目录）。
@@ -759,8 +756,6 @@ E 组（几何来源 / 标定按钮 / 三态回填 / 证据目录）。
 原先并存的第二个折叠块「SLM N · 一键光路标定 / 一键标定 SLM N 光路」已于 2026-10-24
 删除 —— 它调的是同一个 `run_session_calibration`，只是把摘要卡放在自己的块里，
 属于纯重复入口。
-原先挂在运行按钮上的 `ModelInLoopMethod.auto_calibrate`（及其逐字段合并逻辑）**已删除** ——
-运行不再有「先自己标定一遍」这条分支。
 
 **唯一规则**：运行前先在侧栏点一次「标定 SLM N 光路」，之后每次运行都**复用**这次结果；
 只有**换光路 / 换 SLM / 换相机**之后才需要重标。未标定时摘要卡那行的措辞是
@@ -784,10 +779,7 @@ sweep 几何）。闭环整形直接复用这次结果，不再在运行时重�
 
 - **`cam_type="sim"` 不需要标定**：数字孪生自带几何，没有面板可扫、也没有硬件几何可测，
   也不该碰硬件。
-- **物理预测模型闭环在硬件上必须有可复用的 sweep 几何**：没有时**运行按钮之前**就被 `validate`
-  拒绝（不是等优化器回落到 speckle 求解才中止），消息提示去侧栏点一次「标定 SLM N 光路」，
-  或把几何来源切到「复用已标定几何」并填一条几何文件。
-- **GS+SPGD 与物理预测模型闭环共用同一条提示**（提示不是错误）：从未标定时 caption 说明入射
+- **GS+SPGD 与迁移学习共用同一条提示**（提示不是错误）：从未标定时 caption 说明入射
   中心用的是兜底实测值 `PUPIL_CENTER_FALLBACK`，换光路必须先标定或手填。
 - **人工值优先**：标定成功也**不覆盖**手动值，只提示「探测到新几何，当前仍使用手动值」；
   标定成功后几何来源回填为「复用已标定几何」（人工选的值仍优先）。
@@ -804,23 +796,17 @@ sweep 几何）。闭环整形直接复用这次结果，不再在运行时重�
 
 - **状态条**：`光路 SLM {n}：● 已标定 {时间} · 入射中心 (…) 探测值 · 相关度 … · N 项手动覆盖（…）`；
   未标定时提示**先去侧栏点一次「标定 SLM N 光路」**，运行会复用那次结果（§8.1.1）。
-- **目标与评分**：共用区块标题与公式 caption，内部按方法渲染三套一行 4 列
+- **目标与评分**：共用区块标题与公式 caption，内部按方法渲染两套一行 4 列
   （GS：目标方边长(0=自动推导) / 边长因子 / w_pib / w_unif；
-  MIL：目标形状 / 目标边长 / w_eff / w_uni；
   迁移学习：目标形状 / 目标边长 / 载波周期）。
-- **预算**：MIL 给「预设」（快速 2/40/100、**标准 6/80/150** = `slm_model_in_loop.md` §5 默认值、
-  长跑 12/160/300）+ 轮数 / Step A 步数 / Step B 步数；预设**只在切换时**覆写，不冲掉手改值。
-  GS **不给预设**，只显示 12/12 已验证配方并指向 `report/shape_trials/`。
+- **预算**：GS **不给预设**，只显示 12/12 已验证配方并指向 `report/shape_trials/`。
   迁移学习按 CLI 同名口径给探针数 / 拟合迭代 / 锚定块数 / 每块更新数 / 每点帧数。
-- **高级参数**（默认收起）：MIL 专属（探针数、探针 σ、验证集探针、全频随机相位验证集探针、region、
-  远场补零、相关度门限、热启动、面板像素间距、学习率、Zernike 阶数…）；
-  GS 专属（相位网格、扰动 δ、confirm-best、启用 GS、GS 变体、远场补零、面板像素间距、
+- **高级参数**（默认收起）：GS 专属（相位网格、扰动 δ、confirm-best、启用 GS、GS 变体、远场补零、面板像素间距、
   每测量均帧）；迁移学习专属（历史检查点、历史接受相位目录、迁移策略、验收指标等）。
-  **`far_field_padding` 不合并**（GS 验证值 3，MIL 默认 8）。
+  **`far_field_padding` 不合并**（GS 验证值 3）。
 - **校验区**在按钮**之前**渲染（否则按钮无法 `disabled`）：未连接 SLM / torch 缺失 /
-  目标边长 > 窗口边长 / 复用几何与 region 不一致 / 曝光超上限 / 窗口边长非设备步长整数倍 /
-  验证集探针 < 1（控件允许 0 以便「看到可以关」，但 Step A 拟合要求 ≥1，错误信息指向
-  「全频随机相位验证集探针」）；迁移学习另有「至少选一个目标形状」/「只对大恒 / MiiCam 相机做过实验验证，
+  目标边长 > 窗口边长 / 复用几何与 region 不一致 / 曝光超上限 / 窗口边长非设备步长整数倍；
+  迁移学习另有「至少选一个目标形状」/「只对大恒 / MiiCam 相机做过实验验证，
   请选择 daheng 或 miicam」/ `TransferSession.validate()` 的全部前置（检查点、几何窗等）。
 
 | 字段 | 原上限 | 现上限 | 来源 |
@@ -848,7 +834,7 @@ sweep 几何）。闭环整形直接复用这次结果，不再在运行时重�
   `f_eff = f_c·M_t`）；popover 给出 CCD 边长、分辨单元 N、零级 Airy 斑半径与当前读出窗能覆盖的
   远场边长，反向「相机像素 → 远场」用同一个 `ccd_to_far`。
 - **「填入目标方边长」**：换算出的像素数经 pending-flush 排进 `target_side`（与「预算预设」同一条
-  路径），并夹到该方法的下界至当前读出窗边长（GS 下界 0 = 由照明瞳推导，MIL 下界 8）；物理边长
+  路径），并夹到该方法的下界至当前读出窗边长（GS 下界 0 = 由照明瞳推导）；物理边长
   装不进读出窗时按钮给出 warning 并说明夹到多少，而不是静默截断。
 - **「光路参数」expander**：默认值即 issue #204 的锁定设计点（L = 1 km、f_c = 200 mm、M_t = 10、
   λ = 1064 nm、出瞳 90 mm、像元 2.2 µm）；改动**只影响本助手的换算**，不写回侧栏光路、也不改

@@ -278,7 +278,7 @@ def probe_session_exposure_ms(
     try:
         with create_camera(cam_type, int(cam_id), exposure_time_ms=floor_ms) as cam:
             # ``n_sample=1`` 返回整数原始帧；取 n>1 会得到 float32 平均帧，
-            # 而阶梯判定要求整数帧（见 docs/slm/slm_model_in_loop.md 实测记录）。
+            # 而阶梯判定要求整数帧（实测记录见 report/shape_trials/model_in_loop/）。
             #
             # 相机上限先问设备要：拿不到（后端不支持 / 调用失败）就按无上限
             # 继续，绝不让「读不到范围」把一次可用的探测变成失败。

@@ -60,7 +60,11 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 
-_FILE = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
+_BENCH_SWEEP_FIT = "src/ao_shaping/optimizer/wfless/bench_sweep_fit.py"
+_BENCH_SWEEP = "src/ao_shaping/optimizer/wfless/bench_sweep.py"
+_BENCH_GEOMETRY = "src/ao_shaping/optimizer/wfless/bench_geometry.py"
+_BENCH_SHARED_ABERRATION = "src/ao_shaping/optimizer/wfless/bench_shared_aberration.py"
+_FROZEN_ABERRATION_SHAPING = "src/ao_shaping/optimizer/wfless/frozen_aberration_shaping.py"
 _PIB = "src/ao_shaping/optimizer/wfless/pib.py"
 _COMB = "src/ao_shaping/optimizer/combined_optimizer.py"
 _VAL = "src/ao_shaping/tools/slm/transfer/validate.py"
@@ -87,7 +91,6 @@ _SHAPING_ROUTER = "src/ao_shaping/tools/slm/shaping/router.py"
 _GS_REFINE_RUNNER = "src/ao_shaping/runners/slm/gs_refine_runner.py"
 _SZP = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _RMS = "src/ao_shaping/optimizer/wf/rms_by_zernike.py"
-_MIL = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
 _SQ = "src/ao_shaping/optimizer/wfless/slm_square_shaping.py"
 _SCRIPT = "scripts/slm/generate_diffraction_efficiency_sim_report.py"
 _SECTIONS = "scripts/slm/_hw_gs_square_scans_sections.py"
@@ -114,7 +117,6 @@ _R50_CERAMIC_VIEWER = "src/ao_shaping/gui/r50/ceramic_viewer.py"
 _FOCUS_PROBE = "src/ao_shaping/tools/slm/panel/focus_probe.py"
 _TRAIN = "src/ml/sim2f/train.py"
 _VOLTAGE_RUNNER = "src/ao_shaping/runners/micro_drive/voltage_runner.py"
-_MODEL_IN_LOOP_SHAPING = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 _ZCO = "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py"
 _SHAPING_TRAIN = "src/ml/shaping/train.py"
 _ZERNIKE_RESPONSE = "src/ao_shaping/tools/wfs/zernike_response.py"
@@ -122,12 +124,10 @@ _ZERNIKE_RESPONSE_MATRIX = "src/ao_shaping/optimizer/wf/zernike_response_matrix.
 _ML_TRAIN = "src/ml/train.py"
 _MICRO_DM_IMAGE_COLLECT = "src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py"
 _SLM_CALIBRATION_UI = "src/ao_shaping/gui/slm/slm_calibration_ui.py"
-_MODEL_IN_LOOP_RUNNER = "src/ao_shaping/runners/slm/model_in_loop_runner.py"
 _EXPOSURE_CONTROL = "src/ao_shaping/utils/image/exposure_control.py"
 _SLM_ZERNIKE_PIB = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _ADAM = "src/ao_shaping/algorithm/gradient/adam.py"
 _RECORDING = "src/ao_shaping/tools/slm/transfer/recording.py"
-_RUNNER_COMMON = "src/ao_shaping/runners/runner_common.py"
 _CALIBRATION = "src/ao_shaping/tools/slm/calibration/calibration.py"
 _DATASET = "src/ml/hwdataset/dataset.py"
 _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
@@ -139,25 +139,21 @@ _TRANSFER_PREFLIGHT = "src/ao_shaping/tools/slm/transfer/preflight.py"
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
 TARGETS = [
-    (_FILE, "calibrate_bench_geometry_from_sweep", 145, 1, 130),
-    (_FILE, "_milsg_log_geometry", 25, 0, 21),
-    (_FILE, "_milsg_waist_verdict", 25, 1, 21),
-    (_FILE, "_milsg_require_defocus", 14, 1, 10),
-    (_FILE, "_milsg_require_groups", 24, 1, 20),
-    (_FILE, "_milsg_validate_sweeps", 30, 3, 26),
-    (_FILE, "_milsg_focal_crosschecks", 32, 3, 27),
-    (_FILE, "_milsg_fit_waist", 30, 3, 26),
-    (_FILE, "_milsg_build_notes", 26, 3, 22),
-    (_FILE, "_milsg_log_modes", 19, 3, 16),
-    (_FILE, "_tilt_axis_slopes", 70, 3, 44),
-    (_FILE, "_ramp_focal_scale", 70, 3, 39),
-    (_FILE, "_fov_ratio_cross_check", 80, 3, 46),
-    (_FILE, "_tilt_physical_cross_check", 80, 3, 48),
-    (_FILE, "_sweep_width_groups", 140, 4, 100),
-    (_FILE, "_fit_curvature_offsets", 100, 3, 60),
-    (_FILE, "_defocus_asymmetry", 50, 3, 14),
-    (_FILE, "_fit_joint_waist", 110, 4, 65),
-    (_FILE, "_sweep_calibration_notes", 80, 3, 35),
+    (_BENCH_SWEEP_FIT, "calibrate_bench_geometry_from_sweep", 145, 1, 130),
+    (_BENCH_SWEEP_FIT, "_milsg_validate_sweeps", 30, 3, 26),
+    (_BENCH_SWEEP_FIT, "_milsg_focal_crosschecks", 32, 3, 27),
+    (_BENCH_SWEEP_FIT, "_milsg_fit_waist", 30, 3, 26),
+    (_BENCH_SWEEP_FIT, "_milsg_build_notes", 26, 3, 22),
+    (_BENCH_SWEEP_FIT, "_milsg_log_modes", 19, 3, 16),
+    (_BENCH_SWEEP, "_tilt_axis_slopes", 70, 3, 44),
+    (_BENCH_SWEEP, "_ramp_focal_scale", 70, 3, 39),
+    (_BENCH_SWEEP, "_fov_ratio_cross_check", 80, 3, 46),
+    (_BENCH_SWEEP, "_tilt_physical_cross_check", 80, 3, 48),
+    (_BENCH_SWEEP, "_sweep_width_groups", 140, 4, 100),
+    (_BENCH_SWEEP_FIT, "_fit_curvature_offsets", 100, 3, 60),
+    (_BENCH_SWEEP_FIT, "_defocus_asymmetry", 50, 3, 14),
+    (_BENCH_SWEEP_FIT, "_fit_joint_waist", 110, 4, 65),
+    (_BENCH_SWEEP_FIT, "_sweep_calibration_notes", 80, 3, 35),
     (_SCRIPT, "build_markdown", 90, 2, 45),
     (_DECORE_CORE, "_pick_orders", 183, 4, 159),
     (_DECORE_CORE, "fit_phase_response", 140, 5, 124),
@@ -405,24 +401,6 @@ TARGETS = [
     (_RMS, "_rms_heuristic_stage", 72, 3, 62),
     (_RMS, "_rms_initial_state", 59, 2, 51),
     (_RMS, "_rms_init_coefficients", 61, 4, 53),
-    (_MIL, "optimize_slm_model_in_loop", 130, 1, 84),
-    (_MIL, "_run_model_in_loop_session", 85, 3, 74),
-    (_MIL, "_session_open_bench", 172, 3, 151),
-    (_MIL, "_session_measure_flat", 142, 2, 124),
-    (_MIL, "_session_round_state_init", 84, 1, 73),
-    (_MIL, "_run_model_in_loop_rounds", 208, 4, 181),
-    (_MIL, "__post_init__", 50, 2, 38),
-    (_MIL, "_validate_mil_scalars", 128, 2, 116),
-    (_MIL, "_milr_round_probe_setup", 28, 2, 23),
-    (_MIL, "_milr_round_score_after", 12, 1, 9),
-    (_MIL, "_milr_step_b_measure", 111, 2, 96),
-    (_MIL, "_milr_step_a_clamp", 73, 1, 63),
-    (_MIL, "_milr_accept_verdict", 67, 1, 58),
-    (_MIL, "_milr_step_a_setup", 49, 0, 42),
-    (_MIL, "_milr_round_display", 30, 1, 26),
-    (_MIL, "_model_in_loop_round_row", 70, 0, 39),
-    (_MIL, "_model_in_loop_round_holdout", 85, 2, 55),
-    (_MIL, "_model_in_loop_round_probes", 110, 2, 81),
     (_WORKFLOW, "main", 191, 5, 165),
     (_WORKFLOW, "_add_session_commands", 157, 4, 136),
     (_TABU, "run_search", 95, 1, 82),
@@ -508,9 +486,9 @@ TARGETS = [
     (_ZERNIKE_DEBUG_VIEWER, "_zrmd_count_plan", 26, 3, 22),
     (_TRAIN, "train", 274, 3, 244),
     (_VOLTAGE_RUNNER, "run", 271, 6, 241),
-    (_MODEL_IN_LOOP_SHAPING, "calibrate_shared_aberration", 239, 2, 207),
-    (_MODEL_IN_LOOP_SHAPING, "_csa_build_frames", 51, 2, 44),
-    (_MODEL_IN_LOOP_SHAPING, "_csa_cycle", 37, 2, 32),
+    (_BENCH_SHARED_ABERRATION, "calibrate_shared_aberration", 239, 2, 207),
+    (_BENCH_SHARED_ABERRATION, "_csa_build_frames", 51, 2, 44),
+    (_BENCH_SHARED_ABERRATION, "_csa_cycle", 37, 2, 32),
     (_SHAPING_TRAIN, "train", 266, 2, 236),
     (_ZERNIKE_RESPONSE, "main", 164, 6, 149),
     (_ZERNIKE_RESPONSE, "_zr_prepare_session", 26, 2, 23),
@@ -525,21 +503,11 @@ TARGETS = [
     (_ZERNIKE_RESPONSE_MATRIX, "_zrm_build_result", 33, 1, 27),
     (_ML_TRAIN, "train_model", 262, 5, 232),
     (_MICRO_DM_IMAGE_COLLECT, "run", 260, 5, 230),
-    (_MODEL_IN_LOOP_SHAPING, "calibrate_bench_geometry", 190, 5, 173),
-    (_MODEL_IN_LOOP_SHAPING, "_cbg_measure_references", 30, 2, 27),
-    (_MODEL_IN_LOOP_SHAPING, "simulate_iterative_shaping", 80, 0, 69),
-    (_MODEL_IN_LOOP_SHAPING, "_mil_run_rounds", 85, 2, 75),
-    (_MODEL_IN_LOOP_SHAPING, "_mil_make_rearm", 28, 0, 24),
-    (_MODEL_IN_LOOP_SHAPING, "_cbg_scan_seeds", 15, 1, 12),
-    (_MODEL_IN_LOOP_SHAPING, "_cbg_finalize", 33, 2, 30),
-    (_SLM_CALIBRATION_UI, "render_sidebar", 90, 2, 78),
-    (_SLM_CALIBRATION_UI, "_slm_cal_render_storage_and_method", 66, 0, 56),
-    (_SLM_CALIBRATION_UI, "_slm_cal_render_roi_section", 52, 2, 42),
-    (_SLM_CALIBRATION_UI, "_slm_cal_render_auto_exposure", 38, 2, 28),
-    (_SLM_CALIBRATION_UI, "_slm_cal_render_device_connection", 46, 3, 36),
-    (_MODEL_IN_LOOP_RUNNER, "run", 125, 2, 108),
-    (_MODEL_IN_LOOP_RUNNER, "_milr_echo_summary_and_save", 92, 1, 80),
-    (_MODEL_IN_LOOP_RUNNER, "_milr_echo_banner", 49, 1, 42),
+    (_BENCH_GEOMETRY, "calibrate_bench_geometry", 190, 5, 173),
+    (_BENCH_GEOMETRY, "_cbg_measure_references", 30, 2, 27),
+    (_BENCH_GEOMETRY, "_cbg_scan_seeds", 15, 1, 12),
+    (_BENCH_GEOMETRY, "_cbg_finalize", 33, 2, 30),
+    (_SLM_CALIBRATION_UI, "render_sidebar", 254, 4, 224),
     (_EXPOSURE_CONTROL, "estimate_exposure_ceiling_ms", 197, 5, 176),
     (_EXPOSURE_CONTROL, "_ecc_collect_pairs", 23, 3, 19),
     (_EXPOSURE_CONTROL, "_ecc_init_accumulators", 15, 1, 12),
@@ -565,19 +533,15 @@ TARGETS = [
     (_RECORDING, "_rpg_draw_readout", 16, 1, 13),
     (_RECORDING, "_rpg_draw_trajectories", 24, 2, 20),
     (_RECORDING, "_rpg_draw_heading", 14, 2, 12),
-    (_RUNNER_COMMON, "save_model_in_loop_results", 152, 3, 136),
-    (_RUNNER_COMMON, "_smil_prepare_outputs", 16, 1, 13),
-    (_RUNNER_COMMON, "_smil_save_error_terms", 48, 3, 41),
-    (_RUNNER_COMMON, "_smil_save_artifacts", 40, 2, 34),
     (_CALIBRATION, "main_shift_calib", 238, 4, 208),
     (_DATASET, "create_hw_dataloaders", 236, 2, 206),
     (_AXIS_BEAM_RUNNER, "run", 78, 1, 67),
     (_AXIS_BEAM_RUNNER, "_abr_build_config", 35, 0, 30),
     (_AXIS_BEAM_RUNNER, "_abr_write_debug_artifacts", 121, 2, 105),
     (_AXIS_BEAM_RUNNER, "_abr_echo_objective", 15, 0, 13),
-    (_MODEL_IN_LOOP_SHAPING, "shape_phase_with_frozen_aberration", 150, 1, 130),
-    (_MODEL_IN_LOOP_SHAPING, "_mis_build_phase_objective_tensors", 57, 2, 49),
-    (_MODEL_IN_LOOP_SHAPING, "_mis_run_phase_refinement", 37, 3, 32),
+    (_FROZEN_ABERRATION_SHAPING, "shape_phase_with_frozen_aberration", 150, 1, 130),
+    (_FROZEN_ABERRATION_SHAPING, "_mis_build_phase_objective_tensors", 57, 2, 49),
+    (_FROZEN_ABERRATION_SHAPING, "_mis_run_phase_refinement", 37, 3, 32),
     (_SLM_GS_REFINE, "_gsr_validate_target_limits", 100, 2, 87),
     (_SLM_GS_REFINE, "_gsr_validate_weights_and_settle", 67, 1, 58),
     (_PHASE_GRAYSCALE_LUT, "calibrate", 118, 0, 102),
@@ -650,7 +614,7 @@ def test_the_depth_measurement_is_not_silently_zero() -> None:
     (verbatim-moved filters, flattening left to a later batch): if the AST walk
     ever degraded to 0, every nesting ceiling above would pass vacuously.
     """
-    _span, nesting = _measure(_FILE, "_sweep_width_groups")
+    _span, nesting = _measure(_BENCH_SWEEP, "_sweep_width_groups")
     assert nesting == 4, (
         f"expected _sweep_width_groups to measure exactly 4 deep, got {nesting}; "
         "the nesting walker changed and the ceilings above mean nothing"

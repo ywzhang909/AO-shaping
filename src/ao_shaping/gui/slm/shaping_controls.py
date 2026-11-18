@@ -12,22 +12,22 @@ closed-loop pipeline the CLI runners drive:
 - **GS+SPGD** (``slm-gs-refine``): interleaved-replay validated 2026-10-12
   (``report/shape_trials/gs_refine_live_20261012.md``) — flat 0.534 →
   GS 0.767 → best 0.774 (re-verified 2026-10-14 through this very section).
-- **Model-in-loop** (``slm-model-in-loop``): the frontier method
-  (``report/shape_trials/model_in_loop_live_20261013.md``), best uniformity so
-  far but not yet an accepted uniform square; needs torch.
 - **迁移学习** (``slm_transfer`` / ``ao_shaping.tools.slm.transfer``): 少参数物理
   物理预测模型 + 当前光路重测几何 + 检查点迁移，再用按 CCD 实测校正短块与 A–B–B–A 配对
   验收（``report/shape_trials/multishape_capability/``）；同样需要 torch。
 
+The model-in-loop adapter (and its ``slm-model-in-loop`` optimizer) has been
+removed; the transfer method is the torch-based closed loop this section drives.
+
 Architecture — why adapters + decorators
 ----------------------------------------
-All three optimizers are **actively being developed**, and they do not share a
+The optimizers are **actively being developed**, and they do not share a
 result type, a parameter object or even a lifecycle. Rather than letting that
 leak into the page, every algorithm is a small adapter implementing
 :class:`ShapingMethod`, and the cross-cutting concerns are decorators:
 
 - :func:`register_shaping_method` — class decorator that registers an adapter
-  in :data:`SHAPING_METHODS`. Adding a fourth algorithm is one decorated class;
+  in :data:`SHAPING_METHODS`. Adding another algorithm is one decorated class;
   the selector, the run button and the lifecycle need no edit.
 - :func:`shaping_session` — method decorator wrapping :meth:`ShapingMethod.run`.
   It owns the parts that must never be forgotten: the optimizers open and close
@@ -36,9 +36,9 @@ leak into the page, every algorithm is a small adapter implementing
   in ``finally`` — an optimizer-side crash cannot strand the page without a
   device. Errors are logged and surfaced once, here.
 - :class:`ShapingOutcome` — the single normalized result the page renders. The
-  adapters translate ``Recorder`` / ``ModelInLoopResult`` into it, so the UI
-  never touches an optimizer-specific type and an API change stays confined to
-  one ``execute()`` / ``save()`` pair.
+  adapters translate ``Recorder`` / the transfer session artefacts into it, so
+  the UI never touches an optimizer-specific type and an API change stays
+  confined to one ``execute()`` / ``save()`` pair.
 
 The concrete per-algorithm work is deliberately thin: build the canonical
 runner parameter object (:mod:`ao_shaping.runners.runner_common` — the same one
@@ -118,11 +118,8 @@ from ao_shaping.optimizer.wfless.slm_gs_refine import VALIDATED_GS_REFINE_RECIPE
 from ao_shaping.utils.io.timestamp import format_ts
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
-    SlmModelInLoopParams,
     build_gs_refine_config,
-    build_model_in_loop_config,
     save_gs_refine_results,
-    save_model_in_loop_results,
 )
 from ao_shaping.utils.cli.exposure import (
     AUTO_EXPOSURE_TOKEN,
@@ -132,15 +129,11 @@ from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
 )
-from ao_shaping.utils.image.target.shapes import (
-    TARGET_SHAPE_LABELS as MIL_TARGET_SHAPE_LABELS,
-)
 from ao_shaping.utils.wavefront.sampling_limit import evaluate_sampling
 
 __all__ = [
     "CAM_TYPE_OPTIONS",
     "GS_REFINE_RECIPE",
-    "MIL_BUDGET_PRESETS",
     "SHAPING_METHODS",
     "TRANSFER_FP_SESSION_KEY",
     "TRANSFER_NO_SOURCE_LABEL",
@@ -148,18 +141,15 @@ __all__ = [
     "TRANSFER_SHAPE_LABELS",
     "TRANSFER_STAGE_LABELS",
     "GsRefineMethod",
-    "ModelInLoopMethod",
     "SlmOwnership",
     "ShapingMethod",
     "ShapingOutcome",
     "TransferMethod",
     "build_gs_refine_params",
-    "build_model_in_loop_params",
     "discover_transfer_checkpoint",
     "get_shaping_method",
     "get_shaping_method_by_label",
     "outcome_from_gs_recorder",
-    "outcome_from_model_in_loop",
     "outcome_from_transfer",
     "plan_transfer_session_dir",
     "register_shaping_method",
@@ -186,17 +176,6 @@ __all__ = [
 #: default can never mutate the validated table.
 GS_REFINE_RECIPE: dict[str, Any] = dict(VALIDATED_GS_REFINE_RECIPE)
 
-#: Model-in-loop budget presets: ``(轮数, Step A 步数, Step B 步数)``.
-#: The "标准" row is verbatim the ``docs/slm/slm_model_in_loop.md`` §5 defaults
-#: (``n_rounds=6`` / ``step_a_iterations=80`` / ``step_b_iterations=150``); the
-#: other two are coarse/fine brackets.  Step B stays at the hardware-validated
-#: 150 (more steps overfit the CCD image).  A preset overwrites the budget fields
-MIL_BUDGET_PRESETS: dict[str, tuple[int, int, int]] = {
-    "快速 2/40/100": (2, 40, 100),
-    "标准 6/80/150": (6, 80, 150),
-    "长跑 12/160/300": (12, 160, 300),
-}
-
 #: The GS+SPGD validation recipe budget (SPGD 轮数 / GS 迭代).  Shown read-only —
 #: it is validated evidence (see :data:`GS_REFINE_RECIPE`), never a preset.
 GS_VALIDATED_BUDGET: tuple[int, int] = (12, 12)
@@ -205,45 +184,11 @@ GS_VALIDATED_BUDGET: tuple[int, int] = (12, 12)
 #: is never a constant here: ``configured_daheng_exposure_limit()`` reads
 #: ``AO_DAHENG_MAX_EXPOSURE_MS``, and 0 means the optimizers probe the image.
 
-#: Widget defaults for model-in-loop, keyed by widget field name.  Declared as
-#: data (not read from the config at import time) so ``import`` stays free of
-#: the optimizer package; :func:`_mil_default` still resolves the *authoritative*
-#: value from ``SlmModelInLoopConfig`` and this table only documents intent.
-#:
-#: ``pupil_center`` here is **not** the widget default any more — the widget
-#: starts empty（「留空 = 自动定位」）.  This entry is the last-resort fallback,
-#: used only when a session has *never* been calibrated and is what the sidebar
-#: back-fills when a calibration skipped the locate step.  It is this bench's
-#: measured panel centre, so a different optical path has to calibrate.
-MIL_WIDGET_DEFAULTS: dict[str, Any] = {
-    "n_rounds": 6,
-    "target_shape": "square",
-    "target_side": 60,
-    "seed": 0,
-    "probe_count": 8,
-    "probe_spread": 4.0,
-    "step_a_iterations": 80,
-    "step_b_iterations": 150,
-    "holdout_probe_count": 2,
-    "freeform_holdout_count": 0,
-    "panel_span_px": 900.0,
-    "region": 64,
-    "far_field_padding": 8,
-    "geometry_file": "",
-    "pupil_center": "960,690",
-}
-
-#: Bare fallback when nothing at all is known about the session.  Owned by
-#: :mod:`bench_settings` (the sidebar is what back-fills it) and re-exported here
-#: because ``MIL_WIDGET_DEFAULTS`` is the table tests and callers reach for.
-MIL_PUPIL_CENTER_FALLBACK: str = bench_settings.PUPIL_CENTER_FALLBACK
-
 #: Shared 目标与评分 caption — one formula for the methods that score a far field,
 #: so switching the algorithm never means re-learning what the score means.
 _OBJECTIVE_CAPTION = (
     "目标与评分（相机像素；复合分数 = w_pib·PIB + w_unif·1/(1+CV)）。"
-    "GS 的权重是 w_pib / w_unif，物理预测模型的是 w_eff / w_uni，迁移学习的是形状 + "
-    "目标尺寸。"
+    "GS 的权重是 w_pib / w_unif，迁移学习的是形状 + 目标尺寸。"
 )
 
 #: GS 相位网格上限放开后的耗时提示（上界 64 → 128 时的代价必须说清）。
@@ -251,36 +196,6 @@ _PHASE_GRID_HELP = (
     "全频随机相位网格边长。验证配方用 12；网格边长翻倍 = 可控自由度 ×4，"
     "而 SPGD 每轮要遍历整个网格，耗时随之上升（本实验系统 12 网格约 1 s/轮）。"
 )
-
-#: MIL 探针 σ 的可辨识性上限提示。
-_PROBE_SPREAD_HELP = (
-    "必须 ≳3 rad，否则拟合对像差不敏感（探针相位 std 要越过 16-bit "
-    "量化本底两个数量级才良态）"
-)
-
-#: 物理预测模型瞳面网格 / 远场补零的耗时与内存提示。
-_MIL_REGION_HELP = (
-    "物理预测模型瞳面网格边长，必须是 8 的倍数。网格边长 ×8 = 远场采样点 ×64，"
-    "内存与耗时随之上升（本实验系统 64 网格可跑）。"
-)
-_MIL_PADDING_HELP = (
-    "远场补零倍数。物理预测模型默认 8（docs/slm/slm_model_in_loop.md §5），"
-    "与 GS 验证值 3 **不合并** —— 两者是各自标定产物的一部分。"
-)
-
-#: MIL 探针数放开上限后的耗时提示。
-_PROBE_COUNT_HELP = (
-    "每轮使用的不同探针相位数。8 是实测默认；每加 1 个探针，Step A 的设备"
-    "往返就多一轮（本实验系统一轮探针约 2 s）。"
-)
-_HOLDOUT_HELP = (
-    "验证集探针数（不参与拟合，只用来验相关度）。0 = 不做验证集验证；"
-    "注意 Step A 拟合本身要求 ≥ 1，真要关闭验证集请用「全频随机相位验证集探针」= 0。"
-)
-
-#: MIL 权重默认值（``SlmModelInLoopParams`` 的 0.6 / 0.4）。
-_MIL_W_EFFICIENCY = 0.6
-_MIL_W_UNIFORMITY = 0.4
 
 
 def flush_pending_widgets(method: ShapingMethod) -> dict[str, Any]:
@@ -358,8 +273,6 @@ def validate_daheng_exposure(cam_type: str, exposure_ms: float) -> str | None:
     Mirrors the CLI guards: the ceiling is per-session (the optical path sets
     it), taken from ``AO_DAHENG_MAX_EXPOSURE_MS``; when that is unset the
     optimizers probe the image at run time, so the UI cannot bound it.
-    model-in-loop may start at 0 (auto from 0.02 ms) because it owns the
-    auto-exposure ladder.
     """
     if cam_type == "daheng":
         ceiling = configured_daheng_exposure_limit()
@@ -733,7 +646,7 @@ class ShapingMethod(ABC):
     def hint_bench_calibration(self, values: Mapping[str, Any]) -> None:
         """「本次直接复用侧栏标定」这一事实必须出声 —— 但只是提示，不是错误。
 
-        三种方法都不在运行时重新标定：入射中心 / sweep 几何 / 曝光只来自侧栏。
+        两种方法都不在运行时重新标定：入射中心 / sweep 几何 / 曝光只来自侧栏。
         从未标定过时光路会落到 ``PUPIL_CENTER_FALLBACK``（本实验系统的实测值），
         换一条光路则静默失效 —— 正是这一行存在的理由。
         """
@@ -1364,58 +1277,6 @@ def outcome_from_gs_recorder(recorder: Any) -> ShapingOutcome:
     )
 
 
-def outcome_from_model_in_loop(result: Any, config: Any) -> ShapingOutcome:
-    """Translate a :class:`ModelInLoopResult` into a :class:`ShapingOutcome`.
-
-    The adopted phase lives on the coarse *model* grid, so it is embedded onto
-    the panel disc here — the one place that knows about ``panel_span_px`` and
-    the panel-frame ``pupil_center``.
-    """
-    from ao_shaping.tools.kernels.bench_kernels import phase_to_panel
-
-    best_phase = getattr(result, "best_phase", None)
-    panel_phase = None
-    if best_phase is not None:
-        panel_phase = phase_to_panel(
-            np.asarray(best_phase, dtype=np.float64),
-            disc_radius=int(round(config.panel_span_px / 2.0)),
-            pupil_center=(int(config.pupil_center[0]), int(config.pupil_center[1])),
-        )
-        blaze_params = getattr(result, "blaze_params", None)
-        if blaze_params is not None:
-            from ao_shaping.utils.wavefront.zero_order_overlay import (
-                apply_zero_order_overlay,
-            )
-
-            panel_phase = apply_zero_order_overlay(panel_phase, blaze_params)
-    flat_score = getattr(result, "flat_score", None)
-    best_score = float(getattr(result, "best_score", float("nan")))
-    rows: tuple[dict[str, Any], ...] = ()
-    if flat_score is not None:
-        rows = (
-            {"stage": "flat", "epoch": "-", "score": round(float(flat_score), 4)},
-            {
-                "stage": f"best ({getattr(result, 'status', '?')})",
-                "epoch": "-",
-                "score": round(best_score, 4),
-            },
-        )
-    note = (
-        f"状态 {getattr(result, 'status', '?')}；目标框 "
-        f"{getattr(result, 'target_side_camera', '?')} 相机px "
-        f"({getattr(result, 'target_side_model', '?')} 模型px)"
-        "（尚未达到验收的均匀方斑口径，见 model_in_loop_live_20261013.md）"
-    )
-    return ShapingOutcome(
-        panel_phase=panel_phase,
-        best_score=best_score,
-        flat_score=float(flat_score) if flat_score is not None else None,
-        rows=rows,
-        note=note,
-        raw_result=result,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Adapter: GS + SPGD  (the validated recipe)
 # ---------------------------------------------------------------------------
@@ -1441,7 +1302,7 @@ class GsRefineMethod(ShapingMethod):
     )
 
     def render_objective(self, values: dict[str, Any]) -> None:
-        """GS 目标与评分，一行 4 列（与 MIL 共用区块标题与公式 caption）。"""
+        """GS 目标与评分，一行 4 列（与迁移学习共用区块标题与公式 caption）。"""
         r = GS_REFINE_RECIPE
         cells = _param_cells(4)
         with cells[0]:
@@ -1543,7 +1404,7 @@ class GsRefineMethod(ShapingMethod):
                 1,
                 64,
                 1,
-                help="GS 验证值 3；与 MIL 的默认值 8 不同，故两者不合并",
+                help="GS 验证值 3；与迁移学习的默认值 8 不同，故两者不合并",
             )
         with cells[1]:
             values["panel_pixel_um"] = self.num_input(
@@ -1657,349 +1518,6 @@ class GsRefineMethod(ShapingMethod):
             return error
         self.hint_bench_calibration(values)
         return None
-
-
-# ---------------------------------------------------------------------------
-# Adapter: model-in-loop (frontier)
-# ---------------------------------------------------------------------------
-
-
-@register_shaping_method
-class ModelInLoopMethod(ShapingMethod):
-    """Forward-model-in-the-loop shaping: probe fit (Step A) + synthesis (Step B).
-
-    Same code path as the CLI ``slm-model-in-loop``. Needs torch, is the most
-    recently developed of the two, and has the strictest failure modes
-    (geometry bake-off, holdout correlation, rejection streak) — so it stays
-    behind the same adapter boundary and its ``RuntimeError`` messages are
-    acceptance criteria, not noise to swallow.
-    """
-
-    key: ClassVar[str] = "model-in-loop"
-    label: ClassVar[str] = "物理预测模型闭环整形（前沿，需 torch）"
-    action: ClassVar[str] = "开始物理预测模型闭环整形"
-    blurb: ClassVar[str] = (
-        "每轮重拟合物理预测模型 Zernike 像差（Step A）后冻结并合成目标相位（Step B），"
-        "带 trust region 与逐轮验收。需 torch；目前最佳 CV 0.643 / EE 0.786，"
-        "尚未达到验收的均匀方斑口径。"
-    )
-
-    def render_objective(self, values: dict[str, Any]) -> None:
-        """MIL 目标与评分，一行 4 列：目标形状 / 目标边长 / w_eff / w_uni。"""
-        d = MIL_WIDGET_DEFAULTS
-        cells = _param_cells(4)
-        with cells[0]:
-            values["target_shape"] = st.selectbox(
-                "目标形状",
-                options=list(MIL_TARGET_SHAPE_LABELS),
-                index=list(MIL_TARGET_SHAPE_LABELS).index(str(d["target_shape"])),
-                format_func=MIL_TARGET_SHAPE_LABELS.__getitem__,
-                key=self.wkey("target_shape"),
-            )
-        with cells[1]:
-            values["target_side"] = self.render_target_side(
-                values,
-                int(d["target_side"]),
-                lo=MIL_TARGET_SIDE_MIN_PX,
-                step=5,
-                help="目标方斑边长（相机像素），上界 = 当前读出窗口边长",
-            )
-        with cells[2]:
-            values["w_efficiency"] = self.num_input(
-                "w_eff",
-                "权重 w_eff",
-                _MIL_W_EFFICIENCY,
-                0.01,
-                2.0,
-                0.05,
-                help="必须 >0：只优化 -CV 会掏空目标框（实测环围能量 → 0.002）",
-            )
-        with cells[3]:
-            values["w_uniformity"] = self.num_input(
-                "w_uni", "权重 w_uni", _MIL_W_UNIFORMITY, 0.0, 2.0, 0.05
-            )
-
-    def render_budget(self, values: dict[str, Any]) -> None:
-        """MIL 预算：预设 + 轮数 / Step A 步数 / Step B 步数。
-
-        A preset only writes when the selection **changed**.  Writing on every
-        render would silently undo any hand-tuned budget the moment the operator
-        touched a neighbouring field (Streamlit keeps the selectbox value across
-        reruns, so "changed" is the only honest trigger).
-        """
-        d = MIL_WIDGET_DEFAULTS
-        labels = list(MIL_BUDGET_PRESETS)
-        chosen = st.selectbox(
-            "预设",
-            options=labels,
-            index=labels.index("标准 6/80/150"),
-            key=self.wkey("budget_preset"),
-            help="「标准」= docs/slm/slm_model_in_loop.md §5 默认值（6/80/150）；"
-            "只在切换预设时覆写预算，手改的值不会被冲掉",
-        )
-        rounds, step_a, step_b = MIL_BUDGET_PRESETS[chosen]
-        if st.session_state.get(self.wkey("budget_preset_applied")) != chosen:
-            st.session_state[self.wkey("budget_preset_applied")] = chosen
-            queue_widget_writes(
-                self,
-                {
-                    "n_rounds": rounds,
-                    "step_a_iterations": step_a,
-                    "step_b_iterations": step_b,
-                },
-            )
-        for cell, (key, label, lo, hi, step, default) in zip(
-            _param_cells(4),
-            (
-                ("n_rounds", "轮数", 1, 20, 1, d["n_rounds"]),
-                (
-                    "step_a_iterations",
-                    "Step A 步数",
-                    0,
-                    2000,
-                    10,
-                    d["step_a_iterations"],
-                ),
-                (
-                    "step_b_iterations",
-                    "Step B 步数",
-                    1,
-                    4000,
-                    50,
-                    d["step_b_iterations"],
-                ),
-                ("seed", "随机种子", 0, 99999, 1, d["seed"]),
-            ),
-            strict=True,
-        ):
-            with cell:
-                values[key] = self.num_input(key, label, default, lo, hi, step)
-
-    def render_advanced(self, values: dict[str, Any]) -> None:
-        """MIL 专属高级参数（默认收起）。"""
-        d = MIL_WIDGET_DEFAULTS
-        st.caption("Step A 探针拟合")
-        probe_fields = (
-            ("probe_count", "探针数", 1, 64, 1, _PROBE_COUNT_HELP),
-            ("probe_spread", "探针 σ (rad)", 3.0, 12.0, 0.5, _PROBE_SPREAD_HELP),
-            ("holdout_probe_count", "验证集探针", 0, 8, 1, _HOLDOUT_HELP),
-            ("freeform_holdout_count", "全频随机相位验证集探针", 0, 8, 1, None),
-        )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            _param_cells(4), probe_fields, strict=True
-        ):
-            with cell:
-                values[key] = self.num_input(
-                    key, label, d[key], lo, hi, step, help=help_
-                )
-        values["min_holdout_correlation"] = self.num_input(
-            "min_holdout_correlation",
-            "相关度门限",
-            0.5,
-            0.0,
-            1.0,
-            0.01,
-            help="验证集探针相关度低于此值即判定拟合失败（实测 speckle 路线 corr≈0.07）",
-        )
-        st.caption("物理预测模型几何")
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(2),
-            (
-                ("region", "模型网格", 8, 512, 8, _MIL_REGION_HELP),
-                ("far_field_padding", "远场补零", 1, 64, 1, _MIL_PADDING_HELP),
-            ),
-            strict=True,
-        ):
-            with cell:
-                values[key] = self.num_input(
-                    key, label, d[key], lo, hi, step, help=help_
-                )
-        st.caption("求解器与开关")
-        c1, c2 = st.columns(2)
-        with c1:
-            values["warm_start"] = st.checkbox(
-                "热启动 (Step B 沿用上一轮相位)",
-                value=True,
-                key=self.wkey("warm_start"),
-            )
-        with c2:
-            # ``SlmModelInLoopParams`` has no ``panel_pixel_um``: the forward model
-            # gets the panel pitch from the panel geometry sweep, so this is shown
-            # as a read-only device fact rather than an editable knob that would
-            # go nowhere.
-            st.caption(
-                f"面板像素间距 {SLM_PITCH_UM} μm（器件常量 PITCH_UM）· "
-                f"有效口径 {SLM_PIXEL_SIZE_UM} μm —— 相差 0.2 μm 是真实器件几何"
-            )
-            # Both, because the two numbers are different physical quantities and
-            # showing only the smaller one invites "fixing" it.
-            values["panel_pixel_um"] = float(SLM_PITCH_UM)
-        self.render_extra_row(
-            values,
-            {
-                "step_a_lr": {
-                    "label": "Step A 学习率",
-                    "min_value": 1e-4,
-                    "max_value": 1.0,
-                    "value": 0.05,
-                    "step": 0.005,
-                    "format": "%.4f",
-                },
-                "step_b_lr": {
-                    "label": "Step B 学习率",
-                    "min_value": 1e-4,
-                    "max_value": 1.0,
-                    "value": 0.05,
-                    "step": 0.005,
-                    "format": "%.4f",
-                },
-                "n_orders": {
-                    "label": "Zernike 阶数",
-                    "min_value": 1,
-                    "max_value": 10,
-                    "value": 4,
-                    "step": 1,
-                },
-            },
-        )
-
-    def build_params(self, values: Mapping[str, Any]) -> SlmModelInLoopParams:
-        return SlmModelInLoopParams(
-            n_rounds=int(values["n_rounds"]),
-            seed=int(values["seed"]),
-            target_shape=str(values["target_shape"]),
-            target_side=int(values["target_side"]),
-            w_uniformity=float(values["w_uniformity"]),
-            w_efficiency=float(values["w_efficiency"]),
-            probe_count=int(values["probe_count"]),
-            probe_spread=float(values["probe_spread"]),
-            step_a_iterations=int(values["step_a_iterations"]),
-            step_b_iterations=int(values["step_b_iterations"]),
-            holdout_probe_count=int(values["holdout_probe_count"]),
-            freeform_holdout_count=int(values.get("freeform_holdout_count", 0)),
-            min_holdout_correlation=float(values["min_holdout_correlation"]),
-            step_a_lr=float(values.get("step_a_lr", 0.05)),
-            step_b_lr=float(values.get("step_b_lr", 0.05)),
-            n_orders=int(values.get("n_orders", 4)),
-            warm_start=bool(values.get("warm_start", True)),
-            region=int(values["region"]),
-            panel_span_px=float(values["panel_span_px"]),
-            far_field_padding=int(values["far_field_padding"]),
-            geometry_file=str(values.get("geometry_file", "")).strip() or None,
-            # ``bench_settings`` may hand back the ``default`` token when the session
-            # exposure was never probed; anything numeric passes through as-is.
-            exposure_time_ms=exposure_param(values["exposure_time_ms"]),
-            max_exposure_ms=float(values["max_exposure_ms"]),
-            slm_number=self.slm_num,
-            **self.common_param_values(values),
-        )
-
-    def make_config(self, params: SlmModelInLoopParams, *, debug: bool) -> Any:
-        return build_model_in_loop_config(params, debug=debug)
-
-    def prepare_config(self, config: Any, values: Mapping[str, Any]) -> None:
-        """Give the optimizer a debug directory for probe frames.
-
-        ``SlmModelInLoopConfig`` has no ``record_debug`` field
-        (``build_model_in_loop_config`` accepts ``debug`` only for signature
-        symmetry), so the run directory is the config's own ``debug_dir`` knob.
-        """
-        from ao_shaping.utils.io.file import debug_run_dir
-
-        if not getattr(config, "debug_dir", None):
-            config.debug_dir = str(debug_run_dir(Path("data"), "slm_model_in_loop"))
-        super().prepare_config(config, values)
-        st.info(
-            f"物理预测模型闭环运行中：{config.n_rounds} 轮 × (Step A "
-            f"{config.step_a_iterations} 步拟合 + Step B {config.step_b_iterations} "
-            "步优化)，耗时较长，请勿断开设备。"
-        )
-
-    def execute(self, config: Any) -> ShapingOutcome:
-        from ao_shaping.optimizer.wfless.slm_model_in_loop import (
-            optimize_slm_model_in_loop,
-        )
-
-        return outcome_from_model_in_loop(optimize_slm_model_in_loop(config), config)
-
-    def save(
-        self, params: SlmModelInLoopParams, outcome: ShapingOutcome, *, debug: bool
-    ) -> Path | None:
-        # The canonical saver needs the live ModelInLoopResult (recorder,
-        # geometry, probe records) — that is what ``raw_result`` carries.
-        result = outcome.raw_result
-        if result is None:
-            return None
-        saved = save_model_in_loop_results(
-            result, params, root_dir=Path("data"), debug=debug
-        )
-        return saved.save_dir
-
-    def validate(self, values: Mapping[str, Any]) -> str | None:
-        error = (
-            validate_torch("物理预测模型闭环")
-            or validate_exposure(values, fixed=False)
-            or validate_target_fits_window(values)
-            or self._validate_holdout(values)
-            or self._validate_geometry_region(values)
-            or self._require_session_geometry(values)
-        )
-        if error is None:
-            self.hint_bench_calibration(values)
-        return error
-
-    def _validate_holdout(self, values: Mapping[str, Any]) -> str | None:
-        """验证集探针 0 被控件允许，但 Step A 拟合本身要求 ≥ 1。
-
-        The widget bound is 0 so the operator can *see* that holdout validation is
-        optional (the caption says how to actually turn it off), but
-        ``SlmModelInLoopConfig.__post_init__`` rejects 0 — so catch it here with
-        a message that points at the knob that actually works.
-        """
-        if int(values.get("holdout_probe_count", 1) or 0) >= 1:
-            return None
-        return (
-            "验证集探针必须 ≥ 1（Step A 拟合依赖它）。真要关闭验证集验证请把"
-            "「全频随机相位验证集探针」设为 0。"
-        )
-
-    def _require_session_geometry(self, values: Mapping[str, Any]) -> str | None:
-        """硬件上物理预测模型没有 sweep 几何就跑不起来，且**不再**在运行时替操作员测。
-
-        无 ``geometry_file`` 时优化器回落到 speckle 求解 —— 在本实验系统是实测
-        失败（相关度 ≈0.07，低于 0.50 门槛），要等几分钟才中止。所以运行前就拒绝，
-        并把唯一可行的动作写清楚。
-        """
-        if str(values.get("cam_type", "")) == "sim":
-            return None
-        if str(values.get("geometry_file", "") or "").strip():
-            return None
-        return (
-            "没有可复用的 sweep 几何：物理预测模型闭环不再在运行时自动标定。"
-            f"请在左侧「CCD参数设置」的「SLM {self.slm_num} · 光路几何与标定」点一次"
-            f"「标定 SLM {self.slm_num} 光路」（入射定位 → 曝光探测 → sweep 几何，"
-            "约 1–3 分钟），之后每次运行直接复用那次结果；"
-            "或把几何来源切到「复用已标定几何」并填一条几何文件。"
-        )
-
-    def _validate_geometry_region(self, values: Mapping[str, Any]) -> str | None:
-        """复用几何文件时，它的 ``region`` 必须与当前模型网格一致。
-
-        A mismatch is a genuine incompatibility, not a rescaling: the pupil grid
-        itself differs.  ``discover_model_in_loop_geometry(region=...)`` filters
-        by region, but a hand-typed path bypasses that filter.
-        """
-        path = str(values.get("geometry_file", "") or "").strip()
-        if not path:
-            return None
-        found = bench_settings.geometry_region_mismatch(path, int(values["region"]))
-        if found is None:
-            return None
-        return (
-            f"几何文件的 region={found} 与当前模型网格 region={values['region']} "
-            "不一致（模型网格本身不同）：在左侧「CCD参数设置」改 region，"
-            f"或点一次「标定 SLM {self.slm_num} 光路」重标（运行路径不测量）"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -2700,13 +2218,6 @@ def build_gs_refine_params(values: Mapping[str, Any]) -> SlmGsRefineParams:
     return GsRefineMethod("slm1", int(values.get("slm_number", 1))).build_params(values)
 
 
-def build_model_in_loop_params(values: Mapping[str, Any]) -> SlmModelInLoopParams:
-    """Back-compat: map widget values to :class:`SlmModelInLoopParams`."""
-    return ModelInLoopMethod("slm1", int(values.get("slm_number", 1))).build_params(
-        values
-    )
-
-
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
@@ -2735,7 +2246,7 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     st.subheader("闭环整形 (SLM + CCD)")
     st.caption(
         "开环整形（旧 GS方形整形/稳像法）在本实验系统已被实测证伪；此处复用 CLI "
-        "`slm-gs-refine` / `slm-model-in-loop` / 迁移学习工具入口的闭环管线，默认值即 "
+        "`slm-gs-refine` / 迁移学习工具入口的闭环管线，默认值即 "
         "[report/shape_trials](../../../../report/shape_trials/README.md) 的"
         "交错重放验证配方。运行期间本页阻塞，且 SLM 句柄临时交给优化器"
         "（另一台 SLM 不受影响）。"

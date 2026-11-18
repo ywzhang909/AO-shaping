@@ -43,7 +43,7 @@
 5. 历史预测相关性达到 0.9611 时，CV 绝对误差仍为 0.0888，质心误差为 4.64 px。相关性不足以验证局部相位响应；后续迁移后需对候选执行 ±δ 配对方向测试。
 6. 已有低带宽探针的采样加密、CCD 像素面积积分变化远小于主要 CV 误差，不能仅靠增加 FFT 点数解决。高频相位仍需单独检查。
 
-关联报告：[采样诊断](../model_in_loop/physical_forward_sampling_20261022_r2.md)、[光路变化后的方向测试](../defocus_differentiable/defocus_differentiable_20261023_r2.md)、[GS 尺寸与相位表示扫描](../hw_gs_square_scans/hw_gs_square_scans_20261023.md)、[早期可微优化](../../slm/differentiable_opt/differentiable_opt_report.md)。
+关联报告：[采样诊断（见物理预测经验总结）](../physical_forward_experience.md)、[光路变化后的方向测试](../defocus_differentiable/defocus_differentiable_20261023_r2.md)、[GS 尺寸与相位表示扫描](../hw_gs_square_scans/hw_gs_square_scans_20261023.md)、[早期可微优化](../../slm/differentiable_opt/differentiable_opt_report.md)。
 
 ## 当前光路采集准备
 

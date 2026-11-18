@@ -15,7 +15,7 @@ python src/ao_shaping/main.py --help
 python src/ao_shaping/main.py wf --help
 ```
 
-当前共 **20 个命令**：
+当前共 **19 个命令**：
 
 | 命令 | 一句话用途 | 详情章节 |
 |---|---|---|
@@ -37,10 +37,9 @@ python src/ao_shaping/main.py wf --help
 | `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 18 |
 | `slm-pib` | Santec SLM 的 Zernike 系数整形，group（含 `spgd` / `heuristic` / `square` 子命令，`square` 即方形光斑整形） | 19 |
 | `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 20 |
-| `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 21 |
 | `slm-transfer-shapes` | 物理预测模型多形状整形（model → shaping → replay → record 四阶段，逐 CCD 块验收） | 22 |
 
-历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
+历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。`slm-model-in-loop` 已于 2026-11-18 退役（见 [`report/shape_trials/model_in_loop/removal_report.md`](../../report/shape_trials/model_in_loop/removal_report.md)），保留 `slm-gs-refine` 与 `slm-transfer-shapes`。
 
 ⚠️ **组级与命令级的 `-d` 重复声明**。组级有 `--dir`（默认 `data`）和 `--debug`，但 `wf` / `pib` / `pipeline` / `rms-zernike` / `ga-zernike` / `greedy-zernike` 又各自在自己的选项表里重复声明了 `-d`；其中 `pib` 和 `combined` 把它命名为 `-d, --root-dir` 而不是 `-d, --dir`。同一个短选项出现在两层，位置决定作用对象：组级写在命令名之前，命令级写在命令名之后。
 

@@ -151,12 +151,6 @@ ignore = [
 # optional-dependency gate: `torch = pytest.importorskip("torch")` must run
 # before the imports it protects (same pattern as test_differentiable_shaping).
 "tests/ao_shaping/algorithm/test_metric_layers_agree.py" = ["E402"]
-"tests/ao_shaping/optimizer/wfless/test_adaptive_trust_region.py" = ["E402"]
-"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_loop_invariants.py" = ["E402"]
-"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_uncertainty.py" = ["E402"]
-# import-census test: it samples `sys.modules` around its own imports, so hoisting an
-# import changes what the test measures.
-"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py" = ["E402"]
 # thread-pool pinning loop must precede `import numpy` (numeric stack sizes its pools
 # from the env it sees at import time).
 "tests/conftest.py" = ["E402"]

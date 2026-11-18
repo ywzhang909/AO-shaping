@@ -2,7 +2,6 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`src/ao_shaping/runners/slm/model_in_loop_runner.py`](../../../src/ao_shaping/runners/slm/model_in_loop_runner.py)
 > **数据/关联脚本**: [`src/ao_shaping/runners/slm/transfer_shapes_runner.py`](../../../src/ao_shaping/runners/slm/transfer_shapes_runner.py)
 > **运行环境**: 离线（方案文档；设备已预检，实验尚待 G0-2 光路漂移处置）
 > **说明**: 迁移学习 + model-in-loop 双优化流程的实验方案：G0 前置门禁、逐轮交替的判决口径与记录要求；不含任何新测量。
@@ -14,6 +13,7 @@
 - **Experiment type**: Hardware (SLM + CCD closed loop)
 - **Entry points**: `slm-model-in-loop` (model-in-loop), `slm-transfer-shapes` (transfer + multi-shape)
 - **Status**: Ready pending G0-2 optical drift resolution (see §8)
+- **Status（2026-11-18 追注）**: MIL 执行链已退役，`slm-model-in-loop` 入口不再存在；本方案的 MIL 分支仅作历史记录，transfer 分支（`slm-transfer-shapes`）仍可执行。见 [`report/shape_trials/model_in_loop/removal_report.md`](../model_in_loop/removal_report.md)。
 
 ---
 

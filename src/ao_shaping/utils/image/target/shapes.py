@@ -1,8 +1,8 @@
 """Canonical target-shape vocabulary for the closed-loop SLM shaping chain.
 
 This module is the single source of truth for the shape names the closed-loop
-shaping GUI (``gui/slm/shaping_controls.py``) and the model-in-loop adapter pass
-around.  It promotes the former plain ``MIL_TARGET_SHAPE_LABELS`` dict into a
+shaping GUI (``gui/slm/shaping_controls.py``) passes around.  It promotes the
+former plain ``MIL_TARGET_SHAPE_LABELS`` dict into a
 real :class:`TargetShape` enum so a shape can be threaded through the optimizers
 and validated in one place.
 

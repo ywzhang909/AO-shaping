@@ -69,31 +69,3 @@ class TestByteIdenticalQuantisation:
             phase_to_slm_grayscale(phase, slm=None),
             phase_to_slm_grayscale(shifted, slm=None),
         )
-
-
-class TestTheConfigFollowsTheEvidence:
-    def test_the_model_in_loop_default_matches_the_algorithm_layer(self) -> None:
-        """Both layers must agree, or the config silently overrides the choice again.
-
-        ``ZernikeCoefficientOptimizer`` has always defaulted to float32; the
-        model-in-loop config used to force float64 back on, which is the only
-        reason the GPU path was carrying float64.
-        """
-        from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
-            ZernikeCoefficientOptimizer,
-        )
-        from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
-
-        import inspect
-
-        algorithm_default = inspect.signature(
-            ZernikeCoefficientOptimizer.__init__
-        ).parameters["dtype"].default
-        config_default = SlmModelInLoopConfig.__dataclass_fields__["dtype"].default
-        assert config_default == algorithm_default == "float32"
-
-    def test_float64_is_still_selectable(self) -> None:
-        """Reproducing a stored float64 artefact must stay possible."""
-        from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
-
-        assert SlmModelInLoopConfig(dtype="float64").dtype == "float64"
