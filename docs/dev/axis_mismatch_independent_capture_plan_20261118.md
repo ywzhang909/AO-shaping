@@ -263,3 +263,12 @@ improvement 0.11498 / 0.11426 / 0.11431；3×3 交叉评估中 baseline 前向�
 
 - 归档会话 `20261117_202916` 的 `fit/inputs.npz`、`provenance.json`、`result.json` 齐全，可
   作为管线回归基线；新会话不得复用其 `capture/` 目录（必须 `exist_ok=False` 新目录）。
+
+## 12 checkpoint 方向门后续（2026-11-18，离线）
+
+轴失配三变体独立验证仍按 §10 判为无可检出收益。本节只记录后续 checkpoint 准入检查，不改动轴失配预注册判据或结果：
+
+- 新 11/18 checkpoint 在 epoch-matched 11/17 square1000 amp03/amp10 方向帧上 median Pearson −0.003 / −0.048，均 0/3 ≥0.50。
+- 诊断性地将 11/07 M3 defocus/envelope 与 11/18 residual 合并，在 11/07 单模屏上得到 7/14、8/14、7/14 配对过门，未达到既有每档 10/14；该组合跨 epoch，不能作为可部署 checkpoint 通过证明。
+- 混合参数在 11/18 held-out 强度窗口上零步回放 CV_pred 2.206、CV_measured 3.832、relative L2 0.735，未达到绝对强度质量要求。
+- 详细方法、数值与复现命令：`report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md`。设备未占用；因此没有进入锚定闭环验收。

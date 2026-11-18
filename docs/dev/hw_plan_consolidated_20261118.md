@@ -51,7 +51,7 @@
 |---|------|------|-------------|---------|
 | P1 | 零级定心差分刀口（#235） | ✅ 采集完成；⚠️ 四口径离线对账未落盘 | `data/debug/issue235_center_20261117/`（`flat.npy`/`summary.json`）；刀口中心 x≈889, y≈590 | 否（数据已在盘） |
 | P2a | 方向门槛 14 帧基线（0.03 rad） | ✅ 采集 + 分析完成 | `report/shape_trials/model_direction_hw_20261117/`；锚点相关 −0.16、N4 预测 4.4e-5 vs 实测 3.68 counts | 否 |
-| P2b | 方向门槛 amp03 / amp10 | ⚠️ **采集完成、离线判读未落盘** | `data/debug/square1000_model_diag_20261117b_amp03/` 与 `..._amp10/`（各 14 帧，0.1 ms），无分析产物 | 否（判读即可） |
+| P2b | 方向门槛 amp03 / amp10 + 新 checkpoint 注入回放 | ✅ **离线判读完成：fresh fit 方向失败** | `report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md`；新 checkpoint amp03/amp10 各 0/3 ≥0.50；11/07 单模屏上的合成 hybrid 未通过每档 10/14 标准且跨 epoch，不作为 checkpoint 通过证据 | 否 |
 | — | 真线性 ±tilt 补采（#247） | ✅ 采集完成并释放 | `data/debug/issue247_tilt_20261117/`（13 组 Mono12，0 饱和，22:06:10 释放） | 否 |
 | — | #247 零级/目标级分离判读 | ✅ 完成（报告已写） | `report/shape_trials/issue247_zero_order_20261117/`；零级稳定 ≤2.3 px、目标级分离 109–119 px、+88.544° 轴旋转 | 否 |
 | — | #247 旋转映射离线回验（deswivel 三变体） | ✅ 归档数据回验完成（结论：无收益） | `data/debug/deswivel_forward_inverse_20261118/axis_three_arms/report.json`；held-out r² baseline 0.55534 > corrected 0.54347 > axis 0.54242，逆向 CV baseline 1.20561 最低；baseline ramp_matrix 就在 eval 帧上拟合，故只否定“直接替换矩阵”，不否定物理失配 | 否 |
@@ -73,15 +73,9 @@
 
 > 这一队全部读磁盘，不占 SLM/CCD/激光。**必须在下次实验前完成**，因为结论会删减 §4 的设备段。
 
-1. **P2b 方向判读**（最高优先，直接决定 P3/P4 是否需要）：
-   ```powershell
-   .venv/Scripts/python.exe scripts/slm/analyze_square1000_model_diagnostic_20261030.py --session data/debug/square1000_model_diag_20261117b_amp10
-   .venv/Scripts/python.exe scripts/slm/direction_peak_centred_20261117.py `
-     --sessions data/debug/square1000_model_diag_20261117b_amp03 data/debug/square1000_model_diag_20261117b_amp10 `
-     --out data/debug/direction_peak_centred_20261117b --center-method ellipse
-   ```
-   判据：0.10 rad 档 cosine 抬到 ≥0.50 ⇒ 门禁失败只是探针 SNR 不足，模型方向可用；仍 ≈0 ⇒
-   远场形态（PSF/defocus/照明包络）是主因，进入决策门。
+1. **P2b 方向判读**（完成）：square1000 amp03/amp10 原始方向复核结果均 0/3 ≥0.50；11/18 新 checkpoint 注入回放仍为 0/3（median −0.003 / −0.048）。命令与结果见
+   `report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md`。
+   在 11/07 单模屏上诊断性混合旧 defocus/envelope 与 11/18 residual，结果每档 7/14、8/14、7/14，未过 10/14 标准且不是 epoch-matched checkpoint，不能放行硬件闭环。
 2. **P1 四口径对账**：对 `flat.npy` 跑 argmax/centroid/box_centroid/ellipse 四法，两两差 ≤3 px
    则默认椭圆中心可用；CCD 侧与 panel 侧刀口中心分开比（不可混减）。
 3. **#247 deswivel 回验（已完成）**：`compare_deswivel_forward_inverse_20261118.py` 已在归档
@@ -96,9 +90,9 @@
 4. **报告归档**：判读结论落 `report/shape_trials/`，按 [report/AGENTS.md](../../report/AGENTS.md)
    登记 provenance（`sync_report_provenance.py --check` + `test_report_provenance.py` + `ruff check .`）。
 
-**决策门 D1（P2b 结论）**：
-- cosine ≥0.50 → 模型方向可用，P3/P4 保留进本次窗口；
-- cosine ≈0 且远场形态不符 → **P3/P4 推迟到物理预测模型修复后**，本次窗口不跑，节省一大段设备时间。
+**决策门 D1（P2b 结论，已判）**：
+- 新鲜 11/17 amp03/amp10 帧上，新 checkpoint 分别 median −0.003 / −0.048，均 0/3 ≥0.50；11/07 单模屏上的旧/新参数 hybrid 也未过既有 10/14 标准，且跨 epoch；
+- **P3/P4 不进入硬件闭环验收**。不运行 `shape_transition_timing_20261106.py --execute`，直到当前 epoch 的单模方向屏与绝对强度校准共同证明有合格 checkpoint。详见方向门报告。
 
 **决策门 D2（deswivel 结论）**：
 - 归档数据三变体回验已完成，两个矫正变体的 held-out 均不及 baseline（见 §3.3），**S7（直接套
