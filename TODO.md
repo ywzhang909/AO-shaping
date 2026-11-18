@@ -5725,6 +5725,15 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: `test_conventions` 全量 **73 passed** / 1 skipped (原 72+新守卫); ruff 全仓绿; term 0
 - §3 F-5 行同步三切片状态: #2 本批收口; #3 宽泛 except 实质已由 #174 收口 (未标注盲捕棘轮 = 0, 逐处判定); #4 大文件 = `check_module_size.py` 棘轮门禁已上线 (增量必红, 存量基线跟踪, 拆分另轨 #205/b166 终判)。#56 本体留待按三条证据终审关闭, 本批不抢关
 
+**2026-11-18 · 094e8032 之后 · #178 覆盖率/注解工具链收口 (测量基础设施, 非新门禁)**
+- 前提实测坐实: 测试镜像无 `pytest-cov` (`docs/dev/ci_testing.md` 的 `-- --cov` 命令是坏的)、pyproject 无 `[tool.coverage.*]`、类型检查配置不存在 (旧 AGENTS 快照"pyrightconfig 存在"已失真, 现树无该文件)
+- 工具链: dev 组 + 两个测试镜像 Dockerfile 一并加 `pytest-cov>=6.0`; `[tool.coverage.run/report/xml]` 钉死 source=`src/ao_shaping` / branch / `relative_files` (宿主与容器双挂载根) / `exclude_also` (TYPE_CHECKING、abstractmethod 等, 否则首测即被数百不可达行淹没)
+- 注解普查棘轮: `scripts/_common/type_annotation_census.py` —— 方法学钉在 docstring (参数排除 self/cls, return 每 def 一槽, 槽位等权), AST 全树实测 **76.52%** (issue 的 ~62.6% 是历次收口前口径); 分面积细分指出最弱区 `optimizer` 52.6% 作后续战役锚点; 基线 `type_annotation_baseline.json` + 守卫 `test_type_annotation_ratchet.py` 与 CLI `--check` **两向一致** (下降 >0.2pp 红、工具链被"顺手清理"也红)
+- ⚠️ 覆盖率仍是**测量不是门禁** (§6 决策 B: blocking = ruff + pytest 分片 + conventions 守卫); 本批棘轮只保"注解不回退 + 工具有存在性"
+- 文档: `ci_testing.md` 覆盖率块重写 (坏命令缘由 + 新口径 + 镜像重建提示); AGENTS.md 旧 MISSING INFRASTRUCTURE 节已被上游精简为索引, 无需再修
+- 载体: ratchet 4 passed + conventions **77 passed** / 1 skipped; ruff 全仓绿; modsize 0; term 0
+- 环境: gh-proxy 对单 issue 端点间歇 301→HTML (列表端点正常), #235 详情待代理恢复后读
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

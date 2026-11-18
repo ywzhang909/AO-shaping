@@ -142,9 +142,17 @@ Consider adding: 类型检查门禁（mypy / pyright 未配置）。pytest 硬�
 ./run_pytest.sh -k "test_centroid"
 ./run_pytest.sh -m "not slow"
 
-# 带覆盖率（容器内）
+# 带覆盖率（容器内，issue #178 工具链：pytest-cov 已入 dev 组与测试镜像，
+# 测量口径读 pyproject 的 [tool.coverage.*]；镜像需含 pytest-cov，旧镜像先重建）
 ./run_pytest.sh -- --cov=ao_shaping
 ```
+
+覆盖率是**测量工具不是门禁**（§6 决策 B：blocking 门禁 = ruff + pytest 分片 +
+conventions 守卫）。类型注解覆盖率的单向棘轮另有两件：普查脚本
+`scripts/_common/type_annotation_census.py`（方法学钉在脚本 docstring，实测
+76.52%，最弱区 optimizer 52.6%）与基线 `type_annotation_baseline.json` +
+守卫 `tests/ao_shaping/scripts/test_type_annotation_ratchet.py`（下降 >0.2pp 即红；
+上移须显式 `--update-baseline` 并在提交信息写理由）。
 
 首次使用需先构建测试镜像（`run_pytest.sh` 只用现成镜像，不自己 build）：
 
