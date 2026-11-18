@@ -87,7 +87,10 @@
 | `slm/spgd_square.md` | SLM 方形远场均匀度整形（SPGD，CV/EE/AR 目标） |
 | `slm/slm_gsnet.md` | FREEFORM 全频随机相位方形整形 + FourierGSNet 训练 |
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
-| `slm/slm_bench_calibration.md` | SLM 实验系统标定与历史说明（原 model-in-loop 保留部分：入射定位 / 曝光窗口 / sweep 几何与指纹 / 退役原因） |
+| `slm/slm_model_in_loop.md` | 物理预测模型闭环整形（每轮用实测数据修正模型再合成相位） |
+| `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |
+| `slm/model_in_loop_handoff.md` | Model-in-loop 跨光路交接手册（换光路/功率/衰减片/相机/入射光时的交接清单） |
+| `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理预测模型迁移学习、可微优化与 FAQ |
 | `slm/slm_alignment_probe.md` | 整形前的聚焦、彗差校正与 CCD 中心定位 |
 | `slm/zernike_matrix.md` | SLM Zernike 响应矩阵标定 + 离线矫正自检 |
 | `slm/rms_zernike.md` | SLM Zernike RMS 优化（SPGD/Adam/AdaMOD） |

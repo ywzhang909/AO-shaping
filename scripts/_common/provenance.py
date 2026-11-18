@@ -235,6 +235,25 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/issue235_panel_gray_inversion_20261117.py",
         ),
     ),
+    "report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（仅回放归档帧与 checkpoint；未占用 SLM/CCD/激光）",
+        note=(
+            "比较 11/18 fit 在 epoch-matched 11/17 square1000 方向帧上的方向门，"
+            "并对 11/07 单模屏进行跨 epoch hybrid 诊断及 11/18 强度窗口零步回放；"
+            "fresh checkpoint 两个 amp 均 0/3 达到 0.50，hybrid 未通过既有每档 10/14 标准，"
+            "held-out relative L2 0.735。结论：不存在已证明通过方向与绝对强度双门的 checkpoint，"
+            "不进入硬件闭环验收。输入/输出位于 data/debug/direction_fresh_checkpoint_20261118、"
+            "data/debug/hybrid_intensity_gate_20261118 与 data/debug/slm_transfer/axis_mismatch_validation_20261118。"
+            "人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/direction_fresh_checkpoint_20261118.py",
+            "scripts/slm/direction_fresh_checkpoint_zernike_20261118.py",
+            "scripts/slm/build_direction_hybrid_checkpoints_20261118.py",
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+        ),
+    ),
     "report/shape_trials/model_optim_efficiency_20261116/model_optim_efficiency_20261116.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-16 两次实验锚定闭环后离线汇总；报告本体不占用设备）",

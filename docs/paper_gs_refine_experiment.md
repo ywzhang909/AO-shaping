@@ -50,8 +50,6 @@ GS 在仿真域内迭代：瞳面振幅约束取实测平场振幅（含高斯�
 
 ### 2.5 model-in-loop 物理预测模型闭环（MIL）
 
-> 注（2026-11-18）：本节描述的方法链已退役，`slm-model-in-loop` 命令与相关源码不在当前工作树，见附录 B 注与 `report/shape_trials/model_in_loop/removal_report.md`；本节保留为论文方法叙述。
-
 两级方法把模型隔离在闭环之外，model-in-loop（MIL）则走向另一极端：把一个可在线重拟合的物理预测模型放进闭环，让"估计系统"与"合成相位"在同一循环内交替。其动机是，两级方法依赖一个固定的低自由度 SPGD 网格，无法表达任意目标形状对全频随机相位的需求；而 MIL 在 Step B 直接优化整块 SLM 面板的逐像素相位，只要物理预测模型足够准确，就能把全频随机相位空间交给可微优化器。MIL 每轮交替两步，用实测数据在闭环里持续修正物理预测模型，再用修正后的模型合成相位。
 
 Step A 拟合物理预测模型。系统向 SLM 下发若干张**强随机探针**相位（零均值高斯瞳面相位，标准差 probe_spread 默认 4 rad），测量每张探针的远场实测帧，再与物理预测模型在相同输入下的预测对比，重拟合一个**共享的 Zernike 像差向量**。必须用强随机探针而非平场的原因是：平场聚焦后近似 δ 函数，归一化强度对光滑低阶像差几乎无响应，像差不可辨识；只有探针相位标准差大于约 3 rad 时，信号才能越过 16-bit 量化本底两个数量级，拟合才良态。所有探针轮流输入**同一个 Adam[25] 优化器状态**，原因是焦面强度是瞳面相位的非凸函数，单个探针会留下大量驻点，轮流提供多个独立探针是消除驻点所需。像差向量中 Noll 1、2、3（piston/tip/tilt）被冻结，因为它们无法从远场强度辨识：piston 为常数项无贡献，tip/tilt 仅平移零级位置；放开它们会把 56% 的系数范数转移到这些简并方向而不带来收益。
@@ -629,10 +627,6 @@ Zernike 阶数扫描在硬件上在线实现 8 阶，阶数之间的 CV 跨度 0
 | 相位带宽实测（表 14） | `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` |
 | 逆向 U-Net 语料结果（附录 C 第 7.3 节） | `report/inverse_shaping_unet/inverse_shaping_report/report.md` |
 | 下一步计划 | `report/fouriergsnet_pipeline/next_attempt_plan.md` |
-
-> 注（2026-11-18）：MIL（model-in-loop）执行链已退役，见 `report/shape_trials/model_in_loop/removal_report.md`。
-> 表中 MIL 相关源码、实测运行记录与中间报告已从工作树移除，仅保留本附录引用的图片素材；
-> 上述历史文件仍可从 git 历史（退役前提交）恢复，结论另见 `report/shape_trials/model_in_loop/model_in_loop_overview.md`。
 
 正文与附录 C 图片 raw 链接一览（与图号对应）：
 
