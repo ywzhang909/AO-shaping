@@ -68,13 +68,13 @@
 ### 优化器 (optimizer/)
 | 页面 | 签名 | 位置 |
 |---|---|---|
-| [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:50` |
-| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:517` |
-| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:429`（2026-11-17 跟进 #205 第 128 批 `7c1b2a31` `_run_combined_session` 提取后重钉，421→429） |
-| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:894` |
-| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:321`（2026-11-17 跟进 #205 第 126 批 `309772d7` `_ga_run_evolution` 提至 `optimizer_ga` 上方后重钉，218→321） |
-| [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:355` |
-| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1420`（2026-11-16 跟进 #205 第九十九批 `109d5816` 三闭包外提后重钉，1487→1420） |
+| [[functions/optimizer-rms-dm]] | `optimizer_rms_dm(epochs, wfs_res, …, dm, wfs_type, …)` | `optimizer/wf/rms.py:116`（2026-11-18 复核重钉 50→116，与函数页 `optimizer-rms-dm.md` 对齐） |
+| [[functions/optimize-pib-wfless]] | `optimize_pib(center, epochs, r_bucket, …, dm, optimizer_type, …)` | `optimizer/wfless/pib.py:548`（2026-11-18 跟进 `45e06487` ponytail-lean + b162 后重钉，与已重钉的函数页 `optimize-pib-wfless.md` 对齐 548） |
+| [[functions/optimize-pib-combined]] | `optimize_pib(center, epochs, r_bucket, …)` (AdaMOD) | `optimizer/combined_optimizer.py:427`（2026-11-18 跟进 `45e06487` ponytail-lean 本钉之上净 −2 后重钉 429→427，与已重钉的函数页 `optimize-pib-combined.md` 对齐） |
+| [[functions/optimizer-rms-slm]] | `optimizer_rms_slm(epochs, init_z, lr, …)` (38 参) | `optimizer/wf/rms_by_zernike.py:893`（2026-11-18 跟进 `45e06487` ponytail-lean 本钉之上净 −1 后重钉 894→893，与函数页 `optimizer-rms-slm.md` 对齐） |
+| [[functions/optimizer-ga]] | `optimizer_ga(n_generations, population_size, …)` | `optimizer/wf/ga_zernike.py:320`（2026-11-18 跟进 `45e06487` ponytail-lean 本钉之上净 −1 后重钉 321→320，与函数页 `optimizer-ga.md` 对齐） |
+| [[functions/optimizer-greedy]] | `optimizer_greedy(epochs, n_init, n_directions, …)` | `optimizer/wf/greedy_zernike.py:416`（2026-11-18 重钉 355→416，与函数页 `optimizer-greedy.md` 对齐） |
+| [[functions/optimize-slm-square]] | `optimize_slm_square(center, epochs, …)` (40 参) | `optimizer/wfless/slm_square_shaping.py:1447`（2026-11-18 跟进 `45e06487` ponytail-lean + 第 163 批 `fd29db73` 后重钉 1420→1447） |
 | [[functions/spgd-gradient]] | `spgd_gradient(pos_obj, neg_obj, disturb, *, maximize)` | `optimizer/spgd.py:40` |
 
 ### 标定内核 (calibration)
@@ -89,7 +89,7 @@
 |---|---|---|
 | [[functions/resolve-dm]] | `resolve_dm(dm_type, **kwargs)` | `drivers/dm/_registry.py:230` |
 | [[functions/resolve-wfs]] | `resolve_wfs(wfs_type, **kwargs)` | `drivers/wfs/_registry.py:147` |
-| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:228`（2026-11-17 跟进 `0772202b` ccd 叶子拆分致 `create_camera` 自 `:222` 下移后重钉，222→228） |
+| [[functions/create-camera]] | `create_camera(camera_type, cam_id, exposure_time_ms, **kwargs)` | `drivers/ccd/common.py:222`（2026-11-18 复核重钉 228→222：`0772202b` 拆分曾下移至 228，其后 `#246` 满量程修正在其上删 6 行使其回到 222） |
 
 ### 算法 (algorithm/)
 | 页面 | 签名 | 位置 |
@@ -101,9 +101,9 @@
 |---|---|---|
 | [[functions/with-params]] | `with_params(arg_class, kw_name)` — dataclass→Click options | `utils/cli/params.py:244` |
 | [[functions/debug-mode]] | `get_debug_mode()` / `resolve_debug()` — DEBUG 判定 | `utils/io/cli_helpers.py:29` |
-| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:159` |
-| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:472` |
-| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1368` |
+| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:160`（2026-11-18 复核重钉 159→160，与函数页 `path-dirs.md` 对齐） |
+| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:473`（2026-11-18 复核重钉 472→473，与函数页 `recorder.md` 对齐） |
+| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1369`（2026-11-18 复核重钉 1368→1369，与函数页 `debug-artifacts.md` 对齐） |
 | [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
 | [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:228` |
 | [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |
