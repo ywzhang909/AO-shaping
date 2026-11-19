@@ -92,12 +92,14 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
 # leaf shared with ``tools/slm/params.py``. Parameter classes consume it here.
 from ao_shaping.utils.cli.exposure import (
+    AUTO_EXPOSURE_TOKEN,
     DEFAULT_EXPOSURE_TOKEN,
     exposure_ms_legacy,
     resolve_exposure,
 )
 from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
+    DIFFERENTIABLE_SHAPE_CHOICES,
     SHAPE_PARAMETER_FIELDS,
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
@@ -107,6 +109,10 @@ from ao_shaping.utils.io.cli_helpers import get_date_dir_name, parse_tuple
 
 if TYPE_CHECKING:
     from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import (
+        ModelInLoopResult,
+        SlmModelInLoopConfig,
+    )
     from ao_shaping.utils.io.file import Recorder
 
 # slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
@@ -2690,13 +2696,639 @@ class SlmGsRefineParams:
     ] = True
 
 
+@dataclass
+class SlmModelInLoopParams:
+    """Model-in-the-loop target shaping (slm-model-in-loop).
+
+    Optimizer fields map to SlmModelInLoopConfig; panel-scan fields control the
+    CLI's optional hardware preflight before the optimizer opens its devices.
+    """
+
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
+
+    # --- control -----------------------------------------------------------
+    n_rounds: Annotated[
+        int,
+        option(
+            "-r",
+            "--n-rounds",
+            help="Fit -> shape -> re-measure rounds.",
+        ),
+    ] = 6
+    seed: Annotated[int, option("--seed", help="RNG seed for probes and phases.")] = 0
+    device: Annotated[
+        str | None,
+        option(
+            "--device",
+            help="Torch device for the forward model. Auto-detects CUDA when None.",
+        ),
+    ] = None
+    warm_start: Annotated[
+        bool,
+        option(
+            "--warm-start/--no-warm-start",
+            help=(
+                "Warm-start each Step B solve from the previous round's phase. "
+                "Turning this off restarts Step B from flat every round."
+            ),
+        ),
+    ] = True
+    early_stop_score: Annotated[
+        float,
+        option(
+            "--early-stop-score",
+            help="Stop once the measured composite reaches this (0 = run all rounds).",
+        ),
+    ] = 0.0
+    save_best_image: Annotated[
+        bool, option("--save-best-image", help="Save the best far-field PNG.")
+    ] = True
+    panel_scan: Annotated[
+        bool,
+        option(
+            "--panel-scan",
+            is_flag=True,
+            help="Run a 3x3 panel-position and flat-drift preflight.",
+        ),
+    ] = False
+    panel_scan_step_px: Annotated[
+        int, option("--panel-scan-step-px", help="3x3 grid spacing in panel pixels.")
+    ] = 120
+    panel_scan_radius_px: Annotated[
+        int,
+        option(
+            "--panel-scan-radius-px", help="Random-phase disc radius in panel pixels."
+        ),
+    ] = 150
+    panel_scan_max_flat_drift: Annotated[
+        float,
+        option(
+            "--panel-scan-max-flat-drift",
+            help="Maximum drift within each flat/candidate/flat triplet.",
+        ),
+    ] = 0.02
+    panel_scan_max_session_drift: Annotated[
+        float,
+        option(
+            "--panel-scan-max-session-drift",
+            help="Maximum first-to-last flat *intensity* drift across the scan. "
+            "Reported, not enforced: every grid point normalises against its own "
+            "paired flat, so this does not bias the located centre. The enforced "
+            "session criterion is --panel-scan-max-session-shift-px.",
+        ),
+    ] = 0.05
+    panel_scan_max_session_shift_px: Annotated[
+        float,
+        option(
+            "--panel-scan-max-session-shift-px",
+            help="Maximum first-to-last flat centroid shift in camera px. This is "
+            "the session criterion that actually invalidates a locate: a beam "
+            "that moved has no single centre. 0 disables the check.",
+        ),
+    ] = 3.0
+
+    # --- live view ---------------------------------------------------------
+    show: Annotated[
+        bool,
+        option(
+            "--show",
+            is_flag=True,
+            help=(
+                "Open a live pygame window: measured CCD, phase on the SLM, the "
+                "forward model's PREDICTED far field, and the per-round metric "
+                "curve. Same flag as slm-pib / spgd-square. Closing the window "
+                "stops the search after the current round."
+            ),
+        ),
+    ] = False
+
+    # --- target ------------------------------------------------------------
+    target_shape: Annotated[
+        str,
+        option(
+            "--target-shape",
+            # Single vocabulary (issue #199 P1). The model-in-loop chain scores
+            # non-square targets through differentiable_shaping.create_target_mask,
+            # so its end-to-end supported set is DIFFERENTIABLE_SHAPE_CHOICES
+            # (a documented subset view of TARGET_SHAPE_CHOICES) -- offering the
+            # full vocabulary here would accept shapes that fail later, mid-run.
+            type=click.Choice(list(DIFFERENTIABLE_SHAPE_CHOICES)),
+            help="Far-field target shape; rectangle has a 2:1 width-to-height ratio.",
+        ),
+    ] = "square"
+    target_side: Annotated[
+        int,
+        option(
+            "--target-side",
+            help=(
+                "Target bounding width in CAMERA pixels. The bench model only sees "
+                "its own far-field grid, so this is converted via the calibrated "
+                "camera_px_per_model_px."
+            ),
+        ),
+    ] = 60
+    w_uniformity: Annotated[
+        float,
+        option("--w-uniformity", help="Weight on in-box coefficient of variation."),
+    ] = 0.4
+    w_efficiency: Annotated[
+        float,
+        option(
+            "--w-efficiency",
+            help=(
+                "Weight on encircled energy. MUST stay non-zero: optimising -CV "
+                "alone empties the target box (hardware measured EE -> 0.002)."
+            ),
+        ),
+    ] = 0.6
+
+    # --- Step A: probe-based forward-model fit ------------------------------
+    probe_count: Annotated[
+        int,
+        option(
+            "--probe-count",
+            help=(
+                "Distinct probe phases per round. Several are cycled through ONE "
+                "optimizer state because focal-plane intensity is a non-convex "
+                "measurement of pupil phase; one probe leaves Adam in whichever "
+                "stationary point it started in."
+            ),
+        ),
+    ] = 8
+    pupil_oversampling: Annotated[
+        int,
+        option(
+            "--pupil-oversampling",
+            type=click.Choice([1, 2, 4]),
+            help="Bilinear panel-phase interpolation in Step A and Step B.",
+        ),
+    ] = 1
+    probe_spread: Annotated[
+        float,
+        option(
+            "--probe-spread",
+            help=(
+                "Probe phase std in radians. MUST be well above ~3 rad: a flat "
+                "pupil focuses to a near-delta whose intensity barely responds to "
+                "a smooth low-order aberration, which makes the fit blind."
+            ),
+        ),
+    ] = 4.0
+    step_a_iterations: Annotated[
+        int, option("--step-a-iterations", help="Adam steps per round for Step A.")
+    ] = 80
+    holdout_probe_count: Annotated[
+        int,
+        option(
+            "--holdout-probe-count",
+            help="Independent phases for forward-model validation per round.",
+        ),
+    ] = 2
+    freeform_holdout_count: Annotated[
+        int,
+        option(
+            "--freeform-holdout-count",
+            help="Additional independent pixel-wise phase probes before Step B.",
+        ),
+    ] = 0
+    min_holdout_correlation: Annotated[
+        float,
+        option(
+            "--min-holdout-correlation",
+            help="Minimum CCD/model correlation for every held-out phase.",
+        ),
+    ] = 0.5
+    step_a_lr: Annotated[
+        float,
+        option(
+            "--step-a-lr",
+            help=(
+                "Adam lr for the shared aberration fit. 0.05 is the measured sweet "
+                "spot for the cycling loop; 0.2 diverges outright."
+            ),
+        ),
+    ] = 0.05
+    n_orders: Annotated[
+        int, option("--n-orders", help="Max Zernike radial order fitted by Step A.")
+    ] = 10
+    frozen_modes: Annotated[
+        str,
+        option(
+            "--frozen-modes",
+            help=(
+                "Comma-separated 1-based Noll indices held at zero. Default "
+                "'1,2,3' (piston/tip/tilt) because they are unidentifiable from a "
+                "far-field INTENSITY; leaving them free put 56% of the fitted "
+                "coefficient norm into those degenerate directions with no gain."
+            ),
+        ),
+    ] = "1,2,3"
+
+    forward_checkpoint: Annotated[
+        str | None,
+        option(
+            "--forward-checkpoint",
+            type=click.STRING,
+            help=(
+                "Path to a train_amp best_coefficients.pt used to SEED the Step-A "
+                "fit from coefficients learned offline, instead of the default "
+                "all-zero start. OFF by default (None -> historical zero seed). "
+                "The stored coefficients are checked against this run's geometry "
+                "and a mismatch ABORTS rather than being silently ignored."
+            ),
+        ),
+    ] = None
+    prior_run_dir: Annotated[
+        str | None,
+        option(
+            "--prior-run-dir",
+            help="Accepted model-in-loop debug run to seed a fast hardware refit.",
+        ),
+    ] = None
+    assume_unverified_geometry: Annotated[
+        bool,
+        option(
+            "--assume-unverified-geometry/--no-assume-unverified-geometry",
+            help=(
+                "Required together with --forward-checkpoint: acknowledge that the "
+                "checkpoint records no radius/center_crop/conserve_energy (it "
+                "cannot), so they were reconstructed from defaults. Without it a "
+                "checkpoint is refused rather than accepted as fully verified."
+            ),
+        ),
+    ] = False
+
+    # --- Step B: target synthesis with the aberration frozen ----------------
+    step_b_iterations: Annotated[
+        int, option("--step-b-iterations", help="Adam steps per round for Step B.")
+    ] = 150
+    step_b_lr: Annotated[
+        float, option("--step-b-lr", help="Adam lr on the full-pixel SLM phase.")
+    ] = 0.05
+
+    # --- bench model / calibration -----------------------------------------
+    region: Annotated[
+        int, option("--region", help="Forward-model pupil grid edge (model pixels).")
+    ] = 64
+    wavelength_nm: Annotated[
+        int, option("--wavelength-nm", help="Laser wavelength (nm).")
+    ] = 1064
+    slm_pixel_um: Annotated[
+        float, option("--slm-pixel-um", help="SLM pixel pitch in um.")
+    ] = 8.0
+    camera_pixel_um: Annotated[
+        float,
+        option(
+            "--camera-pixel-um",
+            help=(
+                "CCD pixel pitch in um. 0 (the default) reads it from the "
+                "camera MODEL configuration (the measured focal scale only "
+                "fixes the ratio f/p_cam, so one anchor is unavoidable and it "
+                "is the device's own pitch); a positive value overrides it."
+            ),
+        ),
+    ] = 0.0
+    panel_span_px: Annotated[
+        float,
+        option(
+            "--panel-span-px",
+            help=(
+                "Width in PANEL pixels of the region the model grid covers "
+                "(= 2 x illuminated beam radius). REQUIRED for real captures: the "
+                "model grid samples the pupil at panel_span_px/region times the "
+                "SLM pitch, and using the SLM pitch directly makes the modelled "
+                "aperture ~3.5x too small so no aperture can correlate."
+            ),
+        ),
+    ] = 900.0
+    pupil_center: Annotated[
+        str,
+        option(
+            "--pupil-center",
+            type=click.STRING,
+            help=(
+                "Beam centre in PANEL pixels as 'x,y'. Must be MEASURED on the "
+                "panel: the camera's 0-order is a different coordinate frame "
+                "(on this bench the axes are swapped and the scales differ by "
+                ">10x), so deriving one from the other writes the phase where the "
+                "beam is not."
+            ),
+        ),
+    ] = "960,600"
+    far_field_padding: Annotated[
+        int,
+        option(
+            "--far-field-padding",
+            help=(
+                "Zero-padding factor for the forward model's far field. Also the "
+                "cost driver: the FFT is quadratic in the padded size. This is "
+                "what sets the far-field SAMPLING, so it must match the optical "
+                "geometry rather than the model grid -- on this bench an "
+                "unpadded grid renders the ~27 um spot as a sub-pixel delta."
+            ),
+        ),
+    ] = 8
+    pupil_oversampling: Annotated[
+        int,
+        option(
+            "--pupil-oversampling",
+            type=click.Choice([1, 2, 4]),
+            help=(
+                "Bilinear sub-pixel pupil interpolation in Step A and Step B. "
+                "Enlarges the pupil, propagates it at the matching finer "
+                "far-field sampling, and crops back to --region, so the field "
+                "of view is unchanged and only the sampling improves. Costs "
+                "factor**2 in FFT time."
+            ),
+        ),
+    ] = 1
+    focal_length_m: Annotated[
+        float,
+        option(
+            "--focal-length-m",
+            help=(
+                "2f lens focal length in metres. 0 (the default) DERIVES it from "
+                "the measured focal scale and --camera-pixel-um; pass a value to "
+                "pin a specific lens."
+            ),
+        ),
+    ] = 0.0
+    dtype: Annotated[
+        str,
+        option(
+            "--dtype",
+            type=click.Choice(["float32", "float64"]),
+            help=(
+                "Torch dtype for the forward model. float32 (default) matches the "
+                "algorithm layer and is all the panel can express: the phase is "
+                "quantised to the 10-bit gray map, and float32 reproduces float64's "
+                "gray map byte for byte."
+            ),
+        ),
+    ] = "float32"
+    n_calibration_probes: Annotated[
+        int,
+        option(
+            "--n-calibration-probes",
+            help="Probe phases used for the one-off bench-geometry calibration.",
+        ),
+    ] = 8
+    min_geometry_correlation: Annotated[
+        float,
+        option(
+            "--min-geometry-correlation",
+            help=(
+                "Abort before shaping if the calibrated geometry's speckle "
+                "correlation is below this. A mis-calibrated model makes the real "
+                "spot WORSE, so this is the geometry bake-off."
+            ),
+        ),
+    ] = 0.5
+    geometry_file: Annotated[
+        str | None,
+        option(
+            "--geometry-file",
+            help="Measured sweep geometry JSON for this optical setup.",
+        ),
+    ] = None
+    error_params: Annotated[
+        str | None,
+        option(
+            "--error-params",
+            help=(
+                "Calibration JSON with the forward model's error terms (the SLM's "
+                "LUT nonlinearity gamma above all). Accepts a twin fit result or a "
+                "plain ModelErrorTerms dictionary. Without it the model assumes "
+                "'command phase = actual phase', which the measured gamma (2.07 on "
+                "this bench) contradicts."
+            ),
+        ),
+    ] = None
+
+    # --- self-calibration (GRAPHYCS-style) -----------------------------------
+    fourier_weight: Annotated[
+        float,
+        option(
+            "--fourier-weight",
+            help=(
+                "Weight of the Fourier-domain L1 term in Step A's loss. 0 (the "
+                "default) keeps the term off and the fit bit-for-bit unchanged. "
+                "The paper uses 7e-4 (simulation) / 5e-4 / 1e-3 and reports the "
+                "result to be insensitive to it over 1e-5..1e-3."
+            ),
+        ),
+    ] = 0.0
+    loss_kind: Annotated[
+        str,
+        option(
+            "--loss-kind",
+            type=click.Choice(["mse", "l1"]),
+            help=(
+                "Image-domain loss of Step A: 'mse' (the historical "
+                "peak-normalised MSE) or 'l1' (the paper's choice)."
+            ),
+        ),
+    ] = "mse"
+    selfcal_affine: Annotated[
+        bool,
+        option(
+            "--selfcal-affine",
+            is_flag=True,
+            help=(
+                "Fit the pupil-plane affine self-calibration (6 scalars: amp_x, "
+                "amp_y, off_x, off_y, rot, grid) inside Step A."
+            ),
+        ),
+    ] = False
+    selfcal_travel: Annotated[
+        bool,
+        option(
+            "--selfcal-travel",
+            is_flag=True,
+            help=(
+                "Fit the per-mode-family travel scale (7 scalars) inside Step A. "
+                "It scales the command phase only, never the aberration."
+            ),
+        ),
+    ] = False
+    selfcal_lr: Annotated[
+        float,
+        option(
+            "--selfcal-lr",
+            help="Adam learning rate of the self-calibration parameters.",
+        ),
+    ] = 1e-3
+    selfcal_theta_step_max: Annotated[
+        float,
+        option(
+            "--selfcal-theta-step-max",
+            help=(
+                "Per-round trust region on the pupil affine (per parameter). A "
+                "round that exceeds it is rejected. 0 disables the guard."
+            ),
+        ),
+    ] = 0.02
+    selfcal_gamma_step_max: Annotated[
+        float,
+        option(
+            "--selfcal-gamma-step-max",
+            help=(
+                "Per-round trust region on the travel scale (per family). A round "
+                "that exceeds it is rejected. 0 disables the guard."
+            ),
+        ),
+    ] = 0.05
+
+    # --- coupling guards ----------------------------------------------------
+    trust_region_c_l2: Annotated[
+        float,
+        option(
+            "--trust-region-c-l2",
+            help=(
+                "Max L2 norm of the per-round coefficient change. Step A and Step "
+                "B otherwise chase each other: the aberration absorbs part of the "
+                "shaping phase and vice versa."
+            ),
+        ),
+    ] = 0.5
+    acceptance_loss_delta: Annotated[
+        float,
+        option(
+            "--acceptance-loss-delta",
+            help="Reject a round whose Step-A loss ends above its start by more than this.",
+        ),
+    ] = 1e-4
+    acceptance_score_eps: Annotated[
+        float,
+        option(
+            "--acceptance-score-eps",
+            help="Reject a round whose measured composite drops by more than this.",
+        ),
+    ] = 1e-3
+    max_cv_regression: Annotated[
+        float,
+        option("--max-cv-regression", help="Maximum CV increase above the best accepted shaped round."),
+    ] = 0.02
+    damp_lr_factor: Annotated[
+        float,
+        option("--damp-lr-factor", help="Step-A lr multiplier after a rejection."),
+    ] = 0.5
+    max_rejection_streak: Annotated[
+        int,
+        option(
+            "--max-rejection-streak",
+            help=(
+                "Consecutive rejected rounds before aborting. Persistent rejection "
+                "means the bench is outside the model (pupil registration, panel "
+                "tilt, out-of-plane defocus) -- fall back to slm-gs-refine."
+            ),
+        ),
+    ] = 3
+    escalate_probe_count: Annotated[
+        int,
+        option("--escalate-probe-count", help="Extra probes added after a rejection."),
+    ] = 2
+    max_probe_count: Annotated[
+        int, option("--max-probe-count", help="Cap on the escalated probe count.")
+    ] = 16
+
+    # --- hardware -----------------------------------------------------------
+    cam_type: Annotated[
+        str,
+        option(
+            "--cam-type",
+            type=click.Choice(["daheng", "miicam", "sim"]),
+            help="CCD backend (sim = 2f-Fourier numerical simulation, no hardware).",
+        ),
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
+    exposure_time_ms: Annotated[
+        str,
+        option(
+            "--exposure-time-ms",
+            metavar="[auto|default|FLOAT]",
+            help=(
+                "Initial CCD exposure in ms. 'default' changes nothing; 'auto' "
+                "probes the exposure ceiling. NOTE: the default here is 'auto', "
+                "NOT 'default', because this value is forwarded verbatim to the "
+                "panel-scan preflight, where 'auto' means 'probe the ceiling' "
+                "and 'default' means 'use the camera's own setting' -- on Daheng "
+                "that is ~0.02 ms, which puts the preflight flat reference on "
+                "the noise floor and trips the flat-drift gate (observed "
+                "2026-10-19). Pass a measured number on this 光路, whose usable "
+                "band is 0.4-1.5 ms. 0 is not a synonym for either token."
+            ),
+        ),
+    ] = AUTO_EXPOSURE_TOKEN
+    max_exposure_ms: Annotated[
+        float,
+        option(
+            "--max-exposure-ms",
+            help="Daheng auto-exposure ceiling in ms; 0 = auto (env "
+            "AO_DAHENG_MAX_EXPOSURE_MS, else probe the CCD image).",
+        ),
+    ] = 0.0
+    cam_size: Annotated[
+        int, option("--cam-size", help="CCD window size in pixels.")
+    ] = 300
+    slm_number: Annotated[
+        int, option("--slm-number", help="Santec SLM device number (1-8).")
+    ] = 1
+    phase_disturbance_file: Annotated[
+        str | None,
+        option(
+            "--phase-disturbance-file",
+            help="Fixed panel-radian .npy bias added to every displayed SLM phase.",
+        ),
+    ] = None
+    slm_wavelength: Annotated[
+        int,
+        option(
+            "--slm-wavelength",
+            help="SLM operating wavelength (nm); 0 asks the device. The lab "
+            "has more than one SLM, so 1064 (the default) is stated rather "
+            "than assumed, matching SlmModelInLoopConfig.",
+        ),
+    ] = 1064
+
+    n_eval_frames: Annotated[
+        int, option("--n-eval-frames", help="Frames averaged per measurement.")
+    ] = 4
+    settle_wait_s: Annotated[
+        float, option("--settle-wait-s", help="Initial LCOS settle wait (s).")
+    ] = 0.5
+    settle_tol: Annotated[
+        float, option("--settle-tol", help="Relative stability tolerance.")
+    ] = 0.02
+    settle_max_wait_s: Annotated[
+        float, option("--settle-max-wait-s", help="Cap on settle wait (s).")
+    ] = 6.0
+    settle_max_discard: Annotated[
+        int,
+        option(
+            "--settle-max-discard",
+            help="Cap on discarded unstable frames before giving up on settling.",
+        ),
+    ] = 40
+    settle_discard: Annotated[
+        int,
+        option(
+            "--settle-discard",
+            help="Consecutive unstable frames tolerated before a frame is taken anyway.",
+        ),
+    ] = 2
 
 
 # ---------------------------------------------------------------------------
 # slm-gs-refine / slm-model-in-loop 共享辅助 (2026-10-12 从两个 runner 抽出)
 #
 # 这些函数把 config 构造与结果持久化从 ``runners/slm/gs_refine_runner.py`` 和
-# 已移除的 ``runners/slm/model_in_loop_runner.py`` 中原样搬出, 供 CLI runner 与 GUI 适配器
+# ``runners/slm/model_in_loop_runner.py`` 中原样搬出, 供 CLI runner 与 GUI 适配器
 # 复用同一套磁盘布局, 避免重复实现漂移。字段名/顺序/值与原 runner 逐字一致。
 # ---------------------------------------------------------------------------
 
@@ -2712,6 +3344,23 @@ class GsRefineSaveResult:
     debug_png: Path | None
 
 
+@dataclass
+class ModelInLoopSaveResult:
+    """``save_model_in_loop_results`` 的落盘产物路径。
+
+    ``phase_file`` 是最终采纳下发相位（``best_phase.npy``）—— 对比择优被拒时它是
+    全零的平场相位。``shaped_phase_file`` 是 Step B 实际下发的那条整形相位
+    （``split == "shaped"`` 的最后一条探针，``shaped_phase.npy``）；只有当 probe
+    records 里真有形状化探针时才写盘，否则为 ``None``。
+    """
+
+    save_dir: Path
+    csv_file: Path
+    phase_file: Path | None
+    shaped_phase_file: Path | None
+    geometry_file: Path | None
+    image_file: Path | None
+    recorder_png: Path
 
 
 def parse_frozen_modes(raw: str | None) -> tuple[int, ...]:
@@ -2975,7 +3624,7 @@ def discover_model_in_loop_geometry(
     Returns:
         The newest matching path, or ``None`` when nothing usable is found.
     """
-    from ao_shaping.optimizer.wfless.bench_geometry import (
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
         load_bench_geometry,
     )
 
@@ -3012,7 +3661,7 @@ def describe_bench_geometry(path: str | Path | None) -> str:
     rather than surface a traceback under the text box.  ``None`` (or a blank
     string) is the "no geometry selected" state and is stated as such.
     """
-    from ao_shaping.optimizer.wfless.bench_geometry import (
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
         load_bench_geometry,
     )
 
@@ -3041,6 +3690,101 @@ def describe_bench_geometry(path: str | Path | None) -> str:
     )
 
 
+def build_model_in_loop_config(
+    params: SlmModelInLoopParams,
+    *,
+    debug: bool,
+) -> SlmModelInLoopConfig:
+    """Build the ``SlmModelInLoopConfig`` for a model-in-loop run.
+
+    Verbatim field mapping from ``runners/slm/model_in_loop_runner.py``.
+
+    Note: ``SlmModelInLoopConfig`` has no ``record_debug`` field, so ``debug``
+    is accepted purely for contract symmetry with ``build_gs_refine_config``
+    (the GUI adapter calls both with the same signature) and is unused here.
+    """
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
+
+    camera_pixel_um, camera_pixel_um_source = _resolve_camera_pixel_um(params)
+
+    return SlmModelInLoopConfig(
+        show=params.show,
+        n_rounds=params.n_rounds,
+        seed=params.seed,
+        device=params.device,
+        warm_start=params.warm_start,
+        early_stop_score=params.early_stop_score,
+        target_shape=params.target_shape,
+        target_side=params.target_side,
+        w_uniformity=params.w_uniformity,
+        w_efficiency=params.w_efficiency,
+        probe_count=params.probe_count,
+        probe_spread=params.probe_spread,
+        step_a_iterations=params.step_a_iterations,
+        holdout_probe_count=params.holdout_probe_count,
+        freeform_holdout_count=params.freeform_holdout_count,
+        min_holdout_correlation=params.min_holdout_correlation,
+        step_a_lr=params.step_a_lr,
+        n_orders=params.n_orders,
+        frozen_modes=parse_frozen_modes(params.frozen_modes),
+        forward_checkpoint=params.forward_checkpoint,
+        prior_run_dir=params.prior_run_dir,
+        assume_unverified_geometry=params.assume_unverified_geometry,
+        step_b_iterations=params.step_b_iterations,
+        step_b_lr=params.step_b_lr,
+        region=params.region,
+        wavelength_nm=params.wavelength_nm,
+        slm_pixel_um=params.slm_pixel_um,
+        camera_pixel_um=camera_pixel_um,
+        camera_pixel_um_source=camera_pixel_um_source,
+        panel_span_px=params.panel_span_px,
+        pupil_center=parse_point(params.pupil_center),
+        far_field_padding=params.far_field_padding,
+        pupil_oversampling=params.pupil_oversampling,
+        focal_length_m=params.focal_length_m,
+        dtype=params.dtype,
+        n_calibration_probes=params.n_calibration_probes,
+        min_geometry_correlation=params.min_geometry_correlation,
+        geometry_file=params.geometry_file,
+        error_params=params.error_params,
+        fourier_weight=params.fourier_weight,
+        loss_kind=params.loss_kind,
+        selfcal_affine=params.selfcal_affine,
+        selfcal_travel=params.selfcal_travel,
+        selfcal_lr=params.selfcal_lr,
+        selfcal_theta_step_max=params.selfcal_theta_step_max,
+        selfcal_gamma_step_max=params.selfcal_gamma_step_max,
+        trust_region_c_l2=params.trust_region_c_l2,
+        acceptance_loss_delta=params.acceptance_loss_delta,
+        acceptance_score_eps=params.acceptance_score_eps,
+        max_cv_regression=params.max_cv_regression,
+        damp_lr_factor=params.damp_lr_factor,
+        max_rejection_streak=params.max_rejection_streak,
+        escalate_probe_count=params.escalate_probe_count,
+        max_probe_count=params.max_probe_count,
+        cam_type=params.cam_type,
+        cam_id=params.cam_id,
+        # CLI token -> config float; see build_gs_refine_config for why this
+        # collapse lives here and nowhere else.
+        exposure_time_ms=exposure_ms_legacy(
+            resolve_exposure(
+                params.exposure_time_ms, param_hint="--exposure-time-ms"
+            )
+        ),
+        max_exposure_ms=params.max_exposure_ms,
+        cam_size=params.cam_size,
+        slm_number=params.slm_number,
+        phase_disturbance_file=params.phase_disturbance_file,
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
+        slm_wavelength=params.slm_wavelength,
+        n_eval_frames=params.n_eval_frames,
+        settle_wait_s=params.settle_wait_s,
+        settle_tol=params.settle_tol,
+        settle_max_wait_s=params.settle_max_wait_s,
+        settle_max_discard=params.settle_max_discard,
+        settle_discard=params.settle_discard,
+    )
 
 
 def save_gs_refine_results(
@@ -3178,22 +3922,297 @@ def save_gs_refine_results(
     )
 
 
+def save_model_in_loop_config(config: SlmModelInLoopConfig, save_dir: Path) -> Path:
+    """Persist the run configuration before hardware preflight can fail."""
+    import json
+
+    save_dir.mkdir(parents=True, exist_ok=True)
+    path = save_dir / "run_config.json"
+    run_config = {
+        field.name: getattr(config, field.name)
+        for field in fields(config)
+        if field.name != "callback"
+    }
+    # The error terms are a dataclass; ``default=str`` would file them away as
+    # their repr, which cannot be read back. Their dictionary form is what
+    # ``--error-params`` accepts, so the run config stays loadable.
+    terms = run_config.get("error_terms")
+    if terms is not None and hasattr(terms, "to_dict"):
+        run_config["error_terms"] = terms.to_dict()
+    path.write_text(json.dumps(run_config, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def _model_in_loop_json_payload(result: ModelInLoopResult) -> dict[str, Any]:
+    """Build the JSON sidecar of a model-in-loop run.
+
+    The status and the config are always there. The **self-calibration
+    trajectory** is added only when that feature actually ran, so a run with
+    the self-calibration off keeps exactly the payload it had.
+
+    Args:
+        result: The run's result.
+
+    Returns:
+        A JSON-serialisable dictionary.
+    """
+    payload: dict[str, Any] = {
+        "status": result.status,
+        "config": str(result.config),
+    }
+    trajectory = [
+        {
+            "round": row.get("round"),
+            "affine": row.get("selfcal_affine"),
+            "travel": row.get("selfcal_travel"),
+            "theta_step": row.get("selfcal_theta_step"),
+            "gamma_step": row.get("selfcal_gamma_step"),
+            "violated": row.get("selfcal_violated"),
+        }
+        for row in result.recorder.history
+        if row.get("selfcal_violated") is not None
+    ]
+    if trajectory:
+        payload["selfcal"] = trajectory
+    return payload
+
+
+
+def _smil_prepare_outputs(debug_run_dir, gen_date_str, result, root_dir, save_dir):
+# Save dir + csv + config persistence lifted verbatim
+    save_dir = (
+        save_dir
+        if save_dir is not None
+        else debug_run_dir(root_dir, "slm_model_in_loop")
+    )
+    save_dir.mkdir(parents=True, exist_ok=True)
+    csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
+    result.recorder.save_dataframe(csv_file)
+
+    save_model_in_loop_config(result.config, save_dir)
+    return csv_file, save_dir
 
 
 
 
+def _smil_save_error_terms(debug, json, result, save_dir):
+# Error-term and probe-debug persistence lifted verbatim
+    error_terms = getattr(result.config, "error_terms", None)
+    if error_terms is not None:
+        from ao_shaping.utils.wavefront.model_error_terms import save_error_terms
+
+        save_error_terms(error_terms, save_dir / "model_error_terms.json")
+
+    if debug and result.probe_records:
+        probes_dir = save_dir / "probes"
+        probes_dir.mkdir(parents=True, exist_ok=True)
+        manifest = []
+        for record in result.probe_records:
+            name = (
+                f"round_{record['round']:02d}_{record['split']}_"
+                f"{record['index']:02d}.npz"
+            )
+            arrays = {
+                key: np.asarray(record[key], dtype=np.float32)
+                for key in ("phase", "raw_frame", "frame", "model_grid", "prediction")
+                if record.get(key) is not None
+            }
+            np.savez_compressed(probes_dir / name, **arrays)
+            manifest.append(
+                {
+                    "file": name,
+                    "round": record["round"],
+                    "split": record["split"],
+                    "family": record.get("family"),
+                    "index": record["index"],
+                    "exposure_ms": record.get("exposure_ms"),
+                    "timestamp_utc": record.get("timestamp_utc"),
+                    "correlation": record.get("correlation"),
+                    "frame_reference_exposure_ms": 0.02,
+                    "raw_frame_note": "separate CCD read after the settled frame",
+                }
+            )
+        (probes_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+    return 
 
 
 
 
+def _smil_save_artifacts(json, params, result, save_best_image, save_dir):
+# Geometry image and recorder debug artifacts lifted verbatim
+    geometry_file = None
+    if result.geometry is not None:
+        geometry_file = save_dir / "bench_geometry.json"
+        geometry_file.write_text(
+            json.dumps(
+                {
+                    "panel_disc_radius": result.geometry.panel_disc_radius,
+                    "region": result.geometry.region,
+                    "beam_waist_panel_px": result.geometry.beam_waist_panel_px,
+                    "far_field_size": result.geometry.far_field_size,
+                    "camera_px_per_model_px": result.geometry.camera_px_per_model_px,
+                    "spot_fwhm_camera_px": result.geometry.spot_fwhm_camera_px,
+                    "spot_fwhm_model_px": result.geometry.spot_fwhm_model_px,
+                    "correlation": result.geometry.correlation,
+                    "method": result.geometry.method,
+                    "calibration_notes": result.geometry.calibration_notes,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    image_file = None
+    if params.save_best_image and result.best_frame is not None:
+        image_file = save_dir / "best_far_field.png"
+        save_best_image(
+            result.best_frame,
+            image_file,
+            title=f"slm-model-in-loop best: score={result.best_score:.4f} (flat {result.flat_score:.4f})",
+            hide_axes=True,
+        )
+    return geometry_file, image_file
 
 
 
+def save_model_in_loop_results(
+    result: ModelInLoopResult,
+    params: SlmModelInLoopParams,
+    *,
+    root_dir: Path,
+    debug: bool,
+    save_dir: Path | None = None,
+) -> ModelInLoopSaveResult:
+    """Persist a model-in-loop run's recorder and debug artefacts.
 
+    Extracted verbatim from ``runners/slm/model_in_loop_runner.py`` so the GUI
+    adapter reuses the same disk layout without duplicating the CLI runner.
+    """
+    import json
 
+    from ao_shaping.display.frames import save_best_image
+    from ao_shaping.utils.io.file import (
+        debug_run_dir,
+        gen_date_str,
+        save_recorder_debug_artifacts,
+    )
 
+    csv_file, save_dir = _smil_prepare_outputs(debug_run_dir, gen_date_str, result, root_dir, save_dir)
 
+    if result.fitted_coefficients is not None:
+        np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
+    if result.source_amplitude is not None:
+        np.save(save_dir / "source_amplitude.npy", result.source_amplitude)
 
+    # The error terms the run actually used, so the next run can reuse them
+    # (``--error-params <this file>``). Written even when they are the ideal
+    # system's zeros, because "the model was ideal" is itself a fact worth
+    # having on disk next to the run it belongs to.
+    _smil_save_error_terms(debug, json, result, save_dir)
+
+    phase_file = None
+    best_phase = result.best_phase
+    if best_phase is not None:
+        phase_file = save_dir / "best_phase.npy"
+        np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+
+    # The phase actually written to the SLM during Step B (split == "shaped"),
+    # the LAST such dropped probe. best_phase.npy is the phase finally ADOPTED
+    # (rolls back to a flat zero field when bake-off fails), which is NOT the
+    # shaping phase that was really uploaded. The two differ exactly when
+    # bake_off_rejected.  Only written when a shaped probe with a phase exists —
+    # never fabricate an empty file.
+    shaped_phase_file = None
+    shaped_phase = None
+    for record in result.probe_records:
+        if record.get("split") == "shaped" and record.get("phase") is not None:
+            shaped_phase = record["phase"]
+    if shaped_phase is not None:
+        shaped_phase_file = save_dir / "shaped_phase.npy"
+        np.save(shaped_phase_file, np.asarray(shaped_phase, dtype=np.float64))
+    blaze_params = getattr(result, "blaze_params", None)
+    if best_phase is not None and blaze_params is not None:
+        from ao_shaping.tools.kernels.bench_kernels import phase_to_panel
+        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+        panel_phase = phase_to_panel(
+            np.asarray(best_phase, dtype=np.float64),
+            int(round(result.config.panel_span_px / 2)), result.config.pupil_center,
+        )
+        np.save(
+            save_dir / "best_panel_phase_with_blaze.npy",
+            apply_zero_order_overlay(panel_phase, blaze_params),
+        )
+        from dataclasses import asdict
+
+        choice = getattr(result, "blaze_choice", None)
+        (save_dir / "blaze_choice.json").write_text(
+            json.dumps(
+                asdict(choice) if choice is not None else {
+                    "period_px": blaze_params.blaze_period_px,
+                    "direction": blaze_params.blaze_direction,
+                },
+                indent=2,
+            ), encoding="utf-8",
+        )
+
+    geometry_file, image_file = _smil_save_artifacts(json, params, result, save_best_image, save_dir)
+
+    recorder_png = save_recorder_debug_artifacts(
+        result.recorder,
+        str(root_dir),
+        "slm_model_in_loop",
+        scalar_keys=(
+            "round",
+            "accepted",
+            "loss_before",
+            "loss_after",
+            "step_a_iterations",
+            "step_b_iterations",
+            "coeff_step_l2",
+            "coeff_step_applied",
+            "clamp_applied",
+            "coeff_norm",
+            "score_before",
+            "score_after",
+            "cv_after",
+            "ee_after",
+            "uniformity_cv",
+            "probe_count",
+            "step_a_lr",
+            "rejection_streak",
+            "geometry_correlation",
+            "n_calibration_probes",
+            "holdout_correlation",
+            "exposure_ms",
+            "selfcal_theta_step",
+            "selfcal_gamma_step",
+            "selfcal_violated",
+        ),
+        img_keys=("_img",),
+        text_keys=("timestamp_utc",),
+        object_keys=(
+            "step_a_trace",
+            "step_b_trace",
+            "selfcal_affine",
+            "selfcal_travel",
+        ),
+        output_dir=save_dir,
+        json_payload=_model_in_loop_json_payload(result),
+        title="slm-model-in-loop",
+    )
+
+    return ModelInLoopSaveResult(
+        save_dir=save_dir,
+        csv_file=csv_file,
+        phase_file=phase_file,
+        shaped_phase_file=shaped_phase_file,
+        geometry_file=geometry_file,
+        image_file=image_file,
+        recorder_png=recorder_png,
+    )
 
 
 def round_to_int(arr: Any) -> np.ndarray:

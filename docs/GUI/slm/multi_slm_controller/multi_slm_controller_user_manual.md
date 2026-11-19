@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面。支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 闭环）。
+`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面。支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与物理预测模型闭环）。
 
 启动方式：
 
@@ -47,13 +47,12 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 
 ## 3. 闭环远场整形
 
-`render_closed_loop_shaping()` 在「闭环整形」区渲染，取代已移除的开环方形整形。GS+SPGD 闭环在 GUI 内调用 canonical 优化器管线（与 CLI 同一代码路径），并在结束后把最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示。
+`render_closed_loop_shaping()` 在「闭环整形」区渲染，取代已移除的开环方形整形。两种方法均在 GUI 内调用 canonical 优化器管线（与 CLI 同一代码路径），并在结束后把最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示。
 
 | 方法 | 代码路径（与 CLI 等价） | 说明 |
 |------|-------------------------|------|
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | GUI 预置（preset）取自交替重放验证过的配方；它与 dataclass 默认值是两份东西 |
-
-（MIL「物理预测模型闭环」已于 2026-11-18 退役，GUI 侧只剩上表这一条闭环方法，详见 §3.1。）
+| **物理预测模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
 ### 3.1 GS+SPGD 闭环整形（已验证配方）
 
@@ -66,7 +65,13 @@ GUI 的预置值（preset）取自交替重放验证过的配方（[`report/shap
 - `gs_iters=12`、`far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、`gs_method=plain`
 - 验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**（两次一致的交替重放）
 
-### 3.2 设备生命周期注意
+### 3.2 物理预测模型闭环整形（前沿）
+
+每轮用强随机探针重拟合物理预测模型的 Zernike 像差（Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
+
+需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，见 [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)。
+
+### 3.3 设备生命周期注意
 
 上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，另一台 SLM 保持连接）。GUI 显示 flat/GS/best 各阶段得分、PIB、CV 与 GS 对比择优 判定（adopted/rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
 
@@ -92,7 +97,7 @@ GUI 的预置值（preset）取自交替重放验证过的配方（[`report/shap
 
 原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../../../README.md) 与 [`report/shape_trials/gs_refine/online_20261010.md`](../../../../report/shape_trials/gs_refine/online_20261010.md)。
 
-取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环，走已验证的闭环管线）。
+取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环 / 物理预测模型闭环，均走已验证的闭环管线）。
 
 ---
 
@@ -570,4 +575,4 @@ sequenceDiagram
 - SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../../../slm/slm_gui_operation_map.md)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)
 - 闭环整形实测报告: [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)
-- MIL 闭环历史实测（已退役）: [`report/shape_trials/model_in_loop/model_in_loop_overview.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_overview.md)
+- 物理预测模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)

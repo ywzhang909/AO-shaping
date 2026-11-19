@@ -5,7 +5,7 @@
 Usage:
     python main.py [OPTIONS] COMMAND [ARGS]...
 
-Commands (19; the authoritative list is `main --help`, frozen by
+Commands (20; the authoritative list is `main --help`, frozen by
 tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
     wf                 波前RMS优化器
     pib                轴向光束PIB优化器
@@ -23,6 +23,7 @@ tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS):
     slm-pib            SLM Zernike PIB 命令组 (子命令 spgd / heuristic / square)
     slm-gsnet          SLM 方形光斑 SPGD 整形 (freeform)
     slm-gs-refine      GS 预矫正 + 全频随机相位 SPGD 细化
+    slm-model-in-loop  物理预测模型闭环校正 + 目标光斑相位合成 (反复迭代)
     slm-transfer-shapes  物理预测模型多形状整形 (model → shaping → replay → record)
     slm-lut            SLM LUT 校准 (tools/)
     slm-diagnose       SLM 面板诊断 (tools/)
@@ -61,6 +62,7 @@ from ao_shaping.runners import (
     rms_zernike_run,
     slm_gs_refine_run,
     slm_gsnet_run,
+    slm_model_in_loop_run,
     slm_pib_run,
     slm_transfer_shapes_run,
     wf_run,
@@ -122,6 +124,7 @@ cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
 cli.add_command(slm_gsnet_run, name="slm-gsnet")
 cli.add_command(slm_gs_refine_run, name="slm-gs-refine")
+cli.add_command(slm_model_in_loop_run, name="slm-model-in-loop")
 cli.add_command(slm_transfer_shapes_run, name="slm-transfer-shapes")
 cli.add_command(slm_pib_run, name="slm-pib")
 cli.add_command(hadamard_matrix_run, name="hadamard-matrix")

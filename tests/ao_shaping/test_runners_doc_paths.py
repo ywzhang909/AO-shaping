@@ -36,7 +36,7 @@ RUNNER_TREE_FILES = (
     "matrix_runner.py",
     "zernike_search_runner.py",
     "voltage_runner.py",
-    "session_calibration.py",
+    "model_in_loop_session.py",
     "offset_runner.py",
 )
 

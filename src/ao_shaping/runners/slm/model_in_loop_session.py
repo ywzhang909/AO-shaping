@@ -1,9 +1,9 @@
-"""Session calibration for a live optical bench: locate the beam, measure the sweep.
+"""Hardware session preflight for model-in-loop shaping.
 
 One session, two measurements, one entry point
 ----------------------------------------------
-A hardware shaping run needs two facts about the *live* 实验系统 before it opens
-any devices:
+``slm-model-in-loop`` needs two facts about the *live* 实验系统 before Step A
+opens its devices:
 
 1. **入射定位** -- where the beam actually lands on the SLM panel. It cannot be
    derived from the camera 0-order position (the two axes are swapped 90 degrees
@@ -17,11 +17,12 @@ any devices:
    makes the real spot *worse*, which is why the correlation is a floor and not a
    report.
 
-Both steps used to live inline in a click runner. Copying them for a second
-frontend would drift, which is the failure this repository has already paid for
-elsewhere. This module is the single implementation: a frontend calls
-:func:`calibrate_session` and toggles ``locate`` / ``geometry`` off for the steps
-it already satisfied.
+Both steps used to live inline in the click runner. That made the GUI unable to
+reach them without copying the block -- and a copy would drift, which is the
+failure this repository has already paid for elsewhere. This module is the
+single implementation: the CLI calls :func:`calibrate_session` from its
+``run()``, and a GUI calls the same function with ``locate`` / ``geometry``
+toggled off for the steps it already satisfied.
 
 Contract
 --------
@@ -29,8 +30,9 @@ Contract
   (unusable scan parameters, unreadable geometry JSON), ``RuntimeError`` (the
   scan rejected the session, or the geometry failed validation), ``OSError`` /
   :class:`subprocess.CalledProcessError` (the runbook could not be launched).
-  A frontend shows them itself; nothing here raises a click exception on
-  purpose. The one exception is
+  The CLI translates those into ``click.BadParameter`` /
+  ``click.ClickException``; a GUI shows them with ``st.error``. Nothing here
+  raises a click exception on purpose; the one exception is
   :func:`ao_shaping.runners.runner_common.parse_point` keeping its own
   ``click.BadParameter`` for a malformed ``"x,y"``, carried over verbatim from
   the CLI path it replaced.
@@ -63,69 +65,21 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from ao_shaping.runners.runner_common import parse_point
-from ao_shaping.utils.cli.exposure import AUTO_EXPOSURE_TOKEN
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, keeps import time cheap
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
+    from ao_shaping.runners.runner_common import SlmModelInLoopParams
     from ao_shaping.tools.slm.panel.bench_fingerprint import BenchFingerprint
-
-
-@dataclass(frozen=True)
-class SessionCalibrationParams:
-    """Caller-side inputs to :func:`calibrate_session`.
-
-    Only the fields the two calibration steps actually read live here; a
-    frontend that also runs a shaping loop keeps the rest of its run
-    parameters to itself. ``pupil_center`` is the panel ``"x,y"`` token (the
-    ``auto``/decimal vocabulary of the panel probe), while
-    :class:`SessionCalibrationConfig` carries the resolved integer pair.
-    """
-
-    cam_type: str = "daheng"
-    #: Geometry file the caller already has; ``None`` means "measure this session".
-    geometry_file: str | None = None
-    panel_scan_step_px: int = 120
-    panel_scan_radius_px: int = 150
-    pupil_center: str = "960,600"
-    slm_number: int = 1
-    slm_wavelength: int = 1064
-    #: ``auto`` / ``default`` / decimal token, forwarded to the panel probe.
-    exposure_time_ms: str = AUTO_EXPOSURE_TOKEN
-    seed: int = 0
-    panel_scan_max_flat_drift: float = 0.02
-    panel_scan_max_session_drift: float = 0.05
-    panel_scan_max_session_shift_px: float = 3.0
-
-
-@dataclass(frozen=True)
-class SessionCalibrationConfig:
-    """Resolved session settings both calibration steps read.
-
-    ``exposure_time_ms`` is the *legacy float* the sweep forwards to the
-    runbook (``0`` keeps the runbook's own auto rung), not the caller's token.
-    """
-
-    exposure_time_ms: float = 0.0
-    pupil_center: tuple[int, int] = (960, 600)
-    region: int = 64
-    far_field_padding: int = 8
-    panel_span_px: float = 900.0
-    slm_number: int = 1
-    slm_wavelength: int = 1064
-    cam_type: str = "daheng"
-    cam_id: int = 0
-    min_geometry_correlation: float = 0.5
-    #: Written by :func:`apply_session_calibration`; also the source the
-    #: frontend reads back after a measured sweep.
-    geometry_file: str | None = None
 
 
 class SessionPreflightParamError(ValueError):
     """The caller's scan parameters cannot produce a valid probe at all.
 
     Distinct from a measurement failure -- which is also a ``ValueError`` --
-    because the remedy differs: this one is fixed by editing an argument, the
-    other by changing the experimental setup. ``param_hint`` lets a frontend
-    name the offending argument without matching on the message text.
+    because the remedy differs: this one is fixed by editing an argument (the
+    CLI renders it as ``click.BadParameter``), the other by changing the
+    experimental setup. ``param_hint`` lets a frontend name the offending
+    argument without matching on the message text.
     """
 
     def __init__(self, message: str, *, param_hint: str | None = None) -> None:
@@ -141,8 +95,8 @@ STEP_SESSION_GEOMETRY = "session geometry"
 def _mark_step(exc: Exception, step: str) -> Exception:
     """Record which preflight step raised ``exc``, then return it for ``raise``.
 
-    Both steps travel through one call, so this is how a frontend keeps its own
-    per-step wording. The exception keeps its type and message, so
+    Both steps now travel through one call, so this is how a frontend keeps its
+    own per-step wording. The exception keeps its type and message, so
     ``except ValueError`` / ``except RuntimeError`` still behave as documented.
     """
     exc.preflight_step = step  # type: ignore[attr-defined]
@@ -205,7 +159,7 @@ class SessionCalibration:
         return tuple(lines)
 
 
-def _auto_session(params: SessionCalibrationParams) -> bool:
+def _auto_session(params: SlmModelInLoopParams) -> bool:
     """True for a hardware run that brings no geometry file of its own.
 
     Such a run must (re)measure everything this session, which is also why its
@@ -215,9 +169,7 @@ def _auto_session(params: SessionCalibrationParams) -> bool:
 
 
 def _locate_pupil_center(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
-    save_dir: Path,
+    params: SlmModelInLoopParams, save_dir: Path
 ) -> tuple[tuple[int, int], float, float, float, float]:
     """Locate the beam on the panel; return the scan result's reportable fields."""
     # Deferred: the probe reaches the camera and the SLM, and importing the
@@ -254,7 +206,7 @@ def _locate_pupil_center(
         slm_number=params.slm_number,
         slm_wavelength=params.slm_wavelength,
         cam_type=params.cam_type,
-        cam_id=config.cam_id,
+        cam_id=params.cam_id,
         # Forwarded as the raw token, not a float: both dataclasses speak the
         # `auto`-or-decimal vocabulary and `scan_panel` is the single place that
         # resolves it.  Note the two `auto`s do NOT mean the same thing and are
@@ -290,18 +242,18 @@ def _locate_pupil_center(
 
 
 def measure_session_geometry(
-    config: SessionCalibrationConfig,
+    config: SlmModelInLoopConfig,
     save_dir: Path,
     *,
     illumination_radius_px: float | None = None,
 ) -> Path:
-    """Run the measured sweep for this optical session before any device opens.
+    """Run the measured sweep for this optical session before Step A opens devices.
 
     ``--exposure-ms`` carries ``config.exposure_time_ms`` instead of a hard-coded
     ``0``.  ``0`` is the runbook's *auto* rung, and auto starts from the Daheng
     driver's own clamp (~0.02 ms) — 20–75× darker than this 光路's usable
-    0.4–1.5 ms band measured on this bench, so the sweep would measure a
-    geometry from a nearly black frame.  A caller that never set an
+    0.4–1.5 ms band (``docs/slm/slm_model_in_loop.md`` §7), so the sweep would
+    measure a geometry from a nearly black frame.  A caller that never set an
     exposure still gets ``0`` and therefore exactly the CLI behaviour it had
     before; a caller that measured one now actually gets it.
 
@@ -361,7 +313,7 @@ def measure_session_geometry(
 
 
 def _should_measure_radius(
-    params: SessionCalibrationParams, config: SessionCalibrationConfig
+    params: SlmModelInLoopParams, config: SlmModelInLoopConfig
 ) -> bool:
     """Measure the aperture only where a measurement is meaningful.
 
@@ -377,8 +329,8 @@ def _should_measure_radius(
 
 
 def _measure_illumination_radius(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     center: tuple[int, int],
     save_dir: Path,
 ) -> float | None:
@@ -394,7 +346,7 @@ def _measure_illumination_radius(
     evidence = bench_settings.measure_illuminated_radius(
         params.slm_number,
         params.cam_type,
-        config.cam_id,
+        params.cam_id,
         exposure_ms=float(getattr(config, "exposure_time_ms", 0.0) or 0.0),
         centre_hint=(float(center[0]), float(center[1])),
         debug_dir=Path(save_dir) / "illumination_radius",
@@ -462,8 +414,8 @@ def load_stored_fingerprint(path: Path | str) -> BenchFingerprint | None:
 
 
 def _probe_fingerprint(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     center: tuple[int, int],
     reference_dir: Path,
 ) -> dict[str, Any]:
@@ -479,7 +431,7 @@ def _probe_fingerprint(
     return bench_fingerprint.probe_session_fingerprint(
         slm_number=params.slm_number,
         cam_type=params.cam_type,
-        cam_id=config.cam_id,
+        cam_id=params.cam_id,
         pupil_center_px=(int(center[0]), int(center[1])),
         exposure_ms=float(getattr(config, "exposure_time_ms", 0.0) or 0.0) or None,
         wavelength_nm=int(params.slm_wavelength),
@@ -491,8 +443,8 @@ def _probe_fingerprint(
 def verify_bench_path(
     path: Path | str,
     *,
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     enabled: bool = True,
 ) -> dict[str, Any]:
     """Probe the live bench against the fingerprint stored under ``path``.
@@ -508,8 +460,8 @@ def verify_bench_path(
     Args:
         path: Session directory holding ``bench_fingerprint.json`` (the
             reference); the probe's own evidence lands beside it.
-        params: Session parameters (SLM number, camera type).
-        config: Session configuration (camera id, pupil centre, exposure).
+        params: Session parameters (SLM number, camera type/id).
+        config: Session configuration (pupil centre, exposure).
         enabled: ``False`` returns a skipped verdict without touching hardware.
 
     Returns:
@@ -551,8 +503,8 @@ def verify_bench_path(
 
 
 def _capture_session_fingerprint(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     center: tuple[int, int] | None,
     save_dir: Path,
     notes: list[str],
@@ -599,8 +551,8 @@ def _capture_session_fingerprint(
 
 
 def calibrate_session(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     save_dir: Path,
     *,
     locate: bool = True,
@@ -634,7 +586,7 @@ def calibrate_session(
     if locate:
         try:
             center, response, pair_drift, session_drift, session_shift = (
-                _locate_pupil_center(params, config, save_dir)
+                _locate_pupil_center(params, save_dir)
             )
         except (
             OSError,
@@ -657,9 +609,7 @@ def calibrate_session(
         # one session. Reusing a previous session's centre changes the radius by
         # tens of pixels (measured 2026-10-17: 180 px vs 300 px on the same scan).
         if center is not None and _should_measure_radius(params, measured):
-            radius_px = _measure_illumination_radius(
-                params, measured, center, save_dir
-            )
+            radius_px = _measure_illumination_radius(params, measured, center, save_dir)
         try:
             geometry_file = measure_session_geometry(
                 measured, save_dir, illumination_radius_px=radius_px
@@ -695,10 +645,10 @@ def calibrate_session(
 
 
 def apply_session_calibration(
-    params: SessionCalibrationParams,
-    config: SessionCalibrationConfig,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
     calibration: SessionCalibration,
-) -> tuple[SessionCalibrationParams, SessionCalibrationConfig]:
+) -> tuple[SlmModelInLoopParams, SlmModelInLoopConfig]:
     """Return ``(params, config)`` with the non-``None`` calibration fields written."""
     if calibration.pupil_center is not None:
         params = replace(

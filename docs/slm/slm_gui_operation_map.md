@@ -191,9 +191,9 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 
 1. **换光路直接失效** —— `960,690` / `450` 是**本实验系统**的实测值，换一条光路它就是错的，
    而 GUI 不校验、也不提示，错误只表现为"整形效果变差"。
-2. **重复 GUI 已有能力** —— 自动标定现由 `ao_shaping.runners.slm.session_calibration.calibrate_session` 提供（GUI 侧 `bench_settings.run_session_calibration`），每次会话本来就会**自动做**
+2. **重复 GUI 已有能力** —— CLI `slm-model-in-loop` 每次会话本来就会**自动做**
    全板随机相位盘扫描定位入射中心 → sweep 几何标定；GUI 却绕过这条流程，
-   让操作员手抄自动标定的产物路径（sweep 几何文件）。
+   让操作员手抄 CLI 的产物路径（`discover_model_in_loop_geometry`）。
 
 所以不是"把参数换个地方放"，而是**接上 `calibrate_session` 这条公共入口**，
 把一次性测量交给设备、把选择权留给人：
@@ -201,7 +201,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 | 诉求 | 做法 |
 |---|---|
 | 一次实验光路固定 | 实验级（相机/窗口/曝光/载波）与每 SLM 级（入射中心/几何）两层下沉侧栏 |
-| 换光路能用 | **运行前在侧栏点一次「标定 SLM N 光路」**（约 1–3 分钟：入射定位 → 曝光探测 → sweep 几何）；闭环整形运行**直接复用**这次结果，不再重测。只有改光路 / 换 SLM / 换相机之后才需要重标。⚠️ 原「物理预测模型闭环」的几何校验已随 MIL 链路退役；当前 GS+SPGD 闭环复用同一次侧栏标定产出的 sweep 几何） |
+| 换光路能用 | **运行前在侧栏点一次「标定 SLM N 光路」**（约 1–3 分钟：入射定位 → 曝光探测 → sweep 几何）；闭环整形运行**直接复用**这次结果，不再重测。只有改光路 / 换 SLM / 换相机之后才需要重标。⚠️ 物理预测模型闭环若没有可复用的 sweep 几何，运行按钮前即被校验拒绝（提示去侧栏标定，或切「复用已标定几何」并填几何文件） |
 | 自动探测但允许人工修改 | 三态（`unset` / `detected` / `manual`）+ 差异阈值提示；`manual` 优先且重标不覆盖 |
 | 上限不合理 | 窗口边长取设备 `Width/Height.get_range()` 的 `max` 与 `inc`；模型覆盖取 `PANEL_RES[0]`；目标边长取当前窗口 |
 
@@ -259,7 +259,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 
 **不变更**：`shaping_session` 语义（停 toggle、释放/重取句柄、异常只上屏一次）；
 `_sync_slm_session_state` / `_release_slm_handle` / `_reacquire_slm_handle` / `_safe_set_state`；
-`build_gs_refine_params` 的 values→params 映射（`build_model_in_loop_params` 已随 MIL 链路退役）；
+`build_gs_refine_params` / `build_model_in_loop_params` 的 values→params 映射；
 `GS_REFINE_RECIPE` 全部已验证值（现为 `optimizer/wfless/slm_gs_refine.py::VALIDATED_GS_REFINE_RECIPE` 的副本，取值未变）；`camera_pixel_um` 与 `slm1_shp_*` 的 widget key；
 预览 fragment 结构。
 
@@ -289,8 +289,8 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 3. **widget 值 ≠ 设备值指示泛化**：目前仅波长有「同步」按钮；shift 与 2π 灰度同样存在"widget 值与设备实际值不一致"的可能，建议复用同一模式。光路侧已实现同模式（三态 + 「恢复探测值」），可作参考实现。
 4. **移除「设置模式」按钮**：视频模式已锁死内存模式，该按钮为 no-op，保留只会误导。
 5. **`_stop_toggle` 副作用提示**：一次下发/CSV 加载前静默停止周期切换，建议改为先 warning 再停（与遗留项 2 一并做）。
-6. **`calibrate_session` 是惰性 import**：`ao_shaping.runners.slm.session_calibration` 在 `bench_settings.run_session_calibration()` 函数体内 import（模块级会拖入 runners 包，破坏 GUI 的惰性契约）。若该 lane 接口变动，这里会是第一个报 `ImportError` 的地方。
-7. **`holdout_probe_count=0` 的语义缺口**（历史遗留，已随 MIL 退役）：控件下界曾放开到 0（0 = 不做验证集验证），但原 `SlmModelInLoopConfig.__post_init__` 当时要求 ≥ 1，所以 0 只能靠运行前校验拦下，错误信息指向「全频随机相位验证集探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
+6. **`calibrate_session` 是惰性 import**：`ao_shaping.runners.slm.model_in_loop_session` 在 `bench_settings.run_session_calibration()` 函数体内 import（模块级会拖入 runners 包，破坏 GUI 的惰性契约）。若该 lane 接口变动，这里会是第一个报 `ImportError` 的地方。
+7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做验证集验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「全频随机相位验证集探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
 
 ---
 

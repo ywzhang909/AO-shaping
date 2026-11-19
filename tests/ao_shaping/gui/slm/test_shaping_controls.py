@@ -1,7 +1,7 @@
 """Offline tests for the closed-loop shaping section (shaping_controls).
 
 Covers the parts that must not regress without hardware:
-- the widget-values → canonical ``SlmGsRefineParams``
+- the widget-values → canonical ``SlmGsRefineParams`` / ``SlmModelInLoopParams``
   mapping, and that the GUI defaults ARE the interleaved-replay validated
   recipe from ``report/shape_trials/gs_refine_live_20261012.md``;
 - the resolved ``SlmGsRefineConfig`` (derived focal length, guard validation);
@@ -32,6 +32,7 @@ from ao_shaping.gui.slm.pattern_controls import PATTERN_REGISTRY
 from ao_shaping.gui.slm.shaping_controls import (
     GS_REFINE_RECIPE,
     build_gs_refine_params,
+    build_model_in_loop_params,
     validate_daheng_exposure,
     validate_daheng_fixed_exposure,
 )
@@ -207,6 +208,127 @@ class TestParamsMapping:
         # within 2%); a wrong anchor would move it far outside this band.
         assert 0.10 < config.focal_length_m < 0.15
 
+    def test_model_in_loop_params_mapping(self) -> None:
+        values = {
+            "n_rounds": 3,
+            "seed": 7,
+            "target_shape": "square",
+            "target_side": 80,
+            "w_uniformity": 0.4,
+            "w_efficiency": 0.6,
+            "probe_count": 8,
+            "probe_spread": 4.0,
+            "step_a_iterations": 80,
+            "step_b_iterations": 300,
+            "holdout_probe_count": 2,
+            "min_holdout_correlation": 0.5,
+            "region": 64,
+            "panel_span_px": 900.0,
+            "pupil_center": "960,690",
+            "far_field_padding": 8,
+            "cam_type": "sim",
+            "cam_id": 0,
+            "exposure_time_ms": 0.0,
+            "max_exposure_ms": 0.4,
+            "cam_size": 250,
+            "slm_number": 1,
+        }
+        params = build_model_in_loop_params(values)
+        assert params.n_rounds == 3
+        assert params.target_side == 80
+        assert params.step_b_iterations == 300
+        assert params.pupil_center == "960,690"
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        config = build_model_in_loop_config(params, debug=False)
+        assert config.freeform_holdout_count == 0
+        assert config.holdout_probe_count == 2
+
+        from dataclasses import replace
+
+        config = build_model_in_loop_config(
+            replace(params, freeform_holdout_count=3), debug=False
+        )
+        assert config.freeform_holdout_count == 3
+
+    def test_model_in_loop_geometry_file_reaches_the_config(self, tmp_path) -> None:
+        """The GUI must be able to hand the optimiser a measured geometry.
+
+        Without one a hardware run uses the abandoned speckle route (measured
+        correlation ~0.07 against the 0.5 bake-off floor) and aborts — exactly
+        the failure this entry point exists to prevent.
+        """
+        from ao_shaping.gui.slm.shaping_controls import MIL_WIDGET_DEFAULTS
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        values = dict(MIL_WIDGET_DEFAULTS)
+        values.update(
+            w_uniformity=0.4,
+            w_efficiency=0.6,
+            min_holdout_correlation=0.5,
+            cam_type="sim",
+            cam_id=0,
+            # Was 0.0; the resolver now rejects a bare 0 in favour of these tokens.
+            exposure_time_ms="auto",
+            max_exposure_ms=0.4,
+            cam_size=250,
+        )
+
+        geometry = tmp_path / "bench_geometry.json"
+        geometry.write_text("{}", encoding="utf-8")
+        values["geometry_file"] = str(geometry)
+
+        config = build_model_in_loop_config(
+            build_model_in_loop_params(values), debug=False
+        )
+        assert config.geometry_file == str(geometry)
+
+        # Blank must mean "not specified" (``None``), not "": the config
+        # validator rejects a path that does not exist, and an empty box is the
+        # documented "no geometry file" state.
+        for blank in ("", "   "):
+            values["geometry_file"] = blank
+            assert build_model_in_loop_params(values).geometry_file is None
+
+    @pytest.mark.parametrize(
+        "shape", ["square", "rectangle", "triangle", "star", "circle"]
+    )
+    def test_model_in_loop_shape_selection_reaches_config(self, shape: str) -> None:
+        from ao_shaping.gui.slm.shaping_controls import MIL_TARGET_SHAPE_LABELS
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        assert shape in MIL_TARGET_SHAPE_LABELS
+        values = {
+            "n_rounds": 1,
+            "seed": 0,
+            "target_shape": shape,
+            "target_side": 60,
+            "w_uniformity": 0.4,
+            "w_efficiency": 0.6,
+            "probe_count": 2,
+            "probe_spread": 4.0,
+            "step_a_iterations": 0,
+            "step_b_iterations": 4,
+            "holdout_probe_count": 2,
+            "freeform_holdout_count": 1,
+            "min_holdout_correlation": 0.5,
+            "region": 32,
+            "panel_span_px": 900.0,
+            "pupil_center": "960,670",
+            "far_field_padding": 4,
+            "cam_type": "sim",
+            "cam_id": 0,
+            "exposure_time_ms": 0.0,
+            "max_exposure_ms": 0.4,
+            "cam_size": 128,
+            "slm_number": 1,
+        }
+        config = build_model_in_loop_config(
+            build_model_in_loop_params(values), debug=False
+        )
+        assert config.target_shape == shape
+        assert config.freeform_holdout_count == 1
+
 
 class TestExposureGuards:
     def test_daheng_over_env_ceiling_rejected(self, monkeypatch) -> None:
@@ -225,8 +347,7 @@ class TestExposureGuards:
     def test_daheng_zero_exposure_rejected_for_gs_refine(self) -> None:
         # gs-refine mirrors the CLI: an explicit exposure is required.
         assert validate_daheng_fixed_exposure("daheng", 0.0) is not None
-        # The generic guard (used where the optimizer probes at run time) still
-        # permits 0 = "not fixed".
+        # model-in-loop may start at 0 (auto from 0.02 ms).
         assert validate_daheng_exposure("daheng", 0.0) is None
 
     def test_valid_exposure_passes(self) -> None:
@@ -424,11 +545,12 @@ class TestMethodRegistry:
     """The registration decorator is the extension point: a third algorithm
     must be addable without touching the section renderer."""
 
-    def test_all_registered_algorithms(self) -> None:
+    def test_all_three_algorithms_registered(self) -> None:
         from ao_shaping.gui.slm import shaping_controls
 
         assert set(shaping_controls.SHAPING_METHODS) == {
             "gs-refine",
+            "model-in-loop",
             "transfer",
         }
         # A half-registered adapter (key present, label/action left blank) would
@@ -471,15 +593,15 @@ class TestMethodRegistry:
         other's defaults, so every widget key carries the method key."""
         from ao_shaping.gui.slm.shaping_controls import (
             GsRefineMethod,
-            TransferMethod,
+            ModelInLoopMethod,
         )
 
         assert (
             GsRefineMethod("slm1", 1).wkey("exposure") == "slm1_shp_gs-refine_exposure"
         )
         assert (
-            TransferMethod("slm1", 1).wkey("exposure")
-            == "slm1_shp_transfer_exposure"
+            ModelInLoopMethod("slm1", 1).wkey("exposure")
+            == "slm1_shp_model-in-loop_exposure"
         )
 
 
@@ -520,6 +642,29 @@ class TestOutcomeNormalisation:
         out = outcome_from_gs_recorder(_Rec())
         assert out.best_score == 0.6
         assert "未胜平场" in out.note
+
+    def test_model_in_loop_embeds_model_grid_onto_panel(self) -> None:
+        from ao_shaping.gui.slm.shaping_controls import outcome_from_model_in_loop
+
+        class _Cfg:
+            panel_span_px = 90.0
+            pupil_center = (960, 690)
+
+        class _Res:
+            best_phase = np.zeros((64, 64))
+            best_score = 0.71
+            flat_score = 0.55
+            status = "completed"
+            target_side_camera = 60
+            target_side_model = 22
+
+        out = outcome_from_model_in_loop(_Res(), _Cfg())
+        # 900x1200 Santec panel: phase lives inside a disc of radius 45 px.
+        assert out.panel_phase is not None
+        assert out.panel_phase.shape == (1200, 1920)
+        assert out.best_score == 0.71
+        assert "completed" in out.note
+        assert out.rows[0]["stage"] == "flat"
 
 
 class _FakeWidgets:

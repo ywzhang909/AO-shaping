@@ -20,16 +20,15 @@ pinned here
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 import subprocess
 
 import pytest
 
-from ao_shaping.runners.slm import session_calibration as session
-from ao_shaping.runners.slm.session_calibration import (
-    SessionCalibrationConfig,
-    SessionCalibrationParams,
+from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
+from ao_shaping.runners.runner_common import SlmModelInLoopParams
+from ao_shaping.runners.slm import model_in_loop_session as session
+from ao_shaping.runners.slm.model_in_loop_session import (
     SessionPreflightParamError,
     apply_session_calibration,
     calibrate_session,
@@ -37,14 +36,14 @@ from ao_shaping.runners.slm.session_calibration import (
 from ao_shaping.tools.slm.panel import panel_locate
 
 
-def _params(**overrides) -> SessionCalibrationParams:
-    return SessionCalibrationParams(**overrides)
+def _params(**overrides) -> SlmModelInLoopParams:
+    return SlmModelInLoopParams(**overrides)
 
 
-def _config(**overrides) -> SessionCalibrationConfig:
+def _config(**overrides) -> SlmModelInLoopConfig:
     base = dict(cam_type="daheng", region=64, far_field_padding=8, pupil_center=(960, 600))
     base.update(overrides)
-    return SessionCalibrationConfig(**base)
+    return SlmModelInLoopConfig(**base)
 
 
 @pytest.fixture
@@ -158,7 +157,7 @@ class TestLocate:
         self, tmp_path, fake_scan, fake_sweep
     ):
         params = _params(geometry_file="bench_geometry.json", panel_scan_step_px=120)
-        params = replace(params, pupil_center="1900,1200")
+        params.pupil_center = "1900,1200"
 
         with pytest.raises(SessionPreflightParamError, match="3x3 grid"):
             calibrate_session(
@@ -223,11 +222,11 @@ class TestGeometry:
         assert calibration.pupil_center is None
 
     @pytest.mark.parametrize(
-        ("exposure_token", "exposure_ms", "expected"),
-        [("1.5", 1.5, "1.5"), ("auto", 0.0, "0")],
+        ("exposure_ms", "expected"),
+        [(1.5, "1.5"), (0.0, "0")],
     )
     def test_sweep_carries_the_session_exposure(
-        self, tmp_path, fake_scan, fake_sweep, exposure_token, exposure_ms, expected
+        self, tmp_path, fake_scan, fake_sweep, exposure_ms, expected
     ):
         """The measured session exposure has to reach the runbook.
 
@@ -238,7 +237,7 @@ class TestGeometry:
         a caller that did not must keep the CLI's existing behaviour.
         """
         calibrate_session(
-            _params(exposure_time_ms=exposure_token),
+            _params(exposure_time_ms=exposure_ms),
             _config(exposure_time_ms=exposure_ms),
             tmp_path / "run",
             locate=False,
@@ -369,3 +368,9 @@ class TestSummaryLines:
         ).summary_lines()
         assert any("对比择优" in line for line in lines)
 
+
+def test_measure_session_geometry_is_reexported_under_its_private_name() -> None:
+    """The CLI runner keeps exposing the historical private alias."""
+    from ao_shaping.runners.slm.model_in_loop_runner import _measure_session_geometry
+
+    assert _measure_session_geometry is session.measure_session_geometry

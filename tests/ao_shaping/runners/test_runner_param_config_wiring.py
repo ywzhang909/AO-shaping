@@ -2,22 +2,33 @@
 
 A params dataclass field is a promise: the user typed a flag, so the value must
 land in the ``Config`` the optimizer reads. Nothing enforces that promise, and
-the ways it breaks are all *silent*:
+the three ways it breaks are all *silent*:
 
-1. **Wrong target.** A field added to ``SlmGsRefineParams`` but wired into some
-   other builder can look plausible and even share a name with a real config
-   field.
+1. **Wrong family.** A field added to ``SlmGsRefineParams`` but wired into
+   ``build_model_in_loop_config``. The two families share option names on
+   purpose (``--far-field-padding``, ``--pupil-center``, ``--target-side``), so
+   a field dropped into the neighbouring builder can look plausible and even
+   share a name with a real config field.
 2. **Never wired.** The flag parses, the field is populated, the builder just
    does not pass it. The run then silently uses the config default.
 3. **Hardcoded or mis-sourced value.** ``far_field_padding=3`` or
    ``far_field_padding=params.pupil_center`` — the right kwarg name carrying
    the wrong number, which no signature check can see.
 
-This module enforces the promise by **deriving** the wiring from the source AST
-and comparing it against a curated split that has to be updated *deliberately*.
-The derivation is static, so it is race-free and needs no device:
-``runner_common`` only imports driver modules at module scope, and constructing a
-config opens nothing.
+``tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py::TestCliLibraryParity``
+already models the *idea* of a CLI-only / library-only split, but it does not
+derive the sets: ``test_shared_field_names_are_a_valid_mapping`` computes
+``config_fields & param_fields`` and then asserts the result is a subset of both
+operands, which is true by construction and therefore cannot fail. The curated
+``LIBRARY_ONLY_FIELDS`` / ``CLI_ONLY_FIELDS`` beside it drifted silently — they
+still omit ``debug_dir`` and the five ``panel_scan*`` fields added alongside it,
+and no assertion compares them against reality.
+
+This module closes that gap by **deriving** the wiring from the source AST and
+comparing it against a curated split that has to be updated *deliberately*. The
+derivation is static, so it is race-free and needs no device: ``runner_common``
+only imports driver modules at module scope, and constructing a config opens
+nothing.
 
 No hardware, no torch, no network, no files written.
 """
@@ -33,10 +44,15 @@ from typing import Any
 import pytest
 
 import ao_shaping.runners.runner_common as runner_common
+import ao_shaping.runners.slm.model_in_loop_runner as model_in_loop_runner
+import ao_shaping.runners.slm.model_in_loop_session as model_in_loop_session
 from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
+from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
+    SlmModelInLoopParams,
     build_gs_refine_config,
+    build_model_in_loop_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -71,13 +87,35 @@ GS = _Family(
     cli_only={"save_best_image": runner_common},
 )
 
-#: Config fields deliberately unreachable from the CLI: a callback, progress
-#: knobs, or values the library sets on a caller's behalf. ``send_overlay`` is
-#: filled by the GUI session via ``build_send_overlay``; the click runner leaves
-#: it ``None``. The ``time_budget_s`` / ``chunk_epochs`` / ``resume_state``
-#: fields are consumed by the chunk scheduler
-#: ``scripts/slm/run_gs_refine_zernike_sweep.py`` (per-block ``--chunk-epochs`` /
-#: ``--time-budget-s``), not by the ``slm-gs-refine`` click runner.
+MIL = _Family(
+    label="model-in-loop",
+    params=SlmModelInLoopParams,
+    config=SlmModelInLoopConfig,
+    builder=build_model_in_loop_config,
+    builder_name="build_model_in_loop_config",
+    # The panel scan is a preflight that runs *before* the optimizer opens its
+    # devices, so those five never belong in the Config. It is consumed by the
+    # shared session module (which the GUI drives too), not by the click runner.
+    cli_only={
+        "save_best_image": runner_common,
+        "panel_scan": model_in_loop_session,
+        "panel_scan_step_px": model_in_loop_session,
+        "panel_scan_radius_px": model_in_loop_session,
+        "panel_scan_max_flat_drift": model_in_loop_session,
+        "panel_scan_max_session_drift": model_in_loop_session,
+        "panel_scan_max_session_shift_px": model_in_loop_session,
+    },
+)
+
+#: Config fields deliberately unreachable from the CLI. Each is either a
+#: callback, a progress knob, or something the library sets on a caller's behalf
+#: (``debug_dir`` is injected by the runner via ``dataclasses.replace`` once the
+#: debug directory exists). ``send_overlay`` (both families) is filled by the GUI
+#: session via ``build_send_overlay``; the click runner leaves it ``None``. The
+#: three ``time_budget_s`` / ``chunk_epochs`` / ``resume_state`` fields are
+#: consumed by the chunk scheduler ``scripts/slm/run_gs_refine_zernike_sweep.py``
+#: (per-block ``--chunk-epochs`` / ``--time-budget-s``), not by the
+#: ``slm-gs-refine`` click runner.
 LIBRARY_ONLY: dict[str, set[str]] = {
     GS.label: {
         "callback",
@@ -91,9 +129,39 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "settle_max_discard",
         "time_budget_s",
     },
+    MIL.label: {
+        "adaptive_trust_region",
+        "callback",
+        # 派生出处字段: 由 _resolve_camera_pixel_um / require_camera_pixel_um 写入
+        # (0c07aa54 引入), 记录 pitch 是 input / derived / unresolved —— 没有 CLI 入口。
+        "camera_pixel_um_source",
+        "debug_dir",
+        # 库调用者直接塞 ModelErrorTerms 对象; CLI 走 --error-params (str 路径)
+        # 由 __post_init__ 解析填充, 不走 builder 的 kwargs。
+        "error_terms",
+        # 焦面补偿前置阶段 (focus_preflight, feb4d292 引入): 由 HW runbook 自己的
+        # argparse + build_focus_preflight 设置 (设备打开前运行), 与 panel_scan 同类,
+        # 不走通用 click builder; 默认全关, 现有 run 的位级行为保持不变。
+        "focus_compensation",
+        "focus_dir",
+        "focus_live_probe",
+        "holdout_on_sim",
+        "output_subdir",
+        "probe_split_hook",
+        "progress_every",
+        "send_overlay",
+        "sim_aberration",
+        "step_sink",
+        "uncertainty_on_rejection",
+        "uncertainty_probe_diversity",
+        "uncertainty_probe_ridge",
+        "uncertainty_probe_samples",
+        "uncertainty_probe_steps",
+        "uncertainty_probes",
+    },
 }
 
-FAMILIES = (GS,)
+FAMILIES = (GS, MIL)
 
 
 def _config_call_kwargs(builder_name: str) -> dict[str, str]:
@@ -127,6 +195,7 @@ def _config_call_kwargs(builder_name: str) -> dict[str, str]:
 #: ``params.<field>``, which :func:`_resolved_through` verifies.
 _RESOLVED_KWARGS: dict[tuple[str, str], str] = {
     ("build_gs_refine_config", "camera_pixel_um"): "_resolve_camera_pixel_um",
+    ("build_model_in_loop_config", "camera_pixel_um"): "_resolve_camera_pixel_um",
 }
 
 
@@ -350,16 +419,18 @@ class TestValuesArrive:
 # ---------------------------------------------------------------------------
 
 
-class TestFarFieldPaddingIsSingleSourced:
-    """``--far-field-padding`` must be read from the CLI and reach the Config.
+class TestFarFieldPaddingStaysOnItsOwnFamily:
+    """``--far-field-padding`` is exposed by *both* commands, on purpose.
 
-    The GS default is calibrated (3), so the value cannot drift between the CLI
-    and the Config it feeds -- a silent change here rescales the far field and
-    every metric with it.
+    Both optimizers need it and the calibrated defaults genuinely differ
+    (GS 3, model-in-loop 8), so a blanket "this option belongs to one family"
+    rule would be wrong. What must hold is that each family reads its *own*
+    value and that the value cannot drift between the CLI and the Config it
+    feeds -- a silent swap here rescales the far field and every metric with it.
     """
 
-    def test_the_family_exposes_and_forwards_its_own_padding(self) -> None:
-        for family, expected in ((GS, 3),):
+    def test_each_family_exposes_and_forwards_its_own_padding(self) -> None:
+        for family, expected in ((GS, 3), (MIL, 8)):
             params_default = _defaults(family.params)["far_field_padding"]
             config_default = _defaults(family.config)["far_field_padding"]
             assert params_default == expected, (
@@ -375,9 +446,15 @@ class TestFarFieldPaddingIsSingleSourced:
                 f"{family.builder_name}() sets far_field_padding={source}"
             )
 
-    def test_the_builder_routes_padding_to_its_config(self) -> None:
-        """The GS Config reads the GS default (3), never anything else."""
+    def test_each_builder_routes_padding_to_its_own_config(self) -> None:
+        """``SlmGsRefineConfig`` never sees 8, and vice versa."""
         assert (
             build_gs_refine_config(SlmGsRefineParams(), debug=False).far_field_padding
             == 3
+        )
+        assert (
+            build_model_in_loop_config(
+                SlmModelInLoopParams(), debug=False
+            ).far_field_padding
+            == 8
         )

@@ -217,6 +217,45 @@ class TestValidationGate:
         values.update({"target_side": 400, "cam_size": 250})
         assert GsRefineMethod("slm1", 1).validate(values) is not None
 
+    def test_mil_reuse_geometry_region_mismatch_is_blocked(
+        self, state, tmp_path, monkeypatch
+    ) -> None:
+        import json
+
+        geometry = tmp_path / "bench_geometry.json"
+        geometry.write_text(json.dumps({"method": "sweep", "region": 32}), encoding="utf-8")
+        values = dict(sc.MIL_WIDGET_DEFAULTS)
+        values.update(
+            {
+                "cam_type": "sim",
+                "cam_id": 0,
+                "exposure_time_ms": 0.0,
+                "max_exposure_ms": 0.0,
+                "cam_size": 250,
+                "w_uniformity": 0.4,
+                "w_efficiency": 0.6,
+                "min_holdout_correlation": 0.5,
+                "region": 64,
+                "geometry_file": str(geometry),
+            }
+        )
+        method = sc.ModelInLoopMethod("slm1", 1)
+        message = method.validate(values)
+        assert message is not None and "region" in message
+
+        values["region"] = 32
+        assert method._validate_geometry_region(values) is None
+
+    def test_mil_zero_holdout_is_rejected_with_a_pointer(
+        self, state, tmp_path, monkeypatch
+    ) -> None:
+        """``holdout_probe_count`` bound is 0, but Step A's fit needs ≥ 1."""
+        monkeypatch.setitem(__import__("sys").modules, "torch", object())
+        method = sc.ModelInLoopMethod("slm1", 1)
+        message = method._validate_holdout({"holdout_probe_count": 0})
+        assert message is not None and "全频随机相位验证集探针" in message
+        assert method._validate_holdout({"holdout_probe_count": 2}) is None
+
 
 # ---------------------------------------------------------------------------
 # effective optical-path snapshot
@@ -235,7 +274,7 @@ class TestEffectiveSnapshot:
 
         values: dict[str, Any] = {
             "bench_prefix": "slm1",
-            "method": "transfer",
+            "method": "model-in-loop",
             "cam_type": "daheng",
             "cam_id": 0,
             "cam_crop_enabled": True,
@@ -253,7 +292,7 @@ class TestEffectiveSnapshot:
         assert snap["exposure_ms__state"] == "detected"
         assert snap["cam_type__state"] == "unset"
         assert snap["geometry_correlation"] == pytest.approx(0.87)
-        assert snap["method"] == "transfer"
+        assert snap["method"] == "model-in-loop"
 
     def test_summary_line_counts_detected_and_manual(self, state) -> None:
         assert "无快照" in sc.snapshot_summary_line("slm1")
@@ -367,6 +406,22 @@ class TestRelaxedBounds:
             by_label[str(spec.get("label", spec.get("key")))] = spec
         return by_label
 
+    def test_mil_advanced_bounds(self, monkeypatch) -> None:
+        widgets = self._capture(
+            monkeypatch,
+            lambda: sc.ModelInLoopMethod("slm1", 1).render_advanced({}),
+        )
+
+        assert widgets["探针数"]["max_value"] == 64
+        assert widgets["模型网格"]["max_value"] == 512
+        assert widgets["模型网格"]["step"] == 8
+        assert widgets["远场补零"]["max_value"] == 64
+        assert widgets["探针 σ (rad)"]["max_value"] == pytest.approx(12.0)
+        assert widgets["探针 σ (rad)"]["min_value"] == pytest.approx(3.0)  # hard floor
+        assert widgets["验证集探针"]["min_value"] == 0
+        # The padding default stays MIL's 8; GS's 3 lives in its own hook.
+        assert widgets["远场补零"]["value"] == 8
+
     def test_gs_advanced_bounds(self, monkeypatch) -> None:
         widgets = self._capture(
             monkeypatch, lambda: sc.GsRefineMethod("slm1", 1).render_advanced({})
@@ -374,7 +429,7 @@ class TestRelaxedBounds:
 
         assert widgets["相位网格"]["max_value"] == 128
         assert widgets["远场补零"]["max_value"] == 64
-        # GS's validated recipe padding is 3.
+        # The GS padding default stays 3 — deliberately NOT merged with MIL's 8.
         assert widgets["远场补零"]["value"] == 3
 
     def test_panel_span_upper_bound_is_the_panel(self, state) -> None:
@@ -403,17 +458,16 @@ class TestRelaxedBounds:
 
         widgets = self._capture(
             monkeypatch,
-            lambda: sc.GsRefineMethod("slm1", 1).render_objective({}),
+            lambda: sc.ModelInLoopMethod("slm1", 1).render_objective({}),
         )
         assert widgets["目标方边长"]["max_value"] == 700
-        # 0 = 由照明瞳自动推导 (GS's own floor, unlike the removed MIL adapter's 8).
-        assert widgets["目标方边长"]["min_value"] == 0
+        assert widgets["目标方边长"]["min_value"] == 8  # hard floor
 
         # Cropping off → the full sensor short side becomes the ceiling.
         state["bench_cam_crop"] = False
         widgets = self._capture(
             monkeypatch,
-            lambda: sc.GsRefineMethod("slm1", 1).render_objective({}),
+            lambda: sc.ModelInLoopMethod("slm1", 1).render_objective({}),
         )
         assert widgets["目标方边长"]["max_value"] == 1944
 
@@ -425,7 +479,7 @@ class TestRelaxedBounds:
         Streamlit 对 ``value > max_value`` 抛 ``StreamlitValueAboveMaxError`` 而不是
         夹取，而「窗口边长 < 目标默认边长」是合法状态（操作员刚把窗口调小；或窗口
         默认值还没建立）。2026-10-16 启动崩溃就是窗口默认值塌成设备网格步长 4 px，
-        而 ``target_side`` 的默认值仍是 100。
+        而 ``target_side`` 的默认值仍是 100（GS）/ 60（MIL）。
         """
         from ao_shaping.drivers.ccd.common import WindowSize
 
@@ -437,12 +491,26 @@ class TestRelaxedBounds:
         state["bench_cam_crop"] = True
         state["bench_cam_size"] = 4  # 网格步长，不是窗口边长
 
-        spec = self._capture(
-            monkeypatch, lambda: sc.GsRefineMethod("slm1", 1).render_objective({})
-        )["目标方边长"]
-        assert spec["min_value"] <= spec["value"] <= spec["max_value"]
+        for method in (sc.ModelInLoopMethod("slm1", 1), sc.GsRefineMethod("slm1", 1)):
+            spec = self._capture(
+                monkeypatch, lambda _method=method: _method.render_objective({})
+            )[
+                "目标方边长"
+            ]
+            assert spec["min_value"] <= spec["value"] <= spec["max_value"]
 
-    def test_budget_is_validated_evidence_not_a_preset(self) -> None:
+    def test_w_efficiency_floor_stays_positive(self, monkeypatch) -> None:
+        widgets = self._capture(
+            monkeypatch,
+            lambda: sc.ModelInLoopMethod("slm1", 1).render_objective({}),
+        )
+        assert widgets["权重 w_eff"]["min_value"] == pytest.approx(0.01)
+        assert "掏空" in widgets["权重 w_eff"]["help"]
+
+    def test_budget_preset_matches_the_doc_defaults(self) -> None:
+        assert sc.MIL_BUDGET_PRESETS["标准 6/80/150"] == (6, 80, 150)
+        assert sc.MIL_BUDGET_PRESETS["快速 2/40/100"] == (2, 40, 100)
+        assert sc.MIL_BUDGET_PRESETS["长跑 12/160/300"] == (12, 160, 300)
         # GS is validated evidence, never a preset.
         assert sc.GS_VALIDATED_BUDGET == (12, 12)
 
