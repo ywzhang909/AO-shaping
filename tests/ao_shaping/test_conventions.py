@@ -5163,6 +5163,7 @@ _PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
     ("tools/slm/transfer/validate.py", "_validate_block_loop"): 1,
     ("tools/slm/transfer/workflow.py", "_run_reused_session"): 1,
     ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
+    ("tools/slm/transfer/workflow.py", "run_session"): 1,
     ("tools/slm/transfer/workflow.py", "stage"): 1,
 }
 

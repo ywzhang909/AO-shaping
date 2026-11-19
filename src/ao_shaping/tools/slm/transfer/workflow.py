@@ -1425,10 +1425,14 @@ def _session_write_summary(accepted, config, direction, last_round, offline, out
     print(f"Session complete: {out}", flush=True)
 
 
-    ``should_stop`` is an optional no-arg callback consulted between acceptance
-    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
-    gracefully, keeps the best result so far, and does not error. Ignored unless
-    ``config.acceptance_enabled``.
+def _session_prepare_stage(config, offline, on_stage):
+    """Validate the request and resolve the session directory, device and stage.
+
+    Runs before the session directory is created, so a rejected request leaves
+    no partial session behind.  Returns the (possibly replaced) config carrying
+    an auto-raised capture grid, the resolved device, the session directory and
+    the bound ``stage`` closure whose journal lines the ``on_stage`` observer
+    mirrors.
     """
     config.validate()
     if offline and config.dataset is None:
@@ -1533,10 +1537,6 @@ def run_session(
     gracefully, keeps the best result so far, and does not error. Ignored unless
     ``config.acceptance_enabled``.
     """
-    config.validate()
-    if offline and config.dataset is None:
-        raise ValueError("--offline requires a recorded --dataset")
-    # 自动升档只对会采集的会话生效：录制数据集的网格由 manifest 决定，改了就与拟合对不上。
     config, device, out, stage = _session_prepare_stage(config, offline, on_stage)
 
     from . import bootstrap, direction, fit, open_loop, optical_probe, summary, validate
