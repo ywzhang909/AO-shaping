@@ -58,6 +58,11 @@
 - **扣暗不能救线性度**：扣暗后阶梯峰值 `[129.8, 193.2, 196.9]`，相邻比值 `[1.489, 1.019]`；0.043→0.047 ms 峰值比 1.019 远小于曝光比 1.093（高曝光档响应滚降到约 200 counts 平台）。因此 `non_monotonic` 结论不变，不按原计划重跑原判据。若强行要求翻转这段单调性，需对所有档统一扣除约 `b=143.7` counts 才能把 193.2/196.9 拉回递增 —— 与暗场实测（≈0.3 counts）矛盾，物理不成立，故否决。
 - **结论归属**：高曝光档滚降是传感器/前端在短曝光下的真实响应平台，不是暗场偏置；曝光线性度修复（pass2 固定曝光 + 逐帧回读，提交 `df0ea76d`）与双门评估脚本（`f9220430`）均未推送。**双门未联合通过前不放行锚定闭环**；零步绝对强度门无预注册数值门槛（0.25 仅为诊断线）。验证帧不得用于配准或强度门参考。
 - **暗帧配置库（新增，离线）**：`drivers/ccd/dark_frames.py` 按序列号分目录存暗帧配置，`<CCD_CONFIG_DIR>/ccd/<serial>/darks/{manifest.json, dark-exp-<expo>ms.npz}`，manifest (`ao_shaping.ccd.dark_frames/v1`) 为唯一索引，曝光存设备回读真值，默认 `rel_tol=0.02` 严格匹配、不跨曝光回退（`allow_nearest=True` 须显式）。`BaseCamera` 新增 `serial_number` / `load_dark_frames()` / `get_dark_frame()` 入口（无序列号报错/返回 None，空集合法）。采集 CLI `tools/ccd/capture_darks.py`（多曝光 + `--no-hw` + 设备锁 + 曝光回读）与离线测试同步落地。配置数据属运行时资产（`.npz` / `data/*` 被 gitignore），默认不入库。
+- **三档真实暗帧已离线导入配置库**（无设备参与）：以实测序列号 `FJB24112232` 为键写入
+  `data/ccd_configs/ccd/FJB24112232/darks/`（`frames=16`、`bit_depth=8`、`full_scale=255`，
+  阵列取 16 帧均值），`BaseCamera.load_dark_frames()` 与 `get_dark_frame(0.043)` 已实测可载入；
+  0.030 ms 严格匹配返回 `None`（不跨曝光回退），`allow_nearest=True` 才退到 0.043。
+  原始 `.npy` 与本次导入内容逐位同源，仅保留作证据。
 
 
 ### 结论 8：32 px 二值光栅尝试（run2）— SLM USB 中止、部分数据退化（离线判读 + 中止记录）
