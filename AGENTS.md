@@ -9,6 +9,7 @@
 - **全局编码规范**：[docs/dev/coding_conventions.md](docs/dev/coding_conventions.md)（Python 3.12+、绝对导入、类型注解、日志等）。
 - **包/函数放置**：[docs/dev/module_inventory.md](docs/dev/module_inventory.md) §WHERE TO LOOK。
 - 术语：[docs/terminology_glossary.md](docs/terminology_glossary.md)（校验 `python3 scripts/_common/term_unify_20261016.py` dry-run `0 个文件`；新词 §3 登记）。
+- **SLM 2π 灰度工作值 = 993**（1064 nm 设备回读，非 radian→gray 上限 1023）；#238 光学拟合简并、相位反演公式纠错（勿用归一化 e0n 的 cos 反演）与串扰不可判定的结论见 [docs/dev/agent_notes_20261119.md](docs/dev/agent_notes_20261119.md) 与 [docs/slm/slm_lut.md](docs/slm/slm_lut.md) §10。
 - 工程纪律：[docs/dev/engineering_discipline.md](docs/dev/engineering_discipline.md)。
 
 ## Project Overview
@@ -18,7 +19,7 @@ AO-Shaping：自适应光学（AO）系统，RL 波前校正与光束整形；�
 
 ## 当日注意事项与历史按日记录
 
-最新：[docs/dev/agent_notes_20261116.md](docs/dev/agent_notes_20261116.md)；历史按日见 `docs/dev/agent_notes_*.md`。
+最新：[docs/dev/agent_notes_20261119.md](docs/dev/agent_notes_20261119.md)；历史按日见 `docs/dev/agent_notes_*.md`。
 
 ## References
 
