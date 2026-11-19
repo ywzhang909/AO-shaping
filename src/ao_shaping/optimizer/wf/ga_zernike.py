@@ -215,109 +215,6 @@ def _ga_record_initial_state(fitness, population, recorder, statics, wf):
 
 
 
-
-def _ga_run_evolution(crossover_prob, early_stop_threshold, elite_count, init_z, mutation_prob, n_generations, n_zernike, population_size, recorder, remove_tilt, slm, tournament_size, wfs, zernike_modes):
-# GA population init and evolution loop lifted verbatim
-    calc_wavefront, evaluate_individual, fitness, population, statics, wf = _ga_init_population(init_z, n_generations, n_zernike, population_size, remove_tilt, slm, wfs, zernike_modes)
-
-    # Evaluate entire initial population
-    for i in range(population_size):
-        fitness[i] = evaluate_individual(population[i])
-
-    # Record initial state
-    best_idx, best_rms = _ga_record_initial_state(fitness, population, recorder, statics, wf)
-
-    with tqdm.tqdm(
-        total=n_generations,
-        desc=f"GA-Zernike RMS={best_rms:.4f}",
-        dynamic_ncols=True,
-    ) as bar:
-        for generation in range(1, n_generations + 1):
-            # Create new population
-            new_population = []
-
-            # Elitism: preserve top elite_count individuals
-            elite_indices = np.argsort(fitness)[:elite_count]
-            for idx in elite_indices:
-                new_population.append(population[idx].copy())
-
-            # Generate offspring through selection, crossover, and mutation
-            while len(new_population) < population_size:
-                # Tournament selection for parents
-                parent1 = _tournament_selection(
-                    population, fitness, tournament_size
-                )
-                parent2 = _tournament_selection(
-                    population, fitness, tournament_size
-                )
-
-                # Crossover
-                if np.random.rand() < crossover_prob:
-                    child1, child2 = _blend_crossover(parent1, parent2)
-                else:
-                    child1, child2 = parent1.copy(), parent2.copy()
-
-                # Mutation
-                child1 = _gaussian_mutation(child1, mutation_prob)
-                child2 = _gaussian_mutation(child2, mutation_prob)
-
-                new_population.append(child1)
-                if len(new_population) < population_size:
-                    new_population.append(child2)
-
-            # Trim to exact population size
-            population = np.array(new_population[:population_size])
-
-            # Evaluate new population
-            for i in range(population_size):
-                fitness[i] = evaluate_individual(population[i])
-
-            # Find best individual
-            best_idx = np.argmin(fitness)
-            current_best_rms = fitness[best_idx]
-            current_best_c = population[best_idx].copy()
-
-            # Update global best
-            if current_best_rms < best_rms:
-                best_rms = current_best_rms
-                best_c = current_best_c.copy()
-
-            # Record this generation - evaluate best individual for recording
-            slm.send_zernike(current_best_c)
-            wf, statics = calc_wavefront()
-
-            recorder.append(
-                {
-                    "rms": current_best_rms,
-                    RECORD_COEFFS: current_best_c.copy(),
-                    "_generation": generation,
-                    "_population": population.copy(),
-                    "_fitness": fitness.copy(),
-                    "_wavefront": wf[np.newaxis, ...],
-                    "_statics": statics,
-                    "best_rms": best_rms,
-                }
-            )
-
-            bar.set_postfix({
-                "rms": f"{current_best_rms:.4f}",
-                "best": f"{best_rms:.4f}",
-                "gen": generation,
-            })
-
-            # Early stopping
-            if best_rms < early_stop_threshold:
-                logger.info(
-                    f"Early stop at generation {generation} "
-                    f"with best RMS={best_rms:.4f}"
-                )
-                break
-
-            bar.update(1)
-    return 
-
-
-
 def optimizer_ga(
     n_generations: int,
     population_size: int = 50,
@@ -399,7 +296,102 @@ def optimizer_ga(
         ) as wfs,
     ):
         # Initialize Zernike coefficients
-        _ga_run_evolution(crossover_prob, early_stop_threshold, elite_count, init_z, mutation_prob, n_generations, n_zernike, population_size, recorder, remove_tilt, slm, tournament_size, wfs, zernike_modes)
+        calc_wavefront, evaluate_individual, fitness, population, statics, wf = _ga_init_population(init_z, n_generations, n_zernike, population_size, remove_tilt, slm, wfs, zernike_modes)
+
+        # Evaluate entire initial population
+        for i in range(population_size):
+            fitness[i] = evaluate_individual(population[i])
+
+        # Record initial state
+        best_idx, best_rms = _ga_record_initial_state(fitness, population, recorder, statics, wf)
+
+        with tqdm.tqdm(
+            total=n_generations,
+            desc=f"GA-Zernike RMS={best_rms:.4f}",
+            dynamic_ncols=True,
+        ) as bar:
+            for generation in range(1, n_generations + 1):
+                # Create new population
+                new_population = []
+
+                # Elitism: preserve top elite_count individuals
+                elite_indices = np.argsort(fitness)[:elite_count]
+                for idx in elite_indices:
+                    new_population.append(population[idx].copy())
+
+                # Generate offspring through selection, crossover, and mutation
+                while len(new_population) < population_size:
+                    # Tournament selection for parents
+                    parent1 = _tournament_selection(
+                        population, fitness, tournament_size
+                    )
+                    parent2 = _tournament_selection(
+                        population, fitness, tournament_size
+                    )
+
+                    # Crossover
+                    if np.random.rand() < crossover_prob:
+                        child1, child2 = _blend_crossover(parent1, parent2)
+                    else:
+                        child1, child2 = parent1.copy(), parent2.copy()
+
+                    # Mutation
+                    child1 = _gaussian_mutation(child1, mutation_prob)
+                    child2 = _gaussian_mutation(child2, mutation_prob)
+
+                    new_population.append(child1)
+                    if len(new_population) < population_size:
+                        new_population.append(child2)
+
+                # Trim to exact population size
+                population = np.array(new_population[:population_size])
+
+                # Evaluate new population
+                for i in range(population_size):
+                    fitness[i] = evaluate_individual(population[i])
+
+                # Find best individual
+                best_idx = np.argmin(fitness)
+                current_best_rms = fitness[best_idx]
+                current_best_c = population[best_idx].copy()
+
+                # Update global best
+                if current_best_rms < best_rms:
+                    best_rms = current_best_rms
+                    best_c = current_best_c.copy()
+
+                # Record this generation - evaluate best individual for recording
+                slm.send_zernike(current_best_c)
+                wf, statics = calc_wavefront()
+
+                recorder.append(
+                    {
+                        "rms": current_best_rms,
+                        RECORD_COEFFS: current_best_c.copy(),
+                        "_generation": generation,
+                        "_population": population.copy(),
+                        "_fitness": fitness.copy(),
+                        "_wavefront": wf[np.newaxis, ...],
+                        "_statics": statics,
+                        "best_rms": best_rms,
+                    }
+                )
+
+                bar.set_postfix({
+                    "rms": f"{current_best_rms:.4f}",
+                    "best": f"{best_rms:.4f}",
+                    "gen": generation,
+                })
+
+                # Early stopping
+                if best_rms < early_stop_threshold:
+                    logger.info(
+                        f"Early stop at generation {generation} "
+                        f"with best RMS={best_rms:.4f}"
+                    )
+                    break
+
+                bar.update(1)
 
         # Restore best coefficients on exit
         best_c, _ = recorder.get_best_target('_c')

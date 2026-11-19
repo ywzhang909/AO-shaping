@@ -32,7 +32,7 @@ from functools import partial
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 import numpy as np
 import tqdm
@@ -118,10 +118,6 @@ from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     display_rotating,
     learning_schedule,
     zernike_to_phase,
-)
-from ao_shaping.optimizer.wfless.slm_zernike_pib_gates import (
-    _noise_gate,
-    _rolling_sigma,
 )
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
@@ -445,6 +441,26 @@ def _update_fold_baseline(
         alpha * peak + (1.0 - alpha) * baseline_peak,
         alpha * frame_sum + (1.0 - alpha) * baseline_sum,
     )
+
+
+def _rolling_sigma(diffs: Sequence[float]) -> float:
+    """Std of the recent ``diff`` history (0.0 when degenerate/empty)."""
+    if len(diffs) < 2:
+        return 0.0
+    arr = np.asarray(diffs, dtype=np.float64)
+    s = float(np.std(arr))
+    return s if np.isfinite(s) else 0.0
+
+
+def _noise_gate(diff: float, sigma_hat: float, k: float) -> bool:
+    """True when ``diff`` is indistinguishable from the recent diff noise
+    (``|diff| <= k * sigma_hat``) - the SPGD update would be pure measurement
+    noise and is zeroed so the coefficients stall honestly instead of
+    random-walking. ``k <= 0`` (or an unusable ``sigma_hat``) disables the gate.
+    """
+    if k <= 0.0 or not np.isfinite(sigma_hat) or sigma_hat <= 0.0:
+        return False
+    return abs(diff) <= k * sigma_hat
 
 
 class BenchSession:
@@ -1266,66 +1282,6 @@ def _pib_arm_blaze(blaze_direction, blaze_period_px, cam, cam_size, camera_confi
 
 
 
-
-def _pib_seed_best_state(_init_c, _init_res, delta):
-# Best tracking state seed lifted verbatim
-    best_objective = _init_res.tracking
-    # Baseline objective of the initial phase (flat when ``init_c`` is
-    # empty). Used on exit to decide between the best phase and flat.
-    _initial_objective = best_objective
-    best_c = _init_c.copy()
-    last_best_epoch = 0
-    return _initial_objective, best_c, best_objective, last_best_epoch
-
-
-
-
-def _pib_make_optimizer(_gradient_history, _pib_history, config, delta, init_img, lr, nk, optimizer_type, reference_center):
-# Session optimizer creation and learning schedule lifted verbatim
-    optimizer = create_optimizer(
-        optimizer_type=optimizer_type,
-        dim=nk,
-        lr=lr,
-        beta1=beta1,
-        beta2=beta2,
-        beta3=beta3,
-        **config.kwargs,
-    )
-    if lr == 0:
-        # ``reference_center`` (window-local spot), NOT ``center``: the
-        # latter is the FULL-FRAME window centre ``reset_window`` returned,
-        # which is out of bounds for the windowed ``init_img`` and made the
-        # 80%-encircled radius meaningless. Same rule as the ``r_bucket``
-        # block above and the SPGD branch's ``pos_center``.
-        optimizer.lr, delta = learning_schedule(
-            radius(init_img, center=reference_center, energy=0.8),
-            gradient_history=_gradient_history,
-            pib_history=_pib_history,
-            ideal_r=IDEAL_SPOT_RADIUS,
-            max_lr=SCHEDULE_MAX_LR,
-            max_delta=SCHEDULE_MAX_DELTA,
-        )
-    return delta, optimizer
-
-
-
-
-def _pib_default_init_c(delta, init_c, nk):
-# Default zero init coefficients lifted verbatim
-    if init_c is None or len(init_c) == 0:
-        _init_c = np.zeros(nk, dtype=np.float64)
-    else:
-        _init_c = np.array(init_c, dtype=np.float64)
-        if len(_init_c) < nk:
-            padded = np.zeros(nk, dtype=np.float64)
-            padded[: len(_init_c)] = _init_c
-            _init_c = padded
-        elif len(_init_c) > nk:
-            _init_c = _init_c[:nk]
-    return _init_c
-
-
-
 def _run_pib_session(
     *,
     _gradient_history: object,
@@ -1393,7 +1349,16 @@ def _run_pib_session(
 
         to_gray = partial(_phase_to_gray, slm, blaze_choice=blaze_choice)
         # Initialize Zernike coefficients
-        _init_c = _pib_default_init_c(delta, init_c, nk)
+        if init_c is None or len(init_c) == 0:
+            _init_c = np.zeros(nk, dtype=np.float64)
+        else:
+            _init_c = np.array(init_c, dtype=np.float64)
+            if len(_init_c) < nk:
+                padded = np.zeros(nk, dtype=np.float64)
+                padded[: len(_init_c)] = _init_c
+                _init_c = padded
+            elif len(_init_c) > nk:
+                _init_c = _init_c[:nk]
 
         # Reset SLM to flat phase
 
@@ -1404,14 +1369,41 @@ def _run_pib_session(
         _init_res = shaping(init_img)
         j, pib_ratio = _init_res.j, _init_res.ratio
 
-        delta, optimizer = _pib_make_optimizer(_gradient_history, _pib_history, config, delta, init_img, lr, nk, optimizer_type, reference_center)
+        optimizer = create_optimizer(
+            optimizer_type=optimizer_type,
+            dim=nk,
+            lr=lr,
+            beta1=beta1,
+            beta2=beta2,
+            beta3=beta3,
+            **config.kwargs,
+        )
+        if lr == 0:
+            # ``reference_center`` (window-local spot), NOT ``center``: the
+            # latter is the FULL-FRAME window centre ``reset_window`` returned,
+            # which is out of bounds for the windowed ``init_img`` and made the
+            # 80%-encircled radius meaningless. Same rule as the ``r_bucket``
+            # block above and the SPGD branch's ``pos_center``.
+            optimizer.lr, delta = learning_schedule(
+                radius(init_img, center=reference_center, energy=0.8),
+                gradient_history=_gradient_history,
+                pib_history=_pib_history,
+                ideal_r=IDEAL_SPOT_RADIUS,
+                max_lr=SCHEDULE_MAX_LR,
+                max_delta=SCHEDULE_MAX_DELTA,
+            )
 
         # Track the objective's OWN value. For "pib" that is the exposure-
         # independent bucket ratio at the FIXED ideal radius (matches the logged
         # column); for the other objectives it is the value the gradient uses --
         # e.g. the encircle radius, which must be MINIMISED (a `>` comparison
         # would keep the worst).
-        _initial_objective, best_c, best_objective, last_best_epoch = _pib_seed_best_state(_init_c, _init_res, delta)
+        best_objective = _init_res.tracking
+        # Baseline objective of the initial phase (flat when ``init_c`` is
+        # empty). Used on exit to decide between the best phase and flat.
+        _initial_objective = best_objective
+        best_c = _init_c.copy()
+        last_best_epoch = 0
 
         _pib_record_row0(_img, _init_c, _init_r, best_objective, cam, delta, init_img, initial_phase, j, objective, optimizer, optimizer_type, pib_ratio, r_bucket, record_phase, recorder, shaping)
 
@@ -1853,91 +1845,6 @@ class _RunState:
     _init_r: float = 0.0
 
 
-
-def _run_heuristic_with_progress(algorithm, cam, center, epochs, last_eval, live_display, nk, objective, objective_mode, optimizer_type, pop_size, random_seed, record_phase, recorder, session, shaping, state, target_size, w_loggrad):
-# Heuristic driver call with tqdm and per-candidate callback lifted verbatim
-    with tqdm.tqdm(
-        total=None, desc=f"slm_zernike {algorithm}", dynamic_ncols=True
-    ) as bar:
-
-        def _on_evaluate(candidate, value, index) -> None:
-            improved = (
-                value > state.best_objective + IMPROVE_EPS
-                if objective_mode == "max"
-                else value < state.best_objective - IMPROVE_EPS
-            )
-            if improved:
-                state.best_objective = float(value)
-                state.best_c = np.asarray(candidate, dtype=np.float64).copy()
-                state.last_best_epoch = index
-
-            img = last_eval["img"]
-            row = _log_row(
-                epoch=index,
-                coeffs=candidate,
-                obj_val=float(value),
-                obj_ratio=last_eval["ratio"],
-                J=last_eval["obj"],
-                diff=0.0,
-                grad=np.zeros_like(candidate),
-                img=img,
-                phase=last_eval.get("phase"),
-                lr_val=0.0,
-                delta_val=float(state.delta),
-                max_brt=float(np.max(img)),
-                loggrad=float(last_eval.get("loggrad", 0.0)),
-                _init_r=state._init_r,
-                best_objective=state.best_objective,
-                cam=cam,
-                objective=objective,
-                optimizer_type=optimizer_type,
-                r_bucket=state.r_bucket,
-                record_phase=record_phase,
-                recorder=recorder,
-                shaping=shaping,
-                w_loggrad=w_loggrad,
-)
-            if live_display is not None:
-                text = (
-                    f"{algorithm} eval {index} | "
-                    f"best {objective} {state.best_objective:.4f} @ {state.last_best_epoch} | "
-                    f"J {row['J']:.3g} | r {state.r_bucket:.1f}"
-                )
-                live_display.update(
-                    img,
-                    last_eval["phase"],
-                    candidate,
-                    center,
-                    state.r_bucket,
-                    text,
-                    value=float(value),
-                    epoch=index,
-                    target_size=target_size if target_size else None,
-                )
-            bar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
-            bar.update(1)
-
-        result = run_heuristic_search(
-            algorithm,
-            partial(_evaluate_candidate, session, shaping, objective, last_eval),
-            dim=nk,
-            iterations=epochs,
-            bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
-            x0=state._init_c,
-            maximize=(objective_mode == "max"),
-            seed=random_seed,
-            pop_size=pop_size,
-            on_evaluate=_on_evaluate,
-            should_stop=(
-                (lambda: live_display.closed)
-                if live_display is not None
-                else None
-            ),
-        )
-    return result
-
-
-
 def _run_heuristic(
     state: "_RunState",
     *,
@@ -1978,7 +1885,84 @@ def _run_heuristic(
             """
             last_eval: dict = {}
 
-            result = _run_heuristic_with_progress(algorithm, cam, center, epochs, last_eval, live_display, nk, objective, objective_mode, optimizer_type, pop_size, random_seed, record_phase, recorder, session, shaping, state, target_size, w_loggrad)
+            with tqdm.tqdm(
+                total=None, desc=f"slm_zernike {algorithm}", dynamic_ncols=True
+            ) as bar:
+
+                def _on_evaluate(candidate, value, index) -> None:
+                    improved = (
+                        value > state.best_objective + IMPROVE_EPS
+                        if objective_mode == "max"
+                        else value < state.best_objective - IMPROVE_EPS
+                    )
+                    if improved:
+                        state.best_objective = float(value)
+                        state.best_c = np.asarray(candidate, dtype=np.float64).copy()
+                        state.last_best_epoch = index
+
+                    img = last_eval["img"]
+                    row = _log_row(
+                        epoch=index,
+                        coeffs=candidate,
+                        obj_val=float(value),
+                        obj_ratio=last_eval["ratio"],
+                        J=last_eval["obj"],
+                        diff=0.0,
+                        grad=np.zeros_like(candidate),
+                        img=img,
+                        phase=last_eval.get("phase"),
+                        lr_val=0.0,
+                        delta_val=float(state.delta),
+                        max_brt=float(np.max(img)),
+                        loggrad=float(last_eval.get("loggrad", 0.0)),
+                        _init_r=state._init_r,
+                        best_objective=state.best_objective,
+                        cam=cam,
+                        objective=objective,
+                        optimizer_type=optimizer_type,
+                        r_bucket=state.r_bucket,
+                        record_phase=record_phase,
+                        recorder=recorder,
+                        shaping=shaping,
+                        w_loggrad=w_loggrad,
+)
+                    if live_display is not None:
+                        text = (
+                            f"{algorithm} eval {index} | "
+                            f"best {objective} {state.best_objective:.4f} @ {state.last_best_epoch} | "
+                            f"J {row['J']:.3g} | r {state.r_bucket:.1f}"
+                        )
+                        live_display.update(
+                            img,
+                            last_eval["phase"],
+                            candidate,
+                            center,
+                            state.r_bucket,
+                            text,
+                            value=float(value),
+                            epoch=index,
+                            target_size=target_size if target_size else None,
+                        )
+                    bar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+                    bar.update(1)
+
+                result = run_heuristic_search(
+                    algorithm,
+                    partial(_evaluate_candidate, session, shaping, objective, last_eval),
+                    dim=nk,
+                    iterations=epochs,
+                    bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
+                    x0=state._init_c,
+                    maximize=(objective_mode == "max"),
+                    seed=random_seed,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                    should_stop=(
+                        (lambda: live_display.closed)
+                        if live_display is not None
+                        else None
+                    ),
+                )
 
             if live_display is not None and live_display.closed:
                 logger.info(
@@ -2250,166 +2234,6 @@ def _spgd_gradient_pipeline(_captures, _diff_history, _fold_baseline_peak, _fold
 
 
 
-
-def _spgd_epoch_loop(_diff_history, _fix_bucket, _fold_baseline_peak, _fold_baseline_sum, _gradient_history, _max_history_len, _n_fold_gated, _n_noise_gated, _n_peak_gated, _pib_history, bar, cam, config, epochs, live_display, lr, nk, objective, objective_mode, optimizer, optimizer_type, record_phase, recorder, rng, session, shaping, shrink_iter, shrink_ratio, state, target_size, update_iter, w_loggrad):
-# Per epoch SPGD loop lifted verbatim
-    for epoch in range(1, epochs + 1):
-        # Generate random perturbation (±1 pattern)
-        _captures, _frame_stats, _pos_c, disturb_c, pos_img, pos_phase = _spgd_capture_abba(config, nk, rng, session, state)
-        for _c_sign, _img_c, _, _ in _captures:
-            _is_fold, _pk, _sm = _frame_fold_check(
-                _img_c,
-                _fold_baseline_peak,
-                _fold_baseline_sum,
-                config.fold_ratio,
-            )
-            _frame_stats.append((_c_sign, _is_fold, _pk, _sm))
-        _folded_signs = [s for s, is_fold, _, _ in _frame_stats if is_fold]
-        if _folded_signs:
-            _n_fold_gated += 1
-            logger.warning(
-                "epoch {}: brightness fold (signs={}, pk={:.0f}) - epoch skipped",
-                epoch,
-                _folded_signs,
-                max(pk for _, _, pk, _ in _frame_stats),
-            )
-            # Record the epoch honestly (unchanged coefficients, real
-            # mean J over the frames actually scored) so the fold is
-            # visible offline, then skip search.
-            _fold_j: list[float] = []
-            _fold_ratio: list[float] = []
-            with shaping.shape_batch():
-                for _c_sign, _img_c, _, _ in _captures:
-                    _r = shaping(_img_c)
-                    _fold_j.append(float(_r.j))
-                    _fold_ratio.append(float(_r.ratio))
-            _fold_j_mean = float(np.mean(_fold_j))
-            _log_row(
-                epoch=epoch,
-                coeffs=state._init_c,
-                obj_val=_fold_j_mean,
-                obj_ratio=float(np.mean(_fold_ratio)),
-                J=_fold_j_mean,
-                diff=0.0,
-                gate="fold",
-                grad=np.zeros(nk, dtype=np.float64),
-                img=pos_img,
-                phase=pos_phase,
-                lr_val=optimizer.lr,
-                delta_val=state.delta,
-                max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
-                                        _init_r=state._init_r,
-                best_objective=state.best_objective,
-                cam=cam,
-                objective=objective,
-                optimizer_type=optimizer_type,
-                r_bucket=state.r_bucket,
-                record_phase=record_phase,
-                recorder=recorder,
-                shaping=shaping,
-                w_loggrad=w_loggrad,
-)
-            bar.update(1)
-            continue
-
-        # Measured-peak feasibility gate (see ``max_peak``): mirror the
-        # fold gate, NOT the noise gate. A peak violation says nothing
-        # about gradient validity, so unlike the noise gate this must
-        # NOT call ``optimizer.update`` - zero-updating there decays
-        # momentum, which would corrupt the Adam moments with a
-        # statement we have no evidence for. It also must not append
-        # to ``_diff_history`` (that would inflate ``sigma_hat`` and
-        # make the noise gate over-fire) nor refresh the fold
-        # baseline, nor best-track, nor touch the bucket / lr
-        # schedules. Fully orthogonal: no state changes at all.
-        _peak_observed = float(max(pk for _, _, pk, _ in _frame_stats))
-        if config.max_peak > 0.0 and _peak_observed > config.max_peak:
-            _n_peak_gated += 1
-            logger.warning(
-                "epoch {}: peak {:.0f} exceeds max_peak={:.0f} - "
-                "update NOT committed (step #{})",
-                epoch,
-                _peak_observed,
-                config.max_peak,
-                _n_peak_gated,
-            )
-            # Honest row: unchanged coefficients, real mean J over the
-            # frames actually scored, real peak. ``gate`` records the
-            # reason so the freeze is visible offline.
-            _peak_j: list[float] = []
-            _peak_ratio: list[float] = []
-            with shaping.shape_batch():
-                for _c_sign, _img_c, _, _ in _captures:
-                    _r = shaping(_img_c)
-                    _peak_j.append(float(_r.j))
-                    _peak_ratio.append(float(_r.ratio))
-            _peak_j_mean = float(np.mean(_peak_j))
-            _log_row(
-                epoch=epoch,
-                coeffs=state._init_c,
-                obj_val=_peak_j_mean,
-                obj_ratio=float(np.mean(_peak_ratio)),
-                J=_peak_j_mean,
-                diff=0.0,
-                gate="peak",
-                grad=np.zeros(nk, dtype=np.float64),
-                img=pos_img,
-                phase=pos_phase,
-                lr_val=optimizer.lr,
-                delta_val=state.delta,
-                max_brt=_peak_observed,
-                                        _init_r=state._init_r,
-                best_objective=state.best_objective,
-                cam=cam,
-                objective=objective,
-                optimizer_type=optimizer_type,
-                r_bucket=state.r_bucket,
-                record_phase=record_phase,
-                recorder=recorder,
-                shaping=shaping,
-                w_loggrad=w_loggrad,
-)
-            bar.update(1)
-            continue
-
-        # All frames valid: refresh the fold baseline (EMA over valid
-        # frames only: a fold can never pull the baseline down and
-        # blind the gate) using the MEAN over every captured frame,
-        # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
-        # score each frame around its OWN spot.
-        J, _grad_usable, _n_noise_gated, _sign_results, diff, gradient, max_brightness, objective_ratio, objective_val, pos_center = _spgd_gradient_pipeline(_captures, _diff_history, _fold_baseline_peak, _fold_baseline_sum, _frame_stats, _n_noise_gated, config, disturb_c, epoch, objective, objective_mode, optimizer, pos_img, session, shaping, shrink_ratio, state, update_iter)
-
-        _spgd_record_improved(J, _fix_bucket, _gradient_history, _max_history_len, _pib_history, _pos_c, epoch, gradient, lr, objective_mode, objective_ratio, objective_val, optimizer, pos_center, pos_img, shaping, shrink_iter, shrink_ratio, state, update_iter)
-
-        log = _spgd_epoch_log_row(J, _grad_usable, _n_noise_gated, _sign_results, cam, diff, epoch, gradient, max_brightness, objective, objective_ratio, objective_val, optimizer, optimizer_type, pos_img, pos_phase, record_phase, recorder, shaping, state, w_loggrad)
-        if live_display is not None:
-            text = (
-                f"epoch {epoch} | {objective} {objective_val:.4f} "
-                f"@ {state.last_best_epoch} | r {state.r_bucket:.1f} | lr {optimizer.lr:.3f}"
-            )
-            if not live_display.update(
-                pos_img,
-                pos_phase,
-                _pos_c,
-                pos_center,
-                state.r_bucket,
-                text,
-                value=objective_val,
-                epoch=epoch,
-                total_epochs=epochs,
-                target_size=target_size if target_size else None,
-            ):
-                logger.info(
-                    "Display window closed; stopping SPGD at epoch {}", epoch
-                )
-                break
-
-        bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-        bar.update(1)
-    return _n_fold_gated, _n_noise_gated, _n_peak_gated
-
-
-
 def _run_spgd_session(
     *,
     _diff_history: object,
@@ -2448,7 +2272,159 @@ def _run_spgd_session(
             with tqdm.tqdm(
                 total=epochs, desc=f"slm_zernike iter {epochs}", dynamic_ncols=True
             ) as bar:
-                _n_fold_gated, _n_noise_gated, _n_peak_gated = _spgd_epoch_loop(_diff_history, _fix_bucket, _fold_baseline_peak, _fold_baseline_sum, _gradient_history, _max_history_len, _n_fold_gated, _n_noise_gated, _n_peak_gated, _pib_history, bar, cam, config, epochs, live_display, lr, nk, objective, objective_mode, optimizer, optimizer_type, record_phase, recorder, rng, session, shaping, shrink_iter, shrink_ratio, state, target_size, update_iter, w_loggrad)
+                for epoch in range(1, epochs + 1):
+                    # Generate random perturbation (±1 pattern)
+                    _captures, _frame_stats, _pos_c, disturb_c, pos_img, pos_phase = _spgd_capture_abba(config, nk, rng, session, state)
+                    for _c_sign, _img_c, _, _ in _captures:
+                        _is_fold, _pk, _sm = _frame_fold_check(
+                            _img_c,
+                            _fold_baseline_peak,
+                            _fold_baseline_sum,
+                            config.fold_ratio,
+                        )
+                        _frame_stats.append((_c_sign, _is_fold, _pk, _sm))
+                    _folded_signs = [s for s, is_fold, _, _ in _frame_stats if is_fold]
+                    if _folded_signs:
+                        _n_fold_gated += 1
+                        logger.warning(
+                            "epoch {}: brightness fold (signs={}, pk={:.0f}) - epoch skipped",
+                            epoch,
+                            _folded_signs,
+                            max(pk for _, _, pk, _ in _frame_stats),
+                        )
+                        # Record the epoch honestly (unchanged coefficients, real
+                        # mean J over the frames actually scored) so the fold is
+                        # visible offline, then skip search.
+                        _fold_j: list[float] = []
+                        _fold_ratio: list[float] = []
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _fold_j.append(float(_r.j))
+                                _fold_ratio.append(float(_r.ratio))
+                        _fold_j_mean = float(np.mean(_fold_j))
+                        _log_row(
+                            epoch=epoch,
+                            coeffs=state._init_c,
+                            obj_val=_fold_j_mean,
+                            obj_ratio=float(np.mean(_fold_ratio)),
+                            J=_fold_j_mean,
+                            diff=0.0,
+                            gate="fold",
+                            grad=np.zeros(nk, dtype=np.float64),
+                            img=pos_img,
+                            phase=pos_phase,
+                            lr_val=optimizer.lr,
+                            delta_val=state.delta,
+                            max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=state.r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
+                        bar.update(1)
+                        continue
+
+                    # Measured-peak feasibility gate (see ``max_peak``): mirror the
+                    # fold gate, NOT the noise gate. A peak violation says nothing
+                    # about gradient validity, so unlike the noise gate this must
+                    # NOT call ``optimizer.update`` - zero-updating there decays
+                    # momentum, which would corrupt the Adam moments with a
+                    # statement we have no evidence for. It also must not append
+                    # to ``_diff_history`` (that would inflate ``sigma_hat`` and
+                    # make the noise gate over-fire) nor refresh the fold
+                    # baseline, nor best-track, nor touch the bucket / lr
+                    # schedules. Fully orthogonal: no state changes at all.
+                    _peak_observed = float(max(pk for _, _, pk, _ in _frame_stats))
+                    if config.max_peak > 0.0 and _peak_observed > config.max_peak:
+                        _n_peak_gated += 1
+                        logger.warning(
+                            "epoch {}: peak {:.0f} exceeds max_peak={:.0f} - "
+                            "update NOT committed (step #{})",
+                            epoch,
+                            _peak_observed,
+                            config.max_peak,
+                            _n_peak_gated,
+                        )
+                        # Honest row: unchanged coefficients, real mean J over the
+                        # frames actually scored, real peak. ``gate`` records the
+                        # reason so the freeze is visible offline.
+                        _peak_j: list[float] = []
+                        _peak_ratio: list[float] = []
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _peak_j.append(float(_r.j))
+                                _peak_ratio.append(float(_r.ratio))
+                        _peak_j_mean = float(np.mean(_peak_j))
+                        _log_row(
+                            epoch=epoch,
+                            coeffs=state._init_c,
+                            obj_val=_peak_j_mean,
+                            obj_ratio=float(np.mean(_peak_ratio)),
+                            J=_peak_j_mean,
+                            diff=0.0,
+                            gate="peak",
+                            grad=np.zeros(nk, dtype=np.float64),
+                            img=pos_img,
+                            phase=pos_phase,
+                            lr_val=optimizer.lr,
+                            delta_val=state.delta,
+                            max_brt=_peak_observed,
+                                                    _init_r=state._init_r,
+                            best_objective=state.best_objective,
+                            cam=cam,
+                            objective=objective,
+                            optimizer_type=optimizer_type,
+                            r_bucket=state.r_bucket,
+                            record_phase=record_phase,
+                            recorder=recorder,
+                            shaping=shaping,
+                            w_loggrad=w_loggrad,
+)
+                        bar.update(1)
+                        continue
+
+                    # All frames valid: refresh the fold baseline (EMA over valid
+                    # frames only: a fold can never pull the baseline down and
+                    # blind the gate) using the MEAN over every captured frame,
+                    # which reduces to the previous 0.5*(pos+neg) for 2 frames, and
+                    # score each frame around its OWN spot.
+                    J, _grad_usable, _n_noise_gated, _sign_results, diff, gradient, max_brightness, objective_ratio, objective_val, pos_center = _spgd_gradient_pipeline(_captures, _diff_history, _fold_baseline_peak, _fold_baseline_sum, _frame_stats, _n_noise_gated, config, disturb_c, epoch, objective, objective_mode, optimizer, pos_img, session, shaping, shrink_ratio, state, update_iter)
+
+                    _spgd_record_improved(J, _fix_bucket, _gradient_history, _max_history_len, _pib_history, _pos_c, epoch, gradient, lr, objective_mode, objective_ratio, objective_val, optimizer, pos_center, pos_img, shaping, shrink_iter, shrink_ratio, state, update_iter)
+
+                    log = _spgd_epoch_log_row(J, _grad_usable, _n_noise_gated, _sign_results, cam, diff, epoch, gradient, max_brightness, objective, objective_ratio, objective_val, optimizer, optimizer_type, pos_img, pos_phase, record_phase, recorder, shaping, state, w_loggrad)
+                    if live_display is not None:
+                        text = (
+                            f"epoch {epoch} | {objective} {objective_val:.4f} "
+                            f"@ {state.last_best_epoch} | r {state.r_bucket:.1f} | lr {optimizer.lr:.3f}"
+                        )
+                        if not live_display.update(
+                            pos_img,
+                            pos_phase,
+                            _pos_c,
+                            pos_center,
+                            state.r_bucket,
+                            text,
+                            value=objective_val,
+                            epoch=epoch,
+                            total_epochs=epochs,
+                            target_size=target_size if target_size else None,
+                        ):
+                            logger.info(
+                                "Display window closed; stopping SPGD at epoch {}", epoch
+                            )
+                            break
+
+                    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+                    bar.update(1)
             return (
         _n_fold_gated,
         _n_noise_gated,

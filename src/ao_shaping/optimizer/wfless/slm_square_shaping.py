@@ -1190,159 +1190,6 @@ def _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_t
 
 
 
-
-def _square_finalize_logging(_guard_enabled, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, display_stack, epochs, last_best_epoch, slm):
-# Final guard logging and display cleanup lifted verbatim
-    if SLM_RESET_ON_EXIT:
-        slm.set_grayscale(0)
-
-    logger.info(
-        f"Optimization complete. Best quality={best_quality:.4f} "
-        f"(CV={best_cv:.4f}, EE={best_ee:.4f}, AR={best_ar:.4f}) "
-        f"@ epoch {last_best_epoch}"
-    )
-    if _guard_enabled:
-        logger.info(
-            "Energy guard: {} of {} epochs skipped", _n_energy_gated, epochs
-        )
-
-    display_stack.close()
-
-
-
-
-def _square_optimization_block(_adaptive_boost_active, _adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _dim, _gradient_history, _has_rotation, _heuristic_bounds, _max_history_len, _opt_dim, _param_scale, _params, _params_to_gray, _record_vec, _rot_delta, _score_column, algorithm, ar, best_ar, best_cv, best_ee, best_quality, cam, center, cost, cv, delta, ee, epochs, exposure_time_ms, init_img, kwargs, last_best_epoch, lr, max_roi_energy_loss, mean_int, objective, optimizer_type, pbr, pop_size, quality, random_seed, recorder, rng, show, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity):
-# Guard assembly and epoch optimization block lifted verbatim
-    _guard_enabled = float(max_roi_energy_loss) > 0.0
-    _guard_ref_ee: float | None = None
-    _guard_enabled, _guard_ref_ee, display_ctx, display_stack, _n_energy_gated = _session_wire_energy_guard(_guard_enabled, _guard_ref_ee, _params, _record_vec, _score_column, ar, best_quality, cam, cost, cv, delta, ee, init_img, lr, max_roi_energy_loss, mean_int, optimizer_type, pbr, quality, recorder, show, target_mean_brightness, target_side)
-
-    # ── Black-box heuristic search branch (shared driver) ──────────────
-    _stage_early, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch = _run_square_search_stage(
-        _adaptive_boost_active=_adaptive_boost_active,
-        _adaptive_cfg=_adaptive_cfg,
-        _apply_update=_apply_update,
-        _base_w_aspect=_base_w_aspect,
-        _base_w_efficiency=_base_w_efficiency,
-        _base_w_uniformity=_base_w_uniformity,
-        _cv_history=_cv_history,
-        _delta_pinned=_delta_pinned,
-        _dim=_dim,
-        _gradient_history=_gradient_history,
-        _guard_enabled=_guard_enabled,
-        _guard_ref_ee=_guard_ref_ee,
-        _has_rotation=_has_rotation,
-        _heuristic_bounds=_heuristic_bounds,
-        _max_history_len=_max_history_len,
-        _n_energy_gated=_n_energy_gated,
-        _opt_dim=_opt_dim,
-        _param_scale=_param_scale,
-        _params=_params,
-        _params_to_gray=_params_to_gray,
-        _record_vec=_record_vec,
-        _rot_delta=_rot_delta,
-        _score_column=_score_column,
-        algorithm=algorithm,
-        best_ar=best_ar,
-        best_cv=best_cv,
-        best_ee=best_ee,
-        best_quality=best_quality,
-        cam=cam,
-        center=center,
-        cv=cv,
-        delta=delta,
-        display_ctx=display_ctx,
-        display_stack=display_stack,
-        ee=ee,
-        epochs=epochs,
-        exposure_time_ms=exposure_time_ms,
-        kwargs=kwargs,
-        last_best_epoch=last_best_epoch,
-        lr=lr,
-        max_roi_energy_loss=max_roi_energy_loss,
-        objective=objective,
-        optimizer_type=optimizer_type,
-        pop_size=pop_size,
-        quality=quality,
-        random_seed=random_seed,
-        recorder=recorder,
-        rng=rng,
-        slm=slm,
-        target_max_brightness=target_max_brightness,
-        target_mean_brightness=target_mean_brightness,
-        target_side=target_side,
-        w_aspect=w_aspect,
-        w_efficiency=w_efficiency,
-        w_pbr=w_pbr,
-        w_uniformity=w_uniformity,
-    )
-    return _guard_enabled, _n_energy_gated, _stage_early, best_ar, best_cv, best_ee, best_quality, display_stack, last_best_epoch
-
-
-
-
-def _square_init_metrics(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius):
-# Initial frame metrics and best state lifted verbatim
-    _pattern_helper: PatternHelper | None = (
-        PatternHelper(SLM_RESOLUTION, bits=slm.Gray_Scale_bits or 10)
-        if basis == "zernike"
-        else None
-    )
-
-    _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality, center, target_side = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
-
-    best_quality = quality
-    best_cost = cost
-    best_cv = cv
-    best_ee = ee
-    best_ar = ar
-    best_c = _params.copy()
-    best_img = init_img.copy()
-    last_best_epoch = 0
-    return _apply_update, _params_to_gray, ar, best_ar, best_cv, best_ee, best_quality, center, cost, cv, ee, init_img, last_best_epoch, mean_int, pbr, quality, target_side
-
-
-
-
-def _square_param_setup(_active_modes, _dim, _has_rotation, basis, blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, init_amplitude_rad, init_c, n_max, recorder, rng, slm, target_side):
-# Parameter space and exposure setup lifted verbatim
-    require_drive_board_entry(slm)
-    blaze_choice, exposure_time_ms = _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side)
-    recorder.blaze_choice = blaze_choice
-    # Initialize parameter vector (zernike: mapped onto the active modes)
-    if basis == "zernike":
-        if init_c is None or len(init_c) == 0:
-            _params = np.zeros(_dim, dtype=np.float64)
-        else:
-            _params = _map_init_to_active_modes(
-                np.asarray(init_c, dtype=np.float64), n_max, _active_modes
-            )
-    else:
-        # Freeform init. HARDWARE MEASURED (2026-10-01, bench 2f/SLM #1 +
-        # Daheng, report/fouriergsnet_pipeline/hardware_run_20261001.md): the
-        # flat state is the BEST-focus state (FWHM 13.6 px, hollowness 0.92),
-        # and a full-amplitude random start destroys it -- the failed run
-        # began at 0-order peak 225 and ended at 17, with its best iterate
-        # being the initial one. A dense +/-0.5 rad random phase was measured
-        # to leave the in-box energy unchanged within 2.6%, i.e. it
-        # redistributes light rather than focusing it, so starting there just
-        # wastes the objective's dynamic range. Default to flat (zeros) and
-        # let `init_amplitude_rad` request a small random escape.
-        if init_amplitude_rad > 0.0:
-            _params = rng.uniform(
-                -float(init_amplitude_rad), float(init_amplitude_rad), size=_dim
-            ).astype(np.float64)
-        else:
-            _params = np.zeros(_dim, dtype=np.float64)
-
-    # Rotation DOF starts at 0° (middle of the search range)
-    if _has_rotation:
-        _params = np.concatenate([_params, np.zeros(1, dtype=_params.dtype)])
-    _opt_dim = _dim  # full dimension including rotation (used by optimizer)
-    return _opt_dim, _params, blaze_choice, exposure_time_ms
-
-
-
 def _run_square_session(
     *,
     _active_modes: object,
@@ -1416,12 +1263,59 @@ def _run_square_session(
         ) as slm,
     ):
         # 采集入口守卫 (#186): 驱动板不应答在第一帧前失败; 仿真面板 no-op。
-        _opt_dim, _params, blaze_choice, exposure_time_ms = _square_param_setup(_active_modes, _dim, _has_rotation, basis, blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, init_amplitude_rad, init_c, n_max, recorder, rng, slm, target_side)
+        require_drive_board_entry(slm)
+        blaze_choice, exposure_time_ms = _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_type, exposure_time_ms, slm, target_side)
+        recorder.blaze_choice = blaze_choice
+        # Initialize parameter vector (zernike: mapped onto the active modes)
+        if basis == "zernike":
+            if init_c is None or len(init_c) == 0:
+                _params = np.zeros(_dim, dtype=np.float64)
+            else:
+                _params = _map_init_to_active_modes(
+                    np.asarray(init_c, dtype=np.float64), n_max, _active_modes
+                )
+        else:
+            # Freeform init. HARDWARE MEASURED (2026-10-01, bench 2f/SLM #1 +
+            # Daheng, report/fouriergsnet_pipeline/hardware_run_20261001.md): the
+            # flat state is the BEST-focus state (FWHM 13.6 px, hollowness 0.92),
+            # and a full-amplitude random start destroys it -- the failed run
+            # began at 0-order peak 225 and ended at 17, with its best iterate
+            # being the initial one. A dense +/-0.5 rad random phase was measured
+            # to leave the in-box energy unchanged within 2.6%, i.e. it
+            # redistributes light rather than focusing it, so starting there just
+            # wastes the objective's dynamic range. Default to flat (zeros) and
+            # let `init_amplitude_rad` request a small random escape.
+            if init_amplitude_rad > 0.0:
+                _params = rng.uniform(
+                    -float(init_amplitude_rad), float(init_amplitude_rad), size=_dim
+                ).astype(np.float64)
+            else:
+                _params = np.zeros(_dim, dtype=np.float64)
+
+        # Rotation DOF starts at 0° (middle of the search range)
+        if _has_rotation:
+            _params = np.concatenate([_params, np.zeros(1, dtype=_params.dtype)])
+        _opt_dim = _dim  # full dimension including rotation (used by optimizer)
 
         # GUI-consistent zernike generation (multi_slm_controller.py): uint16
         # grayscale, min-max normalised inside a circular aperture of radius
         # `zernike_radius`. Built once per run (generator cached in helper).
-        _apply_update, _params_to_gray, ar, best_ar, best_cv, best_ee, best_quality, center, cost, cv, ee, init_img, last_best_epoch, mean_int, pbr, quality, target_side = _square_init_metrics(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
+        _pattern_helper: PatternHelper | None = (
+            PatternHelper(SLM_RESOLUTION, bits=slm.Gray_Scale_bits or 10)
+            if basis == "zernike"
+            else None
+        )
+
+        _apply_update, _params_to_gray, ar, cost, cv, ee, init_img, mean_int, pbr, quality, center, target_side = _session_init_iteration(_active_modes, _fix_target, _has_rotation, _param_clip, _params, _pattern_helper, _rot_clip, basis, blaze_choice, cam, cam_size, center, exposure_time_ms, n_max, objective, phase_grid, side_factor, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity, zernike_radius)
+
+        best_quality = quality
+        best_cost = cost
+        best_cv = cv
+        best_ee = ee
+        best_ar = ar
+        best_c = _params.copy()
+        best_img = init_img.copy()
+        last_best_epoch = 0
 
         # ------------------------------------------------------------------
         # In-ROI energy guard, armed from the initial (flat) frame.
@@ -1438,12 +1332,87 @@ def _run_square_session(
         # penalised pair. Here the epoch is SKIPPED outright, so the
         # coefficients never move toward a state that empties the box.
         # ------------------------------------------------------------------
-        _guard_enabled, _n_energy_gated, _stage_early, best_ar, best_cv, best_ee, best_quality, display_stack, last_best_epoch = _square_optimization_block(_adaptive_boost_active, _adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _dim, _gradient_history, _has_rotation, _heuristic_bounds, _max_history_len, _opt_dim, _param_scale, _params, _params_to_gray, _record_vec, _rot_delta, _score_column, algorithm, ar, best_ar, best_cv, best_ee, best_quality, cam, center, cost, cv, delta, ee, epochs, exposure_time_ms, init_img, kwargs, last_best_epoch, lr, max_roi_energy_loss, mean_int, objective, optimizer_type, pbr, pop_size, quality, random_seed, recorder, rng, show, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
+        _guard_enabled = float(max_roi_energy_loss) > 0.0
+        _guard_ref_ee: float | None = None
+        _guard_enabled, _guard_ref_ee, display_ctx, display_stack, _n_energy_gated = _session_wire_energy_guard(_guard_enabled, _guard_ref_ee, _params, _record_vec, _score_column, ar, best_quality, cam, cost, cv, delta, ee, init_img, lr, max_roi_energy_loss, mean_int, optimizer_type, pbr, quality, recorder, show, target_mean_brightness, target_side)
+
+        # ── Black-box heuristic search branch (shared driver) ──────────────
+        _stage_early, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch = _run_square_search_stage(
+            _adaptive_boost_active=_adaptive_boost_active,
+            _adaptive_cfg=_adaptive_cfg,
+            _apply_update=_apply_update,
+            _base_w_aspect=_base_w_aspect,
+            _base_w_efficiency=_base_w_efficiency,
+            _base_w_uniformity=_base_w_uniformity,
+            _cv_history=_cv_history,
+            _delta_pinned=_delta_pinned,
+            _dim=_dim,
+            _gradient_history=_gradient_history,
+            _guard_enabled=_guard_enabled,
+            _guard_ref_ee=_guard_ref_ee,
+            _has_rotation=_has_rotation,
+            _heuristic_bounds=_heuristic_bounds,
+            _max_history_len=_max_history_len,
+            _n_energy_gated=_n_energy_gated,
+            _opt_dim=_opt_dim,
+            _param_scale=_param_scale,
+            _params=_params,
+            _params_to_gray=_params_to_gray,
+            _record_vec=_record_vec,
+            _rot_delta=_rot_delta,
+            _score_column=_score_column,
+            algorithm=algorithm,
+            best_ar=best_ar,
+            best_cv=best_cv,
+            best_ee=best_ee,
+            best_quality=best_quality,
+            cam=cam,
+            center=center,
+            cv=cv,
+            delta=delta,
+            display_ctx=display_ctx,
+            display_stack=display_stack,
+            ee=ee,
+            epochs=epochs,
+            exposure_time_ms=exposure_time_ms,
+            kwargs=kwargs,
+            last_best_epoch=last_best_epoch,
+            lr=lr,
+            max_roi_energy_loss=max_roi_energy_loss,
+            objective=objective,
+            optimizer_type=optimizer_type,
+            pop_size=pop_size,
+            quality=quality,
+            random_seed=random_seed,
+            recorder=recorder,
+            rng=rng,
+            slm=slm,
+            target_max_brightness=target_max_brightness,
+            target_mean_brightness=target_mean_brightness,
+            target_side=target_side,
+            w_aspect=w_aspect,
+            w_efficiency=w_efficiency,
+            w_pbr=w_pbr,
+            w_uniformity=w_uniformity,
+        )
         if _stage_early:
             return recorder
 
         # Reset SLM to flat phase on exit
-        _square_finalize_logging(_guard_enabled, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, display_stack, epochs, last_best_epoch, slm)
+        if SLM_RESET_ON_EXIT:
+            slm.set_grayscale(0)
+
+        logger.info(
+            f"Optimization complete. Best quality={best_quality:.4f} "
+            f"(CV={best_cv:.4f}, EE={best_ee:.4f}, AR={best_ar:.4f}) "
+            f"@ epoch {last_best_epoch}"
+        )
+        if _guard_enabled:
+            logger.info(
+                "Energy guard: {} of {} epochs skipped", _n_energy_gated, epochs
+            )
+
+        display_stack.close()
 
         return recorder
 

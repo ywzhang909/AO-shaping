@@ -228,125 +228,6 @@ def _comb_setup_masks(center, dm, epochs, img_size, init_img, kwargs, lr, r_buck
 
 
 
-
-def _comb_run_epochs(_init_v, auto_exposure, cam, center, delta, dm, dm_unit_mask, epochs, exposure_time_ms, img_size, init_img, kwargs, lr, r_bucket, recorder, show, shrink_iter, shrink_ratio, target_max_brightness):
-# Epoch prep plus saturate closure plus tqdm loop lifted verbatim
-    _fix_bucket, bucket_mask, dist, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, update_iter, window = _comb_setup_masks(center, dm, epochs, img_size, init_img, kwargs, lr, r_bucket, show, shrink_ratio)
-    if lr == 0:
-        optimizer.lr, delta = learning_schedule(
-            radius(init_img, center=center, energy=0.8)
-        )
-
-    _comb_record_init_row(_init_v, cam, delta, init_img, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, recorder)
-
-    _render_epoch_frame = _comb_render_factory(center, dm, r_bucket, show, window)
-
-    def _saturate_epoch(pos_frame, neg_frame):
-        nonlocal pib_scaler
-        avg = float(np.mean([np.max(pos_frame), np.max(neg_frame)]))
-        if avg >= 255 and auto_exposure:
-            resampled = resample_on_saturation(
-                pos_frame,
-                cam,
-                exposure_time_ms,
-                target_max_brightness,
-                auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
-                    target_max=t,
-                    twice_valid=False,
-                    n_sample=max(n_sample, 20),
-                ),
-                saturation_threshold=avg,
-            )
-            pib_scaler = avg / max(np.max(resampled), 1)
-        return avg
-
-    with tqdm.tqdm(
-        total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
-    ) as bar:
-        for epoch in range(1, epochs + 1):
-            _epoch = spid_pib_epoch(
-                dm=dm,
-                cam=cam,
-                init_v=_init_v,
-                delta=delta,
-                unit_mask=dm_unit_mask,
-                rng=np.random,
-                optimizer=optimizer,
-                evaluate=lambda img, _mask=bucket_mask: power_in_bucket_mask(img, _mask),
-                maximize=True,
-                diff_sign=1.0,
-                epoch=epoch,
-                on_render=_render_epoch_frame,
-                on_saturation=_saturate_epoch,
-            )
-            if _epoch.aborted:
-                break
-            pos_img = _epoch.pos_img
-            neg_img = _epoch.neg_img
-            pos_j, neg_j = _epoch.pos_value, _epoch.neg_value
-            diff = _epoch.diff
-            gradient = _epoch.gradient
-            _init_v = _epoch.init_v
-            avg_brightness = _epoch.brightness
-            if not _epoch.applied:
-                logger.warning(
-                    "Neighbour voltage difference too large — skip update"
-                )
-
-            pib, pib_ratio = (
-                pib_ratio_mask(pos_img, pib_mask, pib_scaler),
-                (pos_j + neg_j) / 2.0,
-            )
-            J = (pos_j + neg_j) / 2.0
-
-            if epoch % update_iter == update_iter - 1:
-                init_r = max(init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
-
-            if (
-                (
-                    epoch % update_iter == update_iter - 1
-                    or (
-                        shrink_iter > 0
-                        and epoch % shrink_iter == shrink_iter - 1
-                    )
-                    or pib_ratio >= 0.99
-                )
-                and pib > 0
-                and not _fix_bucket
-            ):
-                power_radio = radius(pos_img, center=center, energy=0.8)
-                _pr = power_radio * shrink_ratio
-                _r = max(
-                    r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket
-                )
-                r_bucket = min(_r, _pr, init_r)
-                bucket_mask = dist <= r_bucket
-                if lr == 0:
-                    optimizer.lr, delta = learning_schedule(r_bucket)
-
-            log = {
-                "J": J,
-                RECORD_ROI_ENERGY: pib_ratio,
-                "_max_r": init_r,
-                "pib": pib,
-                "_raw_pib": pib_ratio_mask(pos_img, pib_mask),
-                RECORD_DIFF: diff,
-                "lr": optimizer.lr,
-                "r": r_bucket,
-                "delta": delta,
-                RECORD_EPOCH: epoch,
-                RECORD_VOLTAGES: _init_v.copy(),
-                RECORD_IMAGE: pos_img,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": avg_brightness,
-            }
-            recorder.append(log)
-            bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
-            bar.update(1)
-    return delta, r_bucket, window
-
-
-
 def _run_combined_session(
     *,
     cam_id: object,
@@ -404,7 +285,118 @@ def _run_combined_session(
         img_size = bench.img_size
         auto_exposure = exposure_time_ms == 0
         try:
-            delta, r_bucket, window = _comb_run_epochs(_init_v, auto_exposure, cam, center, delta, dm, dm_unit_mask, epochs, exposure_time_ms, img_size, init_img, kwargs, lr, r_bucket, recorder, show, shrink_iter, shrink_ratio, target_max_brightness)
+            _fix_bucket, bucket_mask, dist, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, update_iter, window = _comb_setup_masks(center, dm, epochs, img_size, init_img, kwargs, lr, r_bucket, show, shrink_ratio)
+            if lr == 0:
+                optimizer.lr, delta = learning_schedule(
+                    radius(init_img, center=center, energy=0.8)
+                )
+
+            _comb_record_init_row(_init_v, cam, delta, init_img, init_r, j, optimizer, pib_mask, pib_scaler, r_bucket, recorder)
+
+            _render_epoch_frame = _comb_render_factory(center, dm, r_bucket, show, window)
+
+            def _saturate_epoch(pos_frame, neg_frame):
+                nonlocal pib_scaler
+                avg = float(np.mean([np.max(pos_frame), np.max(neg_frame)]))
+                if avg >= 255 and auto_exposure:
+                    resampled = resample_on_saturation(
+                        pos_frame,
+                        cam,
+                        exposure_time_ms,
+                        target_max_brightness,
+                        auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                            target_max=t,
+                            twice_valid=False,
+                            n_sample=max(n_sample, 20),
+                        ),
+                        saturation_threshold=avg,
+                    )
+                    pib_scaler = avg / max(np.max(resampled), 1)
+                return avg
+
+            with tqdm.tqdm(
+                total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
+            ) as bar:
+                for epoch in range(1, epochs + 1):
+                    _epoch = spid_pib_epoch(
+                        dm=dm,
+                        cam=cam,
+                        init_v=_init_v,
+                        delta=delta,
+                        unit_mask=dm_unit_mask,
+                        rng=np.random,
+                        optimizer=optimizer,
+                        evaluate=lambda img, _mask=bucket_mask: power_in_bucket_mask(img, _mask),
+                        maximize=True,
+                        diff_sign=1.0,
+                        epoch=epoch,
+                        on_render=_render_epoch_frame,
+                        on_saturation=_saturate_epoch,
+                    )
+                    if _epoch.aborted:
+                        break
+                    pos_img = _epoch.pos_img
+                    neg_img = _epoch.neg_img
+                    pos_j, neg_j = _epoch.pos_value, _epoch.neg_value
+                    diff = _epoch.diff
+                    gradient = _epoch.gradient
+                    _init_v = _epoch.init_v
+                    avg_brightness = _epoch.brightness
+                    if not _epoch.applied:
+                        logger.warning(
+                            "Neighbour voltage difference too large — skip update"
+                        )
+
+                    pib, pib_ratio = (
+                        pib_ratio_mask(pos_img, pib_mask, pib_scaler),
+                        (pos_j + neg_j) / 2.0,
+                    )
+                    J = (pos_j + neg_j) / 2.0
+
+                    if epoch % update_iter == update_iter - 1:
+                        init_r = max(init_r * shrink_ratio, IDEAL_SPOT_RADIUS)
+
+                    if (
+                        (
+                            epoch % update_iter == update_iter - 1
+                            or (
+                                shrink_iter > 0
+                                and epoch % shrink_iter == shrink_iter - 1
+                            )
+                            or pib_ratio >= 0.99
+                        )
+                        and pib > 0
+                        and not _fix_bucket
+                    ):
+                        power_radio = radius(pos_img, center=center, energy=0.8)
+                        _pr = power_radio * shrink_ratio
+                        _r = max(
+                            r_bucket * shrink_ratio + 1, IDEAL_SPOT_RADIUS, r_bucket
+                        )
+                        r_bucket = min(_r, _pr, init_r)
+                        bucket_mask = dist <= r_bucket
+                        if lr == 0:
+                            optimizer.lr, delta = learning_schedule(r_bucket)
+
+                    log = {
+                        "J": J,
+                        RECORD_ROI_ENERGY: pib_ratio,
+                        "_max_r": init_r,
+                        "pib": pib,
+                        "_raw_pib": pib_ratio_mask(pos_img, pib_mask),
+                        RECORD_DIFF: diff,
+                        "lr": optimizer.lr,
+                        "r": r_bucket,
+                        "delta": delta,
+                        RECORD_EPOCH: epoch,
+                        RECORD_VOLTAGES: _init_v.copy(),
+                        RECORD_IMAGE: pos_img,
+                        "exp_t": get_camera_exposure_ms(cam),
+                        "max_brt": avg_brightness,
+                    }
+                    recorder.append(log)
+                    bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
+                    bar.update(1)
 
         finally:
             if show and window is not None:
