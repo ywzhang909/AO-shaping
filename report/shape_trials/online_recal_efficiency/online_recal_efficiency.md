@@ -1,10 +1,10 @@
 # 光路变化后的在线重标定：效率分析 (2026-10-13)
 
 <!-- provenance:start -->
-> **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/slm/_archive/generate_online_recal_efficiency_report.py.bak`](../../../scripts/slm/_archive/generate_online_recal_efficiency_report.py.bak)
+> **生成脚本**: [`scripts/slm/generate_online_recal_efficiency_report.py`](../../../scripts/slm/generate_online_recal_efficiency_report.py)
+> **复现命令**: `python scripts/slm/generate_online_recal_efficiency_report.py`
 > **运行环境**: 离线
-> **说明**: 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量; 原生成脚本已归档, 不再承诺复现
+> **说明**: 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量
 <!-- provenance:end -->
 
 ## 0. 实验目的
