@@ -20,7 +20,7 @@ from loguru import logger as loguru_logger
 
 from ao_shaping.drivers.dm import _registry as dm_registry
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners import runner_common
+from ao_shaping.runners import runner_common, voltage_io
 from ao_shaping.runners.runner_common import (
     load_init_v,
     plot_pib_debug_grid,
@@ -130,7 +130,7 @@ class TestSaveBestVoltages:
 
     def test_single_recorder_uses_round_to_int(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            runner_common, "get_date_dir_name", lambda: "20261020_000000"
+            voltage_io, "get_date_dir_name", lambda: "20261020_000000"
         )
         rec = _FakeRecorder()
 
@@ -151,7 +151,7 @@ class TestSaveBestVoltages:
             counter["n"] += 1
             return f"20261020_{counter['n']:06d}"
 
-        monkeypatch.setattr(runner_common, "get_date_dir_name", fake_date)
+        monkeypatch.setattr(voltage_io, "get_date_dir_name", fake_date)
         wf_rec, ccd_rec = _FakeRecorder(), _FakeRecorder()
 
         out = save_best_voltages(
@@ -308,3 +308,44 @@ class TestSaveModelInLoopShapedPhase:
             debug=True,
         )
         np.testing.assert_allclose(np.load(saved.shaped_phase_file), last)
+
+
+class TestVoltageIoExtraction:
+    """#205: the DM voltage helpers live in ``voltage_io``; runner_common re-exports.
+
+    The extraction is behaviour-neutral only while both entry points resolve to
+    the SAME function object -- a duplicated body would pass every behavioural
+    test in this file while letting the two copies drift.
+    """
+
+    def test_runner_common_reexports_the_voltage_io_objects(self) -> None:
+        from ao_shaping.runners import runner_common, voltage_io
+
+        assert set(voltage_io.__all__) == {
+            "load_init_v",
+            "plot_pib_debug_grid",
+            "round_to_int",
+            "save_best_voltages",
+            "truncate_to_int",
+        }
+        mismatched = [
+            name
+            for name in voltage_io.__all__
+            if getattr(runner_common, name) is not getattr(voltage_io, name)
+        ]
+        assert not mismatched, mismatched
+
+    def test_voltage_io_does_not_import_runner_common(self) -> None:
+        """Guards the import direction: ``voltage_io`` is the leaf of the pair."""
+        import ast
+        from pathlib import Path
+
+        from ao_shaping.runners import voltage_io
+
+        tree = ast.parse(Path(voltage_io.__file__).read_text(encoding="utf-8"))
+        offending = [
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and "runner_common" in (node.module or "")
+        ]
+        assert not offending, offending

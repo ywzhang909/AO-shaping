@@ -5764,6 +5764,15 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 未做 (issue 余项): `slm-fidelity-probe` CLI (需硬件的 phase-stepping 序列)、jitter 周期量化、闭环内去相关接入
 - 门禁: 26 passed; ruff 全仓绿; term 0; conventions 73 passed / 1 skipped; module size `--check` 0
 
+**2026-11-19 · 89a0a21f 之后 · 第 167 批: `runner_common` 电压/绘图 IO 五函数外提 (4320→4224 行)**
+- 外提 `round_to_int` / `truncate_to_int` / `load_init_v` / `save_best_voltages` / `plot_pib_debug_grid` 逐字至新模块 `runners/voltage_io.py`（保留 `__all__`、`TYPE_CHECKING` 下的 `Recorder`、matplotlib/`plot_funcs` 惰性导入——`plot_pib_debug_grid` 不能在 import 期拉硬依赖）
+- `runner_common` 只保留 re-export（`x as x` 形式，ruff 认作显式再导出）；`nlight_dm` 四 runner 与 `test_voltage_rounding` 的 `from ...runner_common import ...` 零改动；`voltage_io` 是叶子（AST 守卫挡 `import runner_common`，防循环）
+- 两处 monkeypatch 目标随实现迁移: `test_runner_common` 改 patch `voltage_io.get_date_dir_name` —— 函数在自己模块的 globals 里解析该名, patch 旧模块会静默失效（首跑 2 failed 实证）；顺带删掉 `runner_common` 中因此不再使用的 `get_date_dir_name` 与 `loguru.logger` 导入
+- 棘轮: baseline `runner_common.py` 4320→4224 (-96)；`--update-baseline` 同时收紧两处历史滞后（`multi_slm_controller` 1752→1751、`shaping_controls` 2823→2821，均为拆 `slm_registry` 后未落盘的收紧），方向 **收紧 3 / 抬高 0**
+- 守卫新增 `TestVoltageIoExtraction`: 五个公开名与 `voltage_io` 同名对象 `is` 恒等（复制体实现会让全部行为测试照绿而两份漂移）+ `voltage_io` 不 import `runner_common` 的 AST 方向守卫
+- 载体: `test_runner_common` + `test_voltage_rounding` **21 passed**；conventions + `test_cli_argv_binding` **98 passed / 1 skipped**（跳过项 = 容器 PATH 无 ruff, CI 专用 job 兜底）；ruff 全仓绿; term 0; modsize `--check` 0
+- 注: `docs/dev/call_graph_wiki/raw/assets/` 仍按 `ao_shaping.runners.runner_common.<helper>` 记名（生成物；re-export 后该限定名仍可解析）；wiki 正文无这些函数的 `file:line` 引用（已 grep 核实），本批不重生成
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
