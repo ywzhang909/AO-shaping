@@ -5754,6 +5754,16 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 门禁: 目标 5 文件 **102 passed**; conventions **73 passed** / 1 skipped (顺带按守卫重钉 TODO.md 行锚 1250→1258); ruff 全仓绿; term 0; 容器缺 PySide6 的 12 个 transfer_desktop 收集错误为 master 既有 (CI 镜像有 PySide6)
 - 未验: 3 台物理串联的实际排布 (需实验系统), 本批只保证代码路径与控件树
 
+**2026-11-19 · b37de319 之后 · #156 第 1 项: 七因子保真度分解 (纯 numpy 叶子模块)**
+- 交付 `src/ao_shaping/utils/slm/fidelity_diag.py`: Mastiani/Cox/Vellekoop 2024 (DOI 10.1088/2515-7647/ad5775, Eq. 15-44) 的七因子分解 —— `|γ_N|²` 受控模式占比 / `|γ_A|²=⟨|t|⟩²/⟨|t|²⟩` / `|γ_0|²` 由 `|F1|/|F0|=γ0√(1-γ0²)` 反解小缺陷根 / `|γ_φ|²=|⟨e^{iΔφ}⟩|²` / `|γ_J|²=(sinΔφ/Δφ)²` / `|γ_S|²=SNR/(1+SNR)` / `|γ_D|²=Pearson²`; `step_dft` 做步进谐波分解 (单帧 DC 与时均一致)
+- 口径修正 (issue 第 3 项, 最低成本项): `theoretical_ceiling(N)=π/4·(N-1)+1`, 纯相位强散射上限, 比 N 低约 21% (N=100 → 78.75); docstring 明写该式依赖圆高斯 `t_ba`, 弱前向散射只当上界
+- 合成 `diagnose()`: 只纳入**给了输入**的因子 (缺省 1.0 = 无证据), 产出 `FidelityReport` (逐因子 + 乘积 + 期望增强 + 缺口 + 低于 `DEFAULT_THRESHOLD` 的缓解建议), 七个机制各配一行缓解文案
+- 反向校验 (文献同款注入): `arange(256)/128*π*1.2` 的相位响应错误只让 `|γ_φ|²` 跌破阈值 (0.88) 而 `|γ_S|²≈1`; 完美条件 → 期望增强 == 上限; 常量相位偏置不扣分 (全局相位)
+- 载体 `tests/ao_shaping/utils/slm/test_fidelity_diag.py` 26 项: 上限/七核/DFT/注入缺陷隔离/半配对输入拒绝/`MITIGATIONS` 键与因子同步/AST 叶子导入守卫
+- 叶子契约: 只 import numpy + stdlib, 由 AST 守卫挡住 `ao_shaping` 导入 (与 `utils/math/stability.py` 同构)
+- 未做 (issue 余项): `slm-fidelity-probe` CLI (需硬件的 phase-stepping 序列)、jitter 周期量化、闭环内去相关接入
+- 门禁: 26 passed; ruff 全仓绿; term 0; conventions 73 passed / 1 skipped; module size `--check` 0
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
