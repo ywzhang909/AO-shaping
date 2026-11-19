@@ -157,7 +157,7 @@ PEAK_SIGMA_FLOOR_COUNTS = 1.0
 RECOMMENDED_PEAK_RANGE = (100.0, 200.0)
 #: Noll 4 = 离焦 (仓库约定)。
 DEFOCUS_NOLL_INDEX = 4
-#: S0 前置条件要求的相机位深 (bit)。8 bit 下 1 count ≈ 7% 满量程, 均匀性/线性度
+#: S0 前置条件要求的相机位深 (bit)。8 bit 下 1 count ≈ 7% 满量程, 均匀度/线性度
 #: 结论会被量化噪声主导 (见 docs/dev/hw_plan_consolidated_20261118.md S0);
 #: ``--bit-depth`` 的默认值就是它, 位深是满量程的唯一来源 (ccd/AGENTS.md 满量程)。
 S0_BIT_DEPTH = 12
@@ -1213,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=S0_BIT_DEPTH,
         choices=(8, 12, 16),
         help="相机输出位深 (bit); S0 前置条件是 Mono12 —— 8 bit 下 1 count ≈ 7%% "
-             "满量程, 均匀性/线性度结论会被量化噪声主导。只对登记了 "
+             "满量程, 均匀度/线性度结论会被量化噪声主导。只对登记了 "
              "supported_bit_depths 的后端 (daheng/miicam) 生效: 开相机后按设备"
              "回读校验, 不符即报错 (其它后端没有位深可切, 按帧 dtype 兜底满量程)",
     )
@@ -1939,9 +1939,9 @@ def run_probe(args: argparse.Namespace) -> int:
 def _verify_camera_bit_depth(camera: Any, requested: int) -> int | None:
     """核对相机**设备回读**的位深; 不符即报错, 绝不带着错的满量程继续。
 
-    位深决定满量程 (8/12/16 bit → 255/4095/65535), 全部饱和/线性度/均匀性判据都
+    位深决定满量程 (8/12/16 bit → 255/4095/65535), 全部饱和/线性度/均匀度判据都
     按满量程折算 (ccd/AGENTS.md 满量程小节)。8 bit 下 1 count ≈ 7% 满量程, S0 的
-    均匀性结论会直接失效 —— 所以这里宁可停, 也不静默继续。
+    均匀度结论会直接失效 —— 所以这里宁可停, 也不静默继续。
 
     没有位深真值的后端 (ffmpeg / image_folder / 仿真: ``bit_depth`` 恒 ``None``)
     不参与校验: 它们的满量程按帧 dtype 兜底, 不存在「位深错了」这回事。
@@ -1965,7 +1965,7 @@ def _verify_camera_bit_depth(camera: Any, requested: int) -> int | None:
         raise RuntimeError(
             f"相机位深与请求不符: 请求 {int(requested)} bit, 设备回读 {actual} bit。"
             f"满量程会按回读位深 ({(1 << actual) - 1}) 折算, 与本次探测假设的 "
-            f"{(1 << int(requested)) - 1} 不是同一量纲; 继续下去饱和/均匀性判据全错。"
+            f"{(1 << int(requested)) - 1} 不是同一量纲; 继续下去饱和/均匀度判据全错。"
             f"该后端位深档位: supported_bit_depths={supported} "
             "(拉流中替换 PixelFormat 不生效, 位深必须在开流前写好)。"
         )

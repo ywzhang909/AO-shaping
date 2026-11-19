@@ -34,7 +34,7 @@ from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 if TYPE_CHECKING:
     from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
-    from ao_shaping.utils.slm.pattern_helper import PatternHelper
+    from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 #: Memory-slot range used for phase writes. Never repeat a slot consecutively:
 #: ``display_memory`` on the slot already shown is a firmware no-op.

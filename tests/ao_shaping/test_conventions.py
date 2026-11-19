@@ -1741,7 +1741,7 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
 # becoming typed), and the src/ moves in 062a64e5..fae245db (transfer/validate.py split,
 # exposure_control.py, record_mode.py) retired two more silent sites. The number below is
 # taken from the guard's own walk, not recounted by hand.
-_BLIND_SILENT_BASELINE = 44
+_BLIND_SILENT_BASELINE = 43
 
 
 def _blind_silent_handlers(root: Path) -> list[str]:
@@ -3058,6 +3058,9 @@ _UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
     'report/shape_trials/cold_start/cold_start_20261026.md': '## 数据、复现与设备释放',
     'report/simulation/sim_credibility/sim_credibility_20261030.md': '## 11. 坑',
     'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
+    'report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/README.md': (
+        '## `--execute` 跑完后本目录会出现'
+    ),
     'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
     'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
     'report/slm/zernike_wfs_report/report.md': '## 4. 结论与注意',
@@ -5151,6 +5154,7 @@ def test_agents_md_pointer_guard_is_not_vacuous() -> None:
 #: in the module docstring; drift in either direction is a CI failure.
 _PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
     ("drivers/ccd/pixel_size.py", "_main"): 3,
+    ("tools/ccd/capture_darks.py", "main"): 1,
     ("tools/kernels/device_mutex.py", "_wait_idle_loop"): 9,
     ("tools/kernels/device_mutex.py", "_resolve_probe_state"): 4,
     ("tools/kernels/device_mutex.py", "_probe_main"): 2,
@@ -5160,9 +5164,9 @@ _PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
     ("tools/slm/transfer/parallel_fit.py", "main"): 1,
     ("tools/slm/transfer/validate.py", "_hold_best_phase_or_flatten"): 1,
     ("tools/slm/transfer/validate.py", "_run_validate_shapes"): 1,
-    ("tools/slm/transfer/validate.py", "_validate_block_loop"): 1,
+    ("tools/slm/transfer/validate.py", "_run_validate_blocks"): 1,
     ("tools/slm/transfer/workflow.py", "_run_reused_session"): 1,
-    ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
+    ("tools/slm/transfer/workflow.py", "run_session"): 1,
     ("tools/slm/transfer/workflow.py", "stage"): 1,
 }
 

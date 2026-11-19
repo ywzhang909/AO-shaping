@@ -604,9 +604,9 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
    自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:134/182` 重连前先关旧设备、
    `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
-   整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/321`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
+   整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:297/324`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1282`，本项 2026-10-29 重钉而非撤销：`detect_camera_pixel_um`
+    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1292`，本项 2026-10-29 重钉而非撤销：`detect_camera_pixel_um`
     改为只查型号配置 `data/ccd_configs/ccd/models.json`（`probe_daheng_models` + `lookup_model_pixel_size_um`，大恒侧不再开相机探测），
     型号未登记时驱动侧 `resolve_model_pixel_size_um` 抛 `CameraError` 并给出登记命令，原先两条吞 `except Exception` 的兜底随
     `15ea0a22` 删除 ⇒ 大恒侧已无护栏可钉；剩下的就是这条 MiiCam 侧收窄后的 `except (ImportError, OSError)` → 打 debug →
@@ -5782,6 +5782,17 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - baseline: `runner_common.py` 4224→3917 (-307)，方向 **收紧 1 / 抬高 0**; 注释头同步改写声明新边界（gs-refine 半族留驻 + 迁出指引）
 - 载体: `test_runner_common` + `test_model_error_terms` + `test_runner_param_config_wiring` **60 passed**; shape **515 passed**; conventions **73 passed / 1 skipped**; ruff 全仓绿; term 0; modsize `--check` 0
 - ㊻ 外提批的"未破坏面"清单本批全部为阴性: wiki 引用 (无 file:line) / monkeypatch 目标 (本批无人 patch 迁移名) / 行锚 (runner_common 被引用行号全部 <3400) / TYPE_CHECKING 导入 (ModelInLoopResult 从 runner_common 删除后 ruff F401 兜底)
+
+**2026-11-19 · 2e565cc4 之后 · 第 169 批: 上游硬件分支合并对账 —— 算法以物理验证侧为准 + 吃回文件恢复 + 守卫批量重钉 (无新算法改动)**
+- 背景: 上游实验系统分支经 `3d0fe7f2` 合入 origin/master (53 提交, 冲突以硬件侧为准); 其 `fd1a7723`/`816b7be9`/`6911d15b` 把本仓历次 lifted-verbatim 提取**有意内联回调用方并经物理验证**。用户裁决: **算法相关修改以该侧为准**, 结构让位, 但被合并吃回的 CI 依赖必须恢复
+- 代码归属判定 (三方 diff 实测): `workflow.py` = 硬件侧 (含 ccd_mode=none 开环上屏特性), `ccd_analyzer.py` = 硬件侧 (含 ROI/取景 stale-handle 修复), `bench_settings.py` = 硬件侧 + #150 `slm_registry` 导入补回 (正文 1775 行消费 `connected_slm_numbers`, 缺导入即 F821); `model_in_loop_io` 落盘族与硬件侧**逐字节等值** (difflib 实测仅注释缩进差), 无需回改
+- 吃回恢复 (parent1 删除获胜致 212 文件消失, 其中 210 为 parent2 独有): 22 脚本 + 13 模块 + 24 测试 + 151 docs/report —— MIL 分析/报告链 (`compare_model_in_loop_unet`/`evaluate_*`/`model_in_loop_auto`/`sweep_uncertainty_*` 等)、`model_in_loop_replay`/`summary`/`analyze|compare|replay_disturbance`、三份 MIL 文档与 removal_report 及其两被引文档 (adcdb50b/9e244f6e 时代找回)
+- ⚠️ 六个孤儿叶子**不恢复** (硬件侧已内联合并回调用方, 全树 grep 零 importer): `drivers/ccd/saturation`、`gui/ccd/mjpeg_streamer`、`gui/ccd/roi_window`、`gui/slm/bench_point_parse`、`wfless/slm_zernike_pib_gates`、`diffraction_efficiency/calibration_access` —— 恢复它们就是复活被审查否决的第二份实现
+- 只提交调用点未提交本体 (a60a87ca 同型病复发): `slm_model_in_loop.py` import `adaptive_trust_region`+`uncertainty_probe_selector` 两侧均无已入库本体 → 自 parent2 恢复 (主检出为更旧基线, 仅作用交叉验证); `scripts/slm/model_in_loop_hw_ab.py` 的 `model_in_loop_summary` 同法; `slm_zernike_primitives` 一处 `utils.slm.pattern_helper` 错路修正为 canonical `utils.wavefront`
+- MIL 测试网: 14 个测试文件从实验检出补入 —— 与合并树冲突的两个 (`test_slm_model_in_loop` 焦点推导 fixture、`test_slm_model_in_loop_display`) 换回 parent2 版, `test_model_in_loop_auto_calibrate` 弃 (钉不存在的 GUI 行为); 全链 393+100 passed
+- 守卫重钉 (全部按现状实测): 形状棘轮 **保留 408 / 抬高 30 (内联回母函数, cap=实测+8, 含 workflow.run_session 214/capture.capture 283/`__post_init__` 158) / 删除 74** (被内联 helper 不复存在); capture/validate 三处源码钉沿塌缩后归属者链改钉 (`_cap_session_setup`→capture 本体一跳, `remaining_blocks` 直接钉 run); print 契约 allowlist +3 (capture_darks/workflow.run_session/validate._run_validate_blocks, 均为 CLI stdout) −2 (被内联站点的旧键) 并修正 run_session 计数 (AST 内层归属=1); blind-silent 基线 44→43 (合并净减一吞); fidelity_ladder 未产出节豁免条目补回; live 行锚 3 处 (pre_run 581/595→582/596、ccd_analyzer 321→324、bench_settings 1282→1292); wiki 引用 2 处重钉 (transfer_shapes_runner 930→914、pib 509→540)
+- provenance: 合并双方各自追加致 3 对重复键 (dict 后键覆盖前键 = 截断版胜出) 去重保留完整版; 新登记 4 项 (removal_report/ladder_summary/stepb_optimizer_lr HANDWRITTEN/生成) + 找回两被引文档登记; `sync_report_provenance.py` 重渲染, 233 登记项
+- 载体: conventions+provenance **1013 passed / 1 skipped**; shape **441 passed**; transfer **484 passed**; runners **647 passed / 25 skipped**; MIL+scripts **493**; gui/slm 子集 88; gui/ccd 4 项 PySide6 收集错误为 master 既有 (CI 镜像有); ruff 全仓绿; term 0; modsize `--check` 0 (workflow −45 收紧; ccd_analyzer +162 / bench_settings +5 为硬件侧功能性抬高)
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

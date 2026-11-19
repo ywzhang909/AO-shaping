@@ -163,7 +163,7 @@ def _physical_forward(size=32, fft_size=64, camera_window=13):
 
 
 def test_real_frozen_forward_accepts_a_batch_of_candidates():
-    """冻结物理前向对 (K, H, H) 输入本就批安全：一次批前向给出 K 张强度图。"""
+    """冻结物理预测对 (K, H, H) 输入本就批安全：一次批前向给出 K 张强度图。"""
     forward, window = _physical_forward()
     size = forward.params.grid_size
     phase = np.zeros((2, size, size), dtype=np.float32)

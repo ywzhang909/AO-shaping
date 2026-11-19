@@ -75,7 +75,7 @@
 ### 结论 9：补齐目标形状验收的代码侧缺口（离线，未占用设备）
 
 - **measured-vs-target intensity RMSE**：`protocol.target_intensity_rmse`（整窗两侧各自归一化后相减，背景 `floor` 先扣、`None` 表示无能量——与 cv=None 同约定），`replay_phases` 在每条记录写入 `target_rmse`（grid 不一致时为 `None`，不在采集中断）。冻结契约 `TARGET_INTENSITY_KEYS = (rmse, rel_l2, energy_fraction)`；8 项单测（radiometry 不变性、目标外能量惩罚、背景扣除、无能量/grid 拒绝等）通过。
-- **带锁 replay 外壳**：新增 `scripts/slm/replay_transfer_shapes_hardware.py`，复用验证器外壳的锁协议；消费 `--execute` 门禁（不转发给 replay 模块）、强制 `--out` 与 `--exposures` 显式、等空闲+持锁贯穿重放+finally 释放+写 `device_lock.json`；无 `--execute` 拒绝且不导入设备模块。16 项 mock 测试通过，真实 `--help`/拒绝路径实跑通过；**`--execute` 从未执行**。
+- **带锁 replay 外壳**：新增 `scripts/slm/replay_transfer_shapes_hardware.py`，复用验证器外壳的锁协议；消费 `--execute` 门禁（不转发给 replay 模块）、强制 `--out` 与 `--exposures` 显式、等空闲+持锁贯穿重放+finally 释放+写 `device_lock.json`；无 `--execute` 拒绝且不导入设备模块。16 项 mock 测试通过，真实 `--help`/拒绝路径实在线实现过；**`--execute` 从未执行**。
 - 验收计划 `target_shape_ccd_acceptance_plan_20261118.md` 与主报告 §11.3 已更新：定义 RMSE 归一化/背景/阈值边界（阈值须现场预注册，`rel_l2` 上限 + `energy_fraction` 下限，冻结后只评分一次）；明确**代码就绪 ≠ 验收通过**。provenance `--check` clean、相关报告定向 8 项通过；`protocol` 单测 51 项、transfer/replay 汇总 522 passed + 1 skipped。
 - 边界不变：无任何目标形状 CCD 实测、无阈值预注册、无独立证据，**不放行**；全部改动未提交、未推送。
 
@@ -93,8 +93,8 @@
 - **冻结解析模型 `FrozenDefocusForward` 的方向门失败是模型类问题**：已有噪声预算、7×7 交叉匹配、参数扫描与第二 pass 证据排除了噪声、索引错位及样本不足；方向响应的主导 PC1 符号/幅度不匹配，失败数在模型变体中封顶。详见 `agent_notes_20261118.md` §“方向门失败机制归因” L44-L72。
 - **原强度数值不能判为通过**：`relL2=0.355` 是 in-sample 零步结果、无 held-out；`adaptation.py` 的 0.25 是 escalation heuristic，不是预注册放行门。因而原所谓“双门互斥”只描述现有冻结模型及不完整强度判据下的结果，不能推广成模型类普遍结论，也不能据此放行。
 - **`LocalResponseModel` 是诊断性替代模型，不是闭环放行证据**：隔离 worktree 报告 `direction_model_class_20261118.md` §0 报告形式 OOF 12/14、median 0.8378；两折互为数学镜像，独立证据仅 6/7 模式跨 pass 可复现，Z11 未复现。held-out 强度相关 0.9885–0.9964，但未缩放 relL2=0.217–0.261 跨越 0.25 启发式，且该阈值未预注册；报告也指出跨 pass 强度标度有采集侧不自洽。因此不得把 12/14 或相关系数当作锚定闭环放行结论。
-- **独立轴失配假设为阴性**：合并计划 §2 的 D2′ 留出 `axis − baseline` r² 差为 −0.00348，95% CI [−0.00824,+0.00160] 含 0；不得再把物理 xy 轴失配写作方向失败解释。
-- **1200 px 计划参数边界**：历史几何的离线 `plan` 与 640 网格导出只证明参数/几何可行，不证明 checkpoint 有科学资格、也不证明上机质量。
+- **独立轴失配假设为阴性**：合并计划 §2 的 D2′ 验证集 `axis − baseline` r² 差为 −0.00348，95% CI [−0.00824,+0.00160] 含 0；不得再把物理 xy 轴失配写作方向失败解释。
+- **1200 px 计划参数边界**：历史几何的离线 `plan` 与 640 网格导出只证明参数/几何可行，不证明 checkpoint 有科学资格、也不证明实验质量。
 - **下一步（先纯离线；transfer 硬件验证仍暂停）**：强度门 `δ=0.20` 与联合规则已预注册；仍需锁定具体模型定义/权重、训练/验证拆分与脚本哈希，再只用归档数据复核 `LocalResponseModel` 的拆分和曝光配对。现有两 pass 不能制造 14 个真正独立 OOF 对；若需确认模型泛化，须先有符合本预注册的数据方案。双门/模型资格路径未澄清前，transfer `light/none` 继续暂停，不以工程验证混同科学验收。
 
 ### Transfer 强度门预注册（2026-11-19；δ 已冻结）
