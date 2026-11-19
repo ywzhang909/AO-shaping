@@ -5,7 +5,7 @@
 2026-10-22 的 MIL 硬件 campaign 两次死在几何标定, 报的是
 ``no swept mode produced a usable width response; the spot width does not
 respond to any of them on this bench``
-(现位于 ``optimizer/wfless/bench_sweep_fit.py::calibrate_bench_geometry_from_sweep``)。
+(``optimizer/wfless/model_in_loop_shaping.py::calibrate_bench_geometry_from_sweep``)。
 那条报错只说「宽度不响应」, 完全没提**信噪比不足**这一层: 当时的曝光窗口是
 1-10 ms (峰值 24-213 counts), 而几何 sweep 靠「光斑宽度随扫描模式变化」来拟合
 焦面标度 —— 那个宽度响应整个淹在噪声里。
@@ -98,7 +98,6 @@ from ao_shaping.utils.slm.bench_constants import (
     SLM_PANEL_H,
     SLM_PANEL_W,
 )
-from ao_shaping.utils.slm.gray_scale import configured_max_grayscale
 from ao_shaping.utils.slm.phase_display import (
     display_phase as display_phase_on_slm,
 )
@@ -148,16 +147,27 @@ SATURATION_FRACTION = 0.95
 FWHM_SIGMA_FLOOR_PX = 0.3
 #: 峰值的 sigma 下限 (counts)。
 PEAK_SIGMA_FLOOR_COUNTS = 1.0
-#: 建议曝光的目标峰值区间 (counts)。
+#: 建议曝光的目标峰值区间 —— **0-255 灰度口径**, 不是原始 counts。
+#:
+#: 它是在 8-bit 时代标定的 (那时 counts 就是 0-255 灰度)。12/16-bit 相机上
+#: ``peak_raw`` 是 0-4095 / 0-65535, 直接拿 100-200 去比只剩满量程的 2.4%-4.9%,
+#: 会挑到远低于目标的暗档 (S0 的 Mono12 重跑就会踩到)。``analyse_ladder`` 按
+#: ``full_scale / 255`` 折算成 raw counts 再比较, 于是「满量程的 39%-78%」在
+#: 所有位深上一致。
 RECOMMENDED_PEAK_RANGE = (100.0, 200.0)
 #: Noll 4 = 离焦 (仓库约定)。
 DEFOCUS_NOLL_INDEX = 4
+#: S0 前置条件要求的相机位深 (bit)。8 bit 下 1 count ≈ 7% 满量程, 均匀性/线性度
+#: 结论会被量化噪声主导 (见 docs/dev/hw_plan_consolidated_20261118.md S0);
+#: ``--bit-depth`` 的默认值就是它, 位深是满量程的唯一来源 (ccd/AGENTS.md 满量程)。
+S0_BIT_DEPTH = 12
 
 #: 判定「这一帧就是平场参考」的离焦容差: 名义 Δz = 0 的那些帧, 其 ``defocus_rad``
 #: 与 0 只差在浮点误差量级内, 用严格 ``== 0`` 会把它们错判成非平场。只适用于离焦轴 ——
 #: 第 255 行判断的是**振幅**是否为 0, 那是另一个量, 故意不共用这个容差。
 FLAT_DEFOCUS_EPS_RAD = 1e-12
-#: 建议曝光的落点 (counts) —— 区间的中点。
+#: 建议曝光的落点 (**0-255 灰度**口径) —— 区间的中点; ``analyse_ladder`` 按
+#: ``full_scale / 255`` 折算成 raw counts 后再挑最近的一档。
 RECOMMENDED_PEAK_TARGET = 0.5 * (
     RECOMMENDED_PEAK_RANGE[0] + RECOMMENDED_PEAK_RANGE[1]
 )
@@ -346,6 +356,36 @@ def _save_npz(
     np.savez_compressed(path, frames=np.stack(frames), **{k: np.asarray(v) for k, v in meta.items()})
 
 
+def _frame_full_scale(cam: Any, frame: np.ndarray) -> float:
+    """一帧的生效满量程 —— **绑定相机生效位深, 不绑帧 dtype**。
+
+    大恒 MONO12 的帧 dtype 是 ``uint16``, 按 ``np.iinfo(dtype).max`` 会得到 65535
+    而真实满量程是 4095 (issue #246): 饱和帧被误判成「过暗」, 后续的饱和/线性度
+    判据全错量纲。相机契约 (``effective_full_scale`` → ``_full_scale``) 是唯一口径;
+    dtype 只在没有相机信息时兜底 (ffmpeg / image_folder 这类回放后端)。
+    """
+    effective = getattr(cam, "effective_full_scale", None)
+    if callable(effective):
+        try:
+            value = float(effective(frame))
+        except Exception:  # 兜底路径不能因为一个后端实现缺陷而中断采集
+            value = 0.0
+        if value > 0.0:
+            return value
+    fallback = getattr(cam, "_full_scale", None)
+    if callable(fallback):
+        try:
+            value = float(fallback(np.asarray(frame).dtype))
+        except Exception:  # 同上: 兜底失败才落到 dtype 推导
+            value = 0.0
+        if value > 0.0:
+            return value
+    dtype = np.asarray(frame).dtype
+    return (
+        float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 255.0
+    )
+
+
 def measure_exposure_ladder(
     cam: Any,
     exposures_ms: list[float],
@@ -364,12 +404,7 @@ def measure_exposure_ladder(
         stats = [frame_stats(frame) for frame in frames]
         peaks = [s.peak_raw for s in stats]
         noise = robust_noise_floor(frames[0])
-        dtype = np.asarray(frames[0]).dtype
-        full_scale = (
-            float(np.iinfo(dtype).max)
-            if np.issubdtype(dtype, np.integer)
-            else 255.0
-        )
+        full_scale = _frame_full_scale(cam, frames[0])
         record: dict[str, Any] = {
             "requested_ms": float(requested),
             "effective_ms": effective,
@@ -515,8 +550,9 @@ def analyse_ladder(
 
     * **噪声底**: 最短曝光档那一帧的 ``中位数 + 4 * sigma`` 与它的峰值。
     * **可用窗口**: 峰值高于噪声底、且没饱和的档位。
-    * **建议曝光**: 可用窗口里峰值落在 ~100-200 counts 的那一档; 没有就取可用
-      窗口里最亮且不饱和的那一档。
+    * **建议曝光**: 可用窗口里峰值落在 ~100-200 **灰度** 的那一档 (目标带按
+      ``full_scale / 255`` 折算成 raw counts, 所以 8/12/16 bit 上含义一致);
+      没有就取可用窗口里最亮且不饱和的那一档。
     """
     shortest = min(ladder, key=lambda r: r["effective_ms"])
     scales = [float(r["full_scale"]) for r in ladder if "full_scale" in r]
@@ -530,6 +566,13 @@ def analyse_ladder(
         "peak_counts": float(shortest["peak_raw"]),
     }
     saturation_counts = SATURATION_FRACTION * full_scale
+    # 目标带以 0-255 灰度标定 (8-bit 时代 counts == 灰度), 这里折算到本次实测
+    # 满量程的 raw counts: Mono12 上 100-200 灰度 = 1606-3212 counts。不折算就会
+    # 把「满量程的 2.4%-4.9%」当成目标, 挑出比预期暗 16 倍的那一档。
+    scale_to_counts = float(full_scale) / 255.0
+    band_lo = float(RECOMMENDED_PEAK_RANGE[0]) * scale_to_counts
+    band_hi = float(RECOMMENDED_PEAK_RANGE[1]) * scale_to_counts
+    band_target = float(RECOMMENDED_PEAK_TARGET) * scale_to_counts
     for record in ladder:
         record["carries_signal"] = bool(record["peak_raw"] > noise_floor["threshold_counts"])
         record["saturated"] = bool(record["peak_raw"] >= saturation_counts)
@@ -538,21 +581,24 @@ def analyse_ladder(
     usable = [r for r in ladder if r["usable"]]
     recommended: dict[str, Any] | None = None
     if usable:
-        in_band = [
-            r
-            for r in usable
-            if RECOMMENDED_PEAK_RANGE[0] <= r["peak_raw"] <= RECOMMENDED_PEAK_RANGE[1]
-        ]
+        in_band = [r for r in usable if band_lo <= r["peak_raw"] <= band_hi]
         pool = in_band or usable
         pick = min(
             pool,
-            key=lambda r: abs(float(r["peak_raw"]) - RECOMMENDED_PEAK_TARGET),
+            key=lambda r: abs(float(r["peak_raw"]) - band_target),
         )
         recommended = {
             "exposure_ms": float(pick["effective_ms"]),
+            # peak_counts 保持**原始 counts** (图上的纵轴就是 raw axis);
+            # peak_gray 是同一读数折回 0-255 灰度, 便于跨位深对照历史记录。
             "peak_counts": float(pick["peak_raw"]),
+            "peak_gray": float(pick["peak_raw"]) * 255.0 / float(full_scale),
             "in_target_band": bool(in_band),
-            "target_band_counts": list(RECOMMENDED_PEAK_RANGE),
+            "target_band_counts": [band_lo, band_hi],
+            "target_band_gray": [
+                float(RECOMMENDED_PEAK_RANGE[0]),
+                float(RECOMMENDED_PEAK_RANGE[1]),
+            ],
         }
 
     # 阶梯的单调性: 改曝光后第一帧就是新曝光是大恒驱动层的不变量, 阶梯不单调
@@ -578,6 +624,12 @@ def analyse_ladder(
     return {
         "noise_floor": noise_floor,
         "saturation_counts": float(saturation_counts),
+        # 目标带的两个视角: raw counts (随满量程缩放) 与 0-255 灰度 (常量)。
+        "target_band_counts": [band_lo, band_hi],
+        "target_band_gray": [
+            float(RECOMMENDED_PEAK_RANGE[0]),
+            float(RECOMMENDED_PEAK_RANGE[1]),
+        ],
         "usable_window_ms": [float(r["effective_ms"]) for r in usable],
         "max_ladder_peak_counts": float(max((r["peak_raw"] for r in ladder), default=0.0)),
         "best_usable_peak_counts": float(max((r["peak_raw"] for r in usable), default=0.0)),
@@ -940,11 +992,13 @@ def plot_results(
     ax.plot(xs, ys, "o-", color="#c2410c", label="峰值 (原始帧)")
     threshold = float(ladder_summary["noise_floor"]["threshold_counts"])
     ax.axhline(threshold, ls="--", color="#64748b", label=f"噪声底 {threshold:.1f} counts")
+    # 饱和线随生效满量程走 (Mono12 上 0.95*4095 ≈ 3891 counts, 不是 8-bit 的 242)。
+    saturation_counts = float(ladder_summary["saturation_counts"])
     ax.axhline(
-        SATURATION_FRACTION * 255.0,
+        saturation_counts,
         ls="--",
         color="#dc2626",
-        label=f"饱和线 {SATURATION_FRACTION * 255.0:.0f} counts",
+        label=f"饱和线 {saturation_counts:.0f} counts",
     )
     usable = [
         (float(r["effective_ms"]), float(r["peak_raw"]))
@@ -1105,6 +1159,8 @@ class ProbeConfig:
     slm_wavelength_nm: int = 1064
     cam_type: str = "daheng"
     cam_id: int = 0
+    #: 请求的相机位深 (bit); 开相机后按设备回读校验, 不符即报错。
+    bit_depth: int = S0_BIT_DEPTH
     wait_until_idle_s: float = 0.0
 
 
@@ -1151,6 +1207,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--slm-wavelength", type=int, default=1064, help="SLM 工作波长 (nm)")
     parser.add_argument("--cam-type", default="daheng", help="相机类型")
     parser.add_argument("--cam-id", type=int, default=0, help="相机编号")
+    parser.add_argument(
+        "--bit-depth",
+        type=int,
+        default=S0_BIT_DEPTH,
+        choices=(8, 12, 16),
+        help="相机输出位深 (bit); S0 前置条件是 Mono12 —— 8 bit 下 1 count ≈ 7%% "
+             "满量程, 均匀性/线性度结论会被量化噪声主导。只对登记了 "
+             "supported_bit_depths 的后端 (daheng/miicam) 生效: 开相机后按设备"
+             "回读校验, 不符即报错 (其它后端没有位深可切, 按帧 dtype 兜底满量程)",
+    )
     parser.add_argument(
         "--wait-until-idle",
         type=float,
@@ -1316,6 +1382,24 @@ def _collect_record_devices(
             "驱动板 ReadSU 没有可用状态码 (drive_board_status 不可读或驱动板未应答)"
         )
 
+    # 物理 2π 灰度 = Santec 相位表的设备读数 (诊断/上报值, 不参与 rad→gray 编码)。
+    # 这里**绝不**回落到配置的编码标度 (缺省 1023) 冒充设备值: 读不到就写 null
+    # 并在 reasons 里说明, 由 build_optical_path_record 登记到 missing。
+    two_pi_grayscale: int | None = None
+    try:
+        _wavelength_readback, two_pi_readback = slm.get_wavelength_info()
+        candidate = int(two_pi_readback)
+        if candidate > 0:
+            two_pi_grayscale = candidate
+        else:
+            reasons["devices.slm.two_pi_grayscale"] = (
+                f"SLM 设备回报的 2π 灰度无效 ({candidate}) —— 相位表可能未编程"
+            )
+    except Exception as exc:  # 只读字段, 失败不该阻断记录落盘
+        reasons["devices.slm.two_pi_grayscale"] = (
+            f"SLM 设备 2π 灰度读不到 ({type(exc).__name__}: {exc})"
+        )
+
     pixel_size_um = getattr(camera, "pixel_size_um", None)
     if not isinstance(pixel_size_um, (int, float)) or float(pixel_size_um) <= 0:
         pixel_size_um = None
@@ -1334,7 +1418,7 @@ def _collect_record_devices(
             "option_board_id": option_board_id,
             "slm_number": int(config.slm_number),
             "wavelength_nm": int(config.slm_wavelength_nm),
-            "two_pi_grayscale": int(configured_max_grayscale()),
+            "two_pi_grayscale": two_pi_grayscale,
             "panel_res": [int(SLM_PANEL_W), int(SLM_PANEL_H)],
             "readsu_status_at_open": readsu_status_at_open,
             "open_mode": "memory",
@@ -1503,6 +1587,7 @@ def run_probe(args: argparse.Namespace) -> int:
         slm_wavelength_nm=int(args.slm_wavelength),
         cam_type=str(args.cam_type),
         cam_id=int(args.cam_id),
+        bit_depth=int(getattr(args, "bit_depth", S0_BIT_DEPTH)),
         wait_until_idle_s=float(args.wait_until_idle),
     )
     # 标准记录 (SKILL §4) 的 config_id: 有 lane 名就用 lane 名, 否则用相机+波长
@@ -1522,11 +1607,16 @@ def run_probe(args: argparse.Namespace) -> int:
         config.cam_type,
         cam_id=config.cam_id,
         exposure_time_ms=float(exposures[0]),
+        bit_depth=int(config.bit_depth),
     )
 
     device_info: dict[str, Any] = {}
     with slm:
         with camera:
+            # 位深必须按设备回读校验: 请求值不是生效值 (gxipy 越界/拉流中写入会
+            # 静默保留旧 PixelFormat)。带着错的位深继续, 满量程与全部饱和判据
+            # 就都是错量纲 —— 这是 S0 记录落成 8-bit / full_scale 255 的根因。
+            _verify_camera_bit_depth(camera, int(config.bit_depth))
             device_info = _collect_device_info(slm, camera)
             logger.info(
                 f"设备就绪: SLM #{config.slm_number} "
@@ -1613,7 +1703,11 @@ def run_probe(args: argparse.Namespace) -> int:
 
                 )
 
-            ladder_summary = analyse_ladder(ladder, 255.0)
+            # 满量程来自阶梯里各档的实测生效值 (相机位深), 不是 dtype 也不是 255 字面量。
+            measured_full_scale = max(
+                (float(row.get("full_scale") or 0.0) for row in ladder), default=0.0
+            )
+            ladder_summary = analyse_ladder(ladder, measured_full_scale or 255.0)
             noise = ladder_summary["noise_floor"]
             logger.info(
                 f"  噪声底: 中位数 {noise['median_counts']:.1f} + "
@@ -1781,7 +1875,10 @@ def run_probe(args: argparse.Namespace) -> int:
         "fwhm_sigma_floor_px": FWHM_SIGMA_FLOOR_PX,
         "peak_sigma_floor_counts": PEAK_SIGMA_FLOOR_COUNTS,
         "min_visible_peak_counts": DEFAULT_MIN_PEAK,
-        "recommended_peak_range_counts": list(RECOMMENDED_PEAK_RANGE),
+        # 目标带按**本次实测满量程**折算 (Mono12: 1606-3212 counts), 与记录里
+        # 其它 raw-count 数字同一量纲; 0-255 灰度口径见 target_band_gray。
+        "recommended_peak_range_counts": list(ladder_summary["target_band_counts"]),
+        "recommended_peak_range_gray": list(ladder_summary["target_band_gray"]),
         "width_relative_floor": WIDTH_RELATIVE_FLOOR,
         "peak_relative_floor": PEAK_RELATIVE_FLOOR,
         "width_resolution_max": WIDTH_RESOLUTION_MAX,
@@ -1805,6 +1902,7 @@ def run_probe(args: argparse.Namespace) -> int:
             "slm_wavelength_nm": config.slm_wavelength_nm,
             "cam_type": config.cam_type,
             "cam_id": config.cam_id,
+            "bit_depth": config.bit_depth,
             "wait_until_idle_s": config.wait_until_idle_s,
         },
         "device": device_info,
@@ -1836,6 +1934,44 @@ def run_probe(args: argparse.Namespace) -> int:
         logger.info(f"  * {item}")
     logger.info(f"证据: {out_dir}")
     return int(verdict["exit_code"])
+
+
+def _verify_camera_bit_depth(camera: Any, requested: int) -> int | None:
+    """核对相机**设备回读**的位深; 不符即报错, 绝不带着错的满量程继续。
+
+    位深决定满量程 (8/12/16 bit → 255/4095/65535), 全部饱和/线性度/均匀性判据都
+    按满量程折算 (ccd/AGENTS.md 满量程小节)。8 bit 下 1 count ≈ 7% 满量程, S0 的
+    均匀性结论会直接失效 —— 所以这里宁可停, 也不静默继续。
+
+    没有位深真值的后端 (ffmpeg / image_folder / 仿真: ``bit_depth`` 恒 ``None``)
+    不参与校验: 它们的满量程按帧 dtype 兜底, 不存在「位深错了」这回事。
+
+    返回:
+        设备回读的位深; 该后端不报告位深时返回 ``None``。
+
+    抛出:
+        RuntimeError: 回读值 ≠ 请求值 (调用方拿到的位深不可信)。
+    """
+    reported = getattr(camera, "bit_depth", None)
+    if reported is None:
+        logger.warning(
+            f"相机 {type(camera).__name__} 不报告位深 (bit_depth=None): "
+            f"跳过 --bit-depth={int(requested)} 的校验, 满量程按帧 dtype 兜底"
+        )
+        return None
+    actual = int(reported)
+    if actual != int(requested):
+        supported = getattr(camera, "supported_bit_depths", None)
+        raise RuntimeError(
+            f"相机位深与请求不符: 请求 {int(requested)} bit, 设备回读 {actual} bit。"
+            f"满量程会按回读位深 ({(1 << actual) - 1}) 折算, 与本次探测假设的 "
+            f"{(1 << int(requested)) - 1} 不是同一量纲; 继续下去饱和/均匀性判据全错。"
+            f"该后端位深档位: supported_bit_depths={supported} "
+            "(拉流中替换 PixelFormat 不生效, 位深必须在开流前写好)。"
+        )
+    full_scale = (1 << actual) - 1
+    logger.info(f"相机位深: {actual} bit (设备回读 = 请求值, 满量程 {full_scale})")
+    return actual
 
 
 def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
@@ -1873,6 +2009,13 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
         info["cam_exposure_range_ms"] = [float(lo), float(hi)]
     except Exception:  # 保留宽泛捕获: 内部调用链 get_camera_exposure_range 的失败类型不可枚举
         pass
+    # 已按设备回读校验过的位深 (见 _verify_camera_bit_depth); 无位深真值的后端记 None。
+    # 它是满量程的唯一来源, 标准记录里必须能对出「这一份数据是几 bit 采的」。
+    try:
+        bit_depth = getattr(camera, "bit_depth", None)
+        info["cam_bit_depth"] = int(bit_depth) if bit_depth is not None else None
+    except (TypeError, ValueError):  # 后端报了个非整数的位深 ⇒ 按「无真值」记
+        info["cam_bit_depth"] = None
     return info
 
 

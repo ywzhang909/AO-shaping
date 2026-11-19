@@ -80,13 +80,13 @@ from ao_shaping.utils.slm.bench_constants import (
     TILT_SHIFT_SCALE as FALLBACK_TILT_SHIFT_SCALE,
 )
 #: Joint width-fit rel-RMS above which the illumination profile is *not*
-#: identifiable (mirrors ``bench_sweep_fit._MAX_DEFOCUS_FIT_RMS``).
+#: identifiable (mirrors ``model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS``).
 FALLBACK_MAX_DEFOCUS_FIT_RMS = 0.10
 #: Below this Pearson peak the phase-correlation shift is not trusted over the
-#: spot centroid (mirrors ``bench_sweep._MIN_SHIFT_CORRELATION``).
+#: spot centroid (mirrors ``model_in_loop_shaping._MIN_SHIFT_CORRELATION``).
 FALLBACK_MIN_SHIFT_CORRELATION = 0.30
 #: Below this centroid/peak ratio the focal plane is a ring, not one lobe
-#: (mirrors ``bench_sweep._DEFOCUS_MIN_HOLLOWNESS``).
+#: (mirrors ``model_in_loop_shaping._DEFOCUS_MIN_HOLLOWNESS``).
 FALLBACK_MIN_HOLLOWNESS = 0.60
 #: Camera sensor size assumed when cross-checking the field-of-view route.
 FALLBACK_CAMERA_PIXELS = 2592.0
@@ -133,7 +133,7 @@ def _import_bench_constants() -> dict[str, float | bool]:
 
     * ``bench_kernels.TILT_SHIFT_SCALE`` -- that module is pure numpy and takes
       its devices by injection, so it imports nothing hardware-bound.
-    * ``bench_sweep_fit._MAX_DEFOCUS_FIT_RMS`` -- this one *does* pull in
+    * ``model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS`` -- this one *does* pull in
       torch, so it is only attempted behind a guard.
 
     A literal is used when the import fails, and every such case is listed in
@@ -158,12 +158,12 @@ def _import_bench_constants() -> dict[str, float | bool]:
         )
 
     try:
-        from ao_shaping.optimizer.wfless.bench_sweep_fit import (
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
             _MAX_DEFOCUS_FIT_RMS as _kernel_rms,
         )
 
         max_rms = float(_kernel_rms)
-        logger.info("_MAX_DEFOCUS_FIT_RMS imported from bench_sweep_fit: {}",
+        logger.info("_MAX_DEFOCUS_FIT_RMS imported from model_in_loop_shaping: {}",
                     max_rms)
     except ImportError as exc:
         fallbacks.append("_MAX_DEFOCUS_FIT_RMS")

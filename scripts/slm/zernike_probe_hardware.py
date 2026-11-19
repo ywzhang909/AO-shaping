@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -32,6 +35,46 @@ import numpy as np
 from ao_shaping.tools.slm.transfer import capture
 from ao_shaping.tools.slm.transfer.probes import probe_grid
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+
+LOCK_EVIDENCE_NAME = "device_lock.json"
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def write_lock_evidence(
+    out: Path,
+    wait_until_idle_s: float,
+    device_wait: dict[str, object],
+    lock_record: dict[str, object],
+) -> Path | None:
+    """Persist lock wait/acquire/release evidence next to ``config.json``.
+
+    ``capture.capture`` owns ``config.json`` (``exist_ok=False``); this writes a
+    separate file so the capture config is never touched. Best-effort: an
+    unwritable/missing output directory is reported, never raised, so a capture
+    failure keeps its own exception.
+    """
+    doc = {
+        "schema": "zernike_probe_hardware/device_lock/1",
+        "issue": 229,
+        "wait_until_idle_s": wait_until_idle_s,
+        "device_wait": device_wait,
+        "lock": lock_record,
+        "written_utc": _utc_now(),
+    }
+    path = out / LOCK_EVIDENCE_NAME
+    try:
+        path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"WARNING: could not write lock evidence {path}: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    return path
 
 
 def build_plan(
@@ -101,8 +144,34 @@ def main() -> None:
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
     parser.add_argument("--slm-number", type=int, default=1)
+    parser.add_argument(
+        "--wait-until-idle",
+        type=float,
+        default=120.0,
+        metavar="SECONDS",
+        help=(
+            "Before opening hardware (--execute only), wait up to SECONDS for the "
+            "device lock / other hardware processes to clear, then hold the "
+            "device_mutex lock over the whole capture (default: 120). "
+            "Pass 0 to bypass both the wait and the lock (repo convention: "
+            "0 = off)."
+        ),
+    )
+    parser.add_argument(
+        "--exposure-ms",
+        type=float,
+        default=None,
+        metavar="MS",
+        help=(
+            "Seed exposure (ms) handed to capture as its opening exposure; the "
+            "capture's own ladder still adapts from it. Omit to use the camera's "
+            "remembered effective exposure (capture's 'auto' rule)."
+        ),
+    )
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
+    if not math.isfinite(args.wait_until_idle) or args.wait_until_idle < 0:
+        parser.error("--wait-until-idle must be a finite non-negative number")
 
     plan = build_plan(args.modes, args.amplitudes, args.n_random, args.n_holdout)
     plan_doc = {
@@ -127,6 +196,10 @@ def main() -> None:
         )
         print("Re-run with --execute to open hardware and acquire.")
         print(
+            f"Device lock: --wait-until-idle {args.wait_until_idle:g}s "
+            f"(default {120:g}s; 0 disables the wait and the lock)."
+        )
+        print(
             "NOTE: --execute requires a fresh --out directory (capture uses exist_ok=False)."
         )
         return
@@ -144,12 +217,119 @@ def main() -> None:
         frames=args.frames,
         seed=args.seed,
         exposure_max_steps=2,
+        exposure_ms=args.exposure_ms,
         save_dataset=True,
         device=None,
         checkpoint=None,
     )
-    with patch.object(capture, "probes", make_probes(plan, args.seed)):
-        capture.capture(namespace)
+
+    # ---- lazy device imports (this is the ONLY place drivers are imported) -- #
+    from ao_shaping.tools.kernels import device_mutex
+    from ao_shaping.tools.kernels.device_mutex import DeviceLock
+
+    # ---- device lock (held for the whole capture) --------------------------- #
+    lock = None
+    device_wait: dict[str, object]
+    if args.wait_until_idle > 0:
+        wait_kwargs: dict[str, object] = {
+            "slm_number": args.slm_number,
+            "cam_id": args.cam_id,
+            "cam_type": args.camera,
+            "own_paths": [Path(__file__).resolve()],
+        }
+        # Probe at the seed exposure when one was asked for; otherwise let
+        # ``wait_until_idle`` keep its own default.
+        if args.exposure_ms is not None:
+            wait_kwargs["exposure_ms"] = float(args.exposure_ms)
+        verdict = device_mutex.wait_until_idle(args.wait_until_idle, **wait_kwargs)
+        device_wait = {
+            "budget_s": args.wait_until_idle,
+            "status": verdict.status,
+            "waited_s": round(verdict.waited_s, 3),
+            "own_process_tree": verdict.holder_is_me,
+            "holder_pid": verdict.holder.pid if verdict.holder is not None else None,
+            "holder_cmdline": (
+                verdict.holder.cmdline if verdict.holder is not None else None
+            ),
+            "detail": verdict.detail,
+            "remedy": verdict.remedy,
+        }
+        if not verdict.ok:
+            # Master ``WaitVerdict`` has no ``headline()``; compose the same
+            # one-liner from its fields (reason is the short compatibility
+            # summary, detail the root cause).
+            headline = verdict.reason or verdict.detail or verdict.status
+            raise SystemExit(
+                f"device unavailable ({verdict.kind or verdict.status}): "
+                f"{headline} -- {verdict.remedy}"
+            )
+        # ``wait_until_idle`` hands back the lock it already took when it cleared
+        # us; otherwise take the shared bench lock ourselves.
+        if verdict.lock is not None:
+            lock = verdict.lock
+        else:
+            lock = DeviceLock.default()
+            if not lock.acquire(timeout=0.0):
+                raise SystemExit(
+                    "device lock could not be acquired right after the idle wait; "
+                    "another session took it — rerun (or wait for it to finish)"
+                )
+    else:
+        device_wait = {
+            "budget_s": 0.0,
+            "status": "skipped",
+            "waited_s": 0.0,
+            "own_process_tree": False,
+            "holder_pid": None,
+            "holder_cmdline": None,
+            "detail": "waiting disabled (--wait-until-idle 0)",
+            "remedy": "",
+        }
+
+    lock_record: dict[str, object] = {
+        "path": str(lock.path) if lock is not None else None,
+        "held": lock.is_locked() if lock is not None else False,
+        "acquired_utc": _utc_now() if lock is not None else None,
+        "held_s": None,
+        "released": None,
+        "released_utc": None,
+        "release_error": None,
+    }
+
+    def release_lock() -> None:
+        if lock_record["acquired_utc"] is not None:
+            lock_record["held_s"] = round(
+                (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(str(lock_record["acquired_utc"]))
+                ).total_seconds(),
+                3,
+            )
+        if lock is None:
+            lock_record["released"] = True
+            lock_record["released_utc"] = _utc_now()
+            return
+        try:
+            lock.release()
+            lock_record["released"] = True
+        except Exception as exc:  # pragma: no cover - operator-facing guard
+            lock_record["release_error"] = f"{type(exc).__name__}: {exc}"
+            print(
+                f"WARNING: device lock release failed: "
+                f"{lock_record['release_error']}",
+                file=sys.stderr,
+            )
+        finally:
+            lock_record["released_utc"] = _utc_now()
+
+    try:
+        with patch.object(capture, "probes", make_probes(plan, args.seed)):
+            capture.capture(namespace)
+    finally:
+        release_lock()
+        write_lock_evidence(
+            args.out, args.wait_until_idle, device_wait, lock_record
+        )
     (args.out / "probe_plan.json").write_text(
         json.dumps(plan_doc, indent=2), encoding="utf-8"
     )

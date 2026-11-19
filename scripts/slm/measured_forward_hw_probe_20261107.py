@@ -125,6 +125,15 @@ SLM_CONTROLLER_HANG_CODE = -1000
 DISPLAY_WAIT_BLANK_S = 0.5
 DISPLAY_WAIT_PHASE_S = 0.8
 SATURATION_COUNTS = 255.0
+# A single fixed hot cluster must not veto a whole frame: the guard reads the *fraction*
+# of clipped pixels, and the max-based flag stays alongside it as evidence.
+LUT_SATURATION_FRACTION = 1e-3
+# short exposure scan (issue #237): the archived 0.202 ms anchor sees 0-2 counts on this
+# bench, so the registration exposure and the LUT anchor are chosen from measurement.
+SCAN_EXPOSURES_MS = (5.0, 8.0, 12.0, 16.0, 20.0)
+SCAN_PHASES = ("blank", "U", "C")
+SCAN_FRAMES = 2
+SCAN_TARGET_PEAK_FRACTION = 0.85
 
 DEVICE_STATEMENT_OFFLINE = (
     "本次为 dry-run：未占用任何设备 —— 未打开 SLM、未打开相机、未启动或停止激光、"
@@ -317,10 +326,18 @@ class Settings:
     exposure_factors: tuple[float, ...]
     frames_per_level: int
     registration_exposure_ms: float
+    lut_anchor_ms: float | None
     wait_until_idle_s: float
     execute: bool
     assume_laser_off: bool
+    assume_laser_on: bool
+    skip_dark_field: bool
+    dark_skip_reason: str
     skip_selftest: bool
+    scan: bool = False
+    scan_exposures_ms: tuple[float, ...] = SCAN_EXPOSURES_MS
+    scan_phases: tuple[str, ...] = SCAN_PHASES
+    scan_frames: int = SCAN_FRAMES
     quiet: bool = False
     print_plan: bool = False
 
@@ -336,10 +353,18 @@ class Settings:
             "lut_exposure_factors": list(self.exposure_factors),
             "frames_per_level": self.frames_per_level,
             "registration_exposure_ms": self.registration_exposure_ms,
+            "lut_anchor_ms": self.lut_anchor_ms,
             "wait_until_idle_s": self.wait_until_idle_s,
             "execute": self.execute,
             "assume_laser_off": self.assume_laser_off,
+            "assume_laser_on": self.assume_laser_on,
+            "skip_dark_field": self.skip_dark_field,
+            "dark_skip_reason": self.dark_skip_reason,
             "skip_selftest": self.skip_selftest,
+            "scan": self.scan,
+            "scan_exposures_ms": list(self.scan_exposures_ms),
+            "scan_phases": list(self.scan_phases),
+            "scan_frames": self.scan_frames,
             "quiet": self.quiet,
             "print_plan": self.print_plan,
             "phase_sign": PHASE_SIGN,
@@ -553,13 +578,13 @@ def build_shots(settings: Settings, refs: dict[str, dict[str, Any]]) -> list[Sho
                      "floor here is unmodulated leakage / stray light")
 
     for branch in BRANCHES:
-        anchor = float(refs[branch]["exposure_ms"])
+        anchor = float(settings.lut_anchor_ms or refs[branch]["exposure_ms"])
         for factor in settings.exposure_factors:
             for frame in range(1, repeats + 1):
                 add(stage="lut_bracket", branch=branch, label=f"lut_x{factor:g}",
                     phase_source=f"{branch}:{REFERENCE_LABEL}", laser="on",
                     exposure_ms=anchor * float(factor), frame=frame,
-                    note=f"phase held fixed; exposure = {factor:g} x archived anchor "
+                    note=f"phase held fixed; exposure = {factor:g} x anchor "
                          f"{anchor:g} ms, requested value only -- the device readback "
                          "in the manifest row is authoritative")
 
@@ -633,7 +658,11 @@ def build_plan(
             for branch, record in refs.items()
         },
         "exposure_policy": {
-            "anchor": "archived reference_start exposure per branch (multiplicative bracket)",
+            "anchor": (
+                "archived reference_start exposure per branch (multiplicative bracket); "
+                + (f"--lut-anchor-ms overrides it with {settings.lut_anchor_ms:g} ms"
+                   if settings.lut_anchor_ms else "--lut-anchor-ms can override it")
+            ),
             "requested_vs_effective": (
                 "planned exposure values are *requests*; every manifest row stores the "
                 "device readback from get_camera_exposure_ms as exposure_ms, and the "
@@ -642,7 +671,10 @@ def build_plan(
             "range_check": "levels outside the camera's read-back exposure range are "
                            "clamped by the driver and recorded as clamped",
             "saturation_guard": "any frame whose max reaches 255 counts is recorded "
-                                "saturated; LUT fitting must drop saturated levels",
+                                "saturated, with n_saturated / saturated_fraction; a "
+                                "level counts as usable only when its clipped fraction "
+                                f"is <= {LUT_SATURATION_FRACTION:g} (a fixed hot cluster "
+                                "must not veto the whole bracket)",
             "settle": "exposure changes go through set_camera_exposure_ms, which on "
                       "Daheng consumes the stale frames the SDK leaves in the pipeline "
                       "(driver invariant), so the first frame of a level is that level",
@@ -652,8 +684,11 @@ def build_plan(
             "handling": "operator gate: the script stops and asks before the dark "
                         "stage and again before resuming the laser",
             "non_interactive": (
-                "without a TTY and without --assume-laser-off the dark_field stage is "
-                "skipped and recorded as skipped, never faked"
+                "without a TTY the operator must attest explicitly: --assume-laser-off "
+                "for the dark stage, --assume-laser-on for the laser-on stages, and "
+                "--skip-dark-field to drop the dark stage outright (implied by "
+                "--assume-laser-on alone: a dark frame with the laser on is not dark); "
+                "an unattested stage is skipped and recorded as skipped, never faked"
             ),
         },
         "registration": {
@@ -879,6 +914,7 @@ def offline_selftest(
 def _frame_stats(frame: np.ndarray) -> dict[str, Any]:
     arr = np.asarray(frame)
     peak = float(np.max(arr)) if arr.size else None
+    n_sat = int(np.count_nonzero(arr >= SATURATION_COUNTS)) if arr.size else 0
     return {
         "shape": [int(v) for v in arr.shape],
         "dtype": str(arr.dtype),
@@ -887,6 +923,8 @@ def _frame_stats(frame: np.ndarray) -> dict[str, Any]:
         "min": float(arr.min()) if arr.size else None,
         "std": float(arr.std()) if arr.size else None,
         "saturated": bool(peak is not None and peak >= SATURATION_COUNTS),
+        "n_saturated": n_sat,
+        "saturated_fraction": (n_sat / arr.size) if arr.size else None,
     }
 
 
@@ -977,10 +1015,13 @@ def lut_analysis(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "frames": [],
                 "phase_hashes": [],
                 "saturated": [],
+                "saturated_fractions": [],
             })
             bucket["frames"].append(row["frame"])
             bucket["phase_hashes"].append(row["panel_phase_hash"])
             bucket["saturated"].append(bool(row["saturated"]))
+            if row.get("saturated_fraction") is not None:
+                bucket["saturated_fractions"].append(float(row["saturated_fraction"]))
             if row["mean_counts"] is not None:
                 bucket.setdefault("means", []).append(float(row["mean_counts"]))
         table: list[dict[str, Any]] = []
@@ -997,8 +1038,19 @@ def lut_analysis(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "mean_counts": float(np.mean(means)) if means else None,
                 "std_counts": float(np.std(means)) if len(means) > 1 else None,
                 "any_saturated": any(bucket["saturated"]),
+                "saturated_fraction": (
+                    max(bucket["saturated_fractions"])
+                    if bucket["saturated_fractions"] else None
+                ),
             })
-        usable = [t for t in table if t["mean_counts"] is not None and not t["any_saturated"]]
+        usable = [
+            t for t in table
+            if t["mean_counts"] is not None
+            and (
+                t["saturated_fraction"] is None
+                or t["saturated_fraction"] <= LUT_SATURATION_FRACTION
+            )
+        ]
         slope = correlation = None
         if len(usable) >= 2:
             x = np.log(np.asarray([t["exposure_ms"] for t in usable], dtype=float))
@@ -1595,19 +1647,33 @@ def _operator_gate(
         "ok": False,
         "detail": "",
     }
+    if required == "off" and settings.skip_dark_field:
+        record["method"] = "--skip-dark-field"
+        record["detail"] = settings.dark_skip_reason
+        log.log(
+            f"laser gate (off): dark stage disabled ({settings.dark_skip_reason})", "WARN"
+        )
+        return record
     if required == "off" and settings.assume_laser_off:
         record["method"] = "--assume-laser-off attestation"
         record["ok"] = True
         record["detail"] = "non-interactive attestation that the laser is off/safe"
         log.log("laser gate (off): assumed off via --assume-laser-off", "WARN")
         return record
+    if required == "on" and settings.assume_laser_on:
+        record["method"] = "--assume-laser-on attestation"
+        record["ok"] = True
+        record["detail"] = "non-interactive attestation that the laser is on"
+        log.log("laser gate (on): assumed on via --assume-laser-on", "WARN")
+        return record
     if not sys.stdin.isatty():
         record["method"] = "non-interactive"
         record["detail"] = (
             "no tty to ask the operator; "
-            + ("re-run with --assume-laser-off to attest the off state"
+            + ("re-run with --assume-laser-off to attest the off state, "
+               "or --skip-dark-field to drop the dark stage"
                if required == "off"
-               else "run from an interactive terminal to confirm the laser is on")
+               else "re-run with --assume-laser-on to attest the on state")
         )
         log.log(f"laser gate ({required}): {record['detail']}", "WARN")
         return record
@@ -1615,7 +1681,18 @@ def _operator_gate(
         "off": "请确认激光已关闭/安全 (dark_field 需要) [y/N]: ",
         "on": "请确认激光已打开 (后续阶段需要) [y/N]: ",
     }[required]
-    answer = input(prompt)
+    try:
+        answer = input(prompt)
+    except EOFError:
+        record["method"] = "interactive prompt, stdin closed"
+        record["detail"] = (
+            "stdin reached EOF before an answer; "
+            + ("re-run with --assume-laser-off or --skip-dark-field"
+               if required == "off"
+               else "re-run with --assume-laser-on")
+        )
+        log.log(f"laser gate ({required}): {record['detail']}", "WARN")
+        return record
     record["method"] = "operator input"
     record["ok"] = answer.strip().lower() in {"y", "yes"}
     record["detail"] = f"answered {answer.strip()!r}"
@@ -1867,7 +1944,11 @@ def run_execute(settings: Settings, log: RunLog) -> int:
                     row = planned_row(shot, fingerprints, settings)
                     row["utc_start"] = _utc_now()
                     if shot.stage == "dark_field" and not gates.get("off", {}).get("ok"):
-                        row["status"] = "skipped_laser_off_unconfirmed"
+                        row["status"] = (
+                            "skipped_dark_field_disabled"
+                            if settings.skip_dark_field
+                            else "skipped_laser_off_unconfirmed"
+                        )
                         rows.append(row)
                         _write_json(out / MANIFEST_NAME, rows)
                         continue
@@ -2001,6 +2082,498 @@ def run_execute(settings: Settings, log: RunLog) -> int:
     return exit_code
 
 
+# --------------------------------------------------------------------------- #
+# short exposure scan: blank-panel reset first, then one fixed phase per block
+# --------------------------------------------------------------------------- #
+def scan_metrics(frame: np.ndarray) -> dict[str, Any]:
+    """Level, clipping and beam-core geometry of one exposure point."""
+    arr = np.asarray(frame, dtype=np.float64)
+    peak = float(np.max(arr)) if arr.size else 0.0
+    metrics: dict[str, Any] = {
+        "frame_stats": _frame_stats(np.asarray(frame)),
+        "percentiles": {
+            "p50": float(np.percentile(arr, 50)),
+            "p99": float(np.percentile(arr, 99)),
+            "p99_9": float(np.percentile(arr, 99.9)),
+        },
+        "peak_fraction_of_full_scale": peak / SATURATION_COUNTS,
+        "core": None,
+    }
+    if peak > 0:
+        core = arr >= 0.5 * peak
+        n_core = int(core.sum())
+        if n_core:
+            ys, xs = np.nonzero(core)
+            metrics["core"] = {
+                "n_px": n_core,
+                "bbox_y0_y1_x0_x1": [
+                    int(ys.min()), int(ys.max()), int(xs.min()), int(xs.max())
+                ],
+                "centroid_yx": [float(ys.mean()), float(xs.mean())],
+                "clipped_share": float(
+                    np.count_nonzero(core & (arr >= SATURATION_COUNTS))
+                ) / n_core,
+            }
+    return metrics
+
+
+def scan_selection(
+    points: list[dict[str, Any]], phases: tuple[str, ...]
+) -> dict[str, Any]:
+    """Rank the scan per phase: unclipped first, interior peak, then match score."""
+    out: dict[str, Any] = {}
+    for phase in phases:
+        candidates: list[dict[str, Any]] = []
+        for row in points:
+            if row["phase"] != phase or row["status"] != "captured":
+                continue
+            metrics = row["metrics"]
+            reg = row.get("registration") or {}
+            candidates.append({
+                "exposure_ms": float(row["exposure_ms"]),
+                "file": row.get("file"),
+                "peak_fraction_of_full_scale": metrics["peak_fraction_of_full_scale"],
+                "saturated_fraction": metrics["frame_stats"].get("saturated_fraction"),
+                "peak_ok": metrics["peak_fraction_of_full_scale"]
+                <= SCAN_TARGET_PEAK_FRACTION,
+                "registration_score": reg.get("integer_peak_score"),
+                "registration_integer_dy": reg.get("integer_dy"),
+                "registration_integer_dx": reg.get("integer_dx"),
+                "registration_subpixel_dy": reg.get("subpixel_dy"),
+                "registration_subpixel_dx": reg.get("subpixel_dx"),
+                "on_border": reg.get("on_border"),
+            })
+        ranked = sorted(
+            candidates,
+            key=lambda c: (
+                0 if c["peak_ok"] else 1,
+                0 if not c["on_border"] else 1,
+                -(c["registration_score"] or 0.0),
+                abs(c["peak_fraction_of_full_scale"] - 0.5),
+            ),
+        )
+        out[phase] = {"ranked": ranked, "pick": ranked[0] if ranked else None}
+    return out
+
+
+def scan_report_markdown(payload: dict[str, Any]) -> str:
+    """Operator-facing read-out of the scan."""
+    lines = [
+        "# Exposure scan (issue #237)",
+        "",
+        f"- 生成时间：{payload['generated_utc']}",
+        f"- 输出目录：`{payload['settings']['out']}`",
+        f"- 曝光档（ms）：{payload['settings']['scan_exposures_ms']}",
+        f"- 相位块：{payload['settings']['scan_phases']}",
+        f"- 每档帧数：{payload['settings']['scan_frames']}",
+        "",
+        "## 1. 设备占用",
+        "",
+        f"> {payload['device']['statement']}",
+        "",
+    ]
+    dev = payload["device"]
+    for name in ("slm", "camera"):
+        rec = dev.get(name) or {}
+        lines.append(
+            f"- {name}: opened `{rec.get('opened_utc')}`，closed "
+            f"`{rec.get('closed_utc')}`，正常关闭 = `{rec.get('closed_cleanly')}`"
+        )
+    lock = dev.get("lock") or {}
+    lines += [
+        f"- 设备锁：`{lock.get('path')}`，持有 {lock.get('held_s')} s，"
+        f"释放 = `{lock.get('released')}`",
+        "",
+        "## 2. 扫描前的相位复位",
+        "",
+        f"- 复位内容：零相位（平相位）面板，"
+        f"sha256 `{(payload.get('phase_reset') or {}).get('sha256', '—')}`",
+        f"- 是否重新下发：`{(payload.get('phase_reset') or {}).get('resent')}`，"
+        f"下发时刻 `{(payload.get('phase_reset') or {}).get('utc')}`",
+        "",
+        "## 3. 测量点",
+        "",
+        "| 相位 | 曝光 ms | 均值 counts | 最大值 | p99.9 | 饱和占比 | 峰/满量程 "
+        "| 核心 bbox | FWHM px | 配准峰值得分 | (dy, dx) 整数 | 在边界 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in payload["points"]:
+        if row["status"] != "captured":
+            lines.append(
+                f"| {row['phase']} | {row['exposure_ms']:g} | — | — | — | — "
+                f"| — | — | — | — | — | — |"
+            )
+            continue
+        m = row["metrics"]
+        stats = m["frame_stats"]
+        core = m["core"] or {}
+        reg = row.get("registration") or {}
+        spot = row.get("spot") or {}
+        lines.append(
+            f"| {row['phase']} | {row['exposure_ms']:g} "
+            f"| {stats.get('mean', float('nan')):.2f} "
+            f"| {stats.get('max', float('nan')):.0f} "
+            f"| {m['percentiles']['p99_9']:.1f} "
+            f"| {(stats.get('saturated_fraction') or 0.0) * 100:.3f}% "
+            f"| {m['peak_fraction_of_full_scale'] * 100:.1f}% "
+            f"| {core.get('bbox_y0_y1_x0_x1')} "
+            f"| {spot.get('fwhm_px')} "
+            f"| {reg.get('integer_peak_score')} "
+            f"| {(reg.get('integer_dy'), reg.get('integer_dx'))} "
+            f"| {reg.get('on_border')} |"
+        )
+    lines += ["", "## 4. 选档建议", ""]
+    for phase, block in payload["selection"].items():
+        pick = block.get("pick")
+        if pick is None:
+            lines.append(f"- `{phase}`：无有效点")
+            continue
+        lines.append(
+            f"- `{phase}`：建议 {pick['exposure_ms']:g} ms"
+            f"（峰 = 满量程 {pick['peak_fraction_of_full_scale'] * 100:.1f}%，"
+            f"配准得分 {pick['registration_score']}，边界 {pick['on_border']}）"
+        )
+    rec = payload.get("recommendation") or {}
+    if rec:
+        lines += ["", "```text"]
+        if "registration_exposure_ms" in rec:
+            lines.append(
+                f"--registration-exposure {rec['registration_exposure_ms']:g}"
+            )
+        if "lut_anchor_ms" in rec:
+            lines.append(f"--lut-anchor-ms {rec['lut_anchor_ms']:g}")
+        lines += ["```", ""]
+    if payload["warnings"]:
+        lines += ["## 5. 警告", ""]
+        lines += [f"- {w}" for w in payload["warnings"]]
+    return "\n".join(lines) + "\n"
+
+
+def run_scan(settings: Settings, log: RunLog) -> int:
+    """Sweep exposure at a fixed panel phase, with a blank-panel reset first."""
+    started = time.monotonic()
+    out = settings.out
+    (out / "frames").mkdir(parents=True, exist_ok=True)
+
+    refs = resolve_reference_phases(settings, read_source_rows(), log)
+    offline = read_offline_registration()
+    shape = _frozen_panel_shapes(refs)
+    model = build_model_side(log)
+    if settings.skip_selftest:
+        selftest: dict[str, Any] = {"status": "skipped", "reason": "--skip-selftest"}
+    else:
+        selftest = offline_selftest(settings, refs, offline, log)
+
+    from ao_shaping.drivers.ccd.common import (
+        create_camera,
+        get_camera_exposure_ms,
+        get_camera_exposure_range,
+        set_camera_exposure_ms,
+    )
+    from ao_shaping.drivers.slm.factory import require_drive_board_entry
+    from ao_shaping.drivers.slm.santec import Santec, SantecError
+    from ao_shaping.tools.kernels import device_mutex
+    from ao_shaping.tools.kernels.bench_kernels import measure_spot
+    from ao_shaping.tools.kernels.device_mutex import DeviceLock
+    from ao_shaping.tools.slm.transfer.hardware import opened_device
+    log.log("drivers imported lazily inside the --scan branch")
+
+    warnings: list[str] = []
+    device: dict[str, Any] = {
+        "occupied": True,
+        "statement": DEVICE_STATEMENT_EXECUTE.format(
+            slm_number=settings.slm_number,
+            cam_type=settings.cam_type,
+            cam_id=settings.cam_id,
+        ),
+        "lock": None,
+        "slm": None,
+        "camera": None,
+        "device_wait": None,
+    }
+
+    lock: Any = None
+    if settings.wait_until_idle_s > 0:
+        verdict = device_mutex.wait_until_idle(
+            settings.wait_until_idle_s,
+            slm_number=settings.slm_number,
+            cam_id=settings.cam_id,
+            cam_type=settings.cam_type,
+            own_paths=[Path(__file__).resolve()],
+        )
+        device["device_wait"] = {
+            "budget_s": settings.wait_until_idle_s,
+            "status": verdict.status,
+            "waited_s": round(verdict.waited_s, 3),
+            "own_process_tree": verdict.holder_is_me,
+            "detail": verdict.detail,
+        }
+        if not verdict.ok:
+            raise SystemExit(
+                f"device unavailable ({verdict.kind or verdict.status}): "
+                f"{verdict.headline()} -- {verdict.remedy}"
+            )
+        lock = verdict.lock if verdict.lock is not None else DeviceLock.default()
+        if not lock.is_locked():
+            lock.acquire(timeout=0.0)
+    else:
+        device["device_wait"] = {"budget_s": 0.0, "status": "skipped", "waited_s": 0.0}
+    lock_record: dict[str, Any] = {
+        "path": str(getattr(lock, "path", "")) if lock is not None else None,
+        "acquired_utc": _utc_now(),
+        "held_s": None,
+        "released": None,
+        "released_utc": None,
+        "release_error": None,
+    }
+    device["lock"] = lock_record
+    log.log(f"device lock acquired: {lock_record['path']}")
+
+    def release_lock() -> None:
+        lock_record["held_s"] = round(
+            (datetime.now(timezone.utc)
+             - datetime.fromisoformat(lock_record["acquired_utc"])).total_seconds(),
+            3,
+        )
+        if lock is None:
+            lock_record["released"] = True
+            lock_record["released_utc"] = _utc_now()
+            return
+        try:
+            lock.release()
+            lock_record["released"] = True
+            log.log("device lock released")
+        except Exception as exc:
+            lock_record["release_error"] = f"{type(exc).__name__}: {exc}"
+            log.log(f"device lock release FAILED: {lock_record['release_error']}", "ERROR")
+        finally:
+            lock_record["released_utc"] = _utc_now()
+
+    slm_rec: dict[str, Any] = {
+        "opened_utc": None, "closed_utc": None, "closed_cleanly": None,
+        "close_error": None, "drive_board": None,
+    }
+    cam_rec: dict[str, Any] = {
+        "opened_utc": None, "closed_utc": None, "closed_cleanly": None,
+        "close_error": None, "exposure_range_ms": None,
+    }
+    device["slm"], device["camera"] = slm_rec, cam_rec
+
+    def phase_array(source: str) -> np.ndarray:
+        if source == "blank":
+            return _blank_phase(shape)
+        with np.load(ROOT / refs[source]["npz"]) as archive:
+            return np.asarray(archive["panel_phase"], dtype=np.float32)
+
+    def show(source: str, slm: Any) -> dict[str, Any]:
+        """Send ``source`` to the panel only when the content changed."""
+        array = phase_array(source)
+        wait = DISPLAY_WAIT_BLANK_S if source == "blank" else DISPLAY_WAIT_PHASE_S
+        fingerprint = _panel_fingerprint(array)
+        if show.current_hash != fingerprint["sha256"]:
+            log.log(
+                f"display '{source}' sha256={fingerprint['sha256'][:16]}… "
+                f"(content changed, wait {wait}s)"
+            )
+            try:
+                slm.display_data(slm.create_phase_from_array(array), wait)
+            except SantecError as exc:
+                if _is_controller_hang(exc):
+                    raise ControllerHangError(HANG_HINT) from exc
+                raise
+            show.current_hash = fingerprint["sha256"]
+            fingerprint["resent"] = True
+        else:
+            log.log(f"display '{source}': unchanged, not re-sent")
+            fingerprint["resent"] = False
+        fingerprint["utc"] = _utc_now()
+        return fingerprint
+
+    show.current_hash = None  # type: ignore[attr-defined]
+
+    points: list[dict[str, Any]] = []
+    phase_reset: dict[str, Any] = {}
+    exit_code = 0
+    try:
+        with opened_device(Santec(
+            slm_number=settings.slm_number,
+            wavelength=int(settings.wavelength),
+            video_mode=0,
+        )) as slm:
+            slm_rec["opened_utc"] = _utc_now()
+            log.log(f"SLM #{settings.slm_number} opened (memory mode)")
+            try:
+                require_drive_board_entry(slm)
+                slm_rec["drive_board"] = slm.require_drive_board()
+                log.log(f"drive board answered: {slm_rec['drive_board']}")
+            except ControllerHangError:
+                raise
+            except Exception as exc:
+                raise SystemExit(
+                    f"drive board did not answer ({type(exc).__name__}: {exc}); "
+                    "panel is not modulating -- no capture"
+                ) from exc
+
+            # the operator asked for a phase reset before any measurement
+            phase_reset = show("blank", slm)
+            log.log("panel reset to zero (flat) phase before the scan")
+
+            with opened_device(create_camera(
+                settings.cam_type, settings.cam_id, exposure_time_ms=1.0
+            )) as cam:
+                cam_rec["opened_utc"] = _utc_now()
+                log.log(f"camera {settings.cam_type}#{settings.cam_id} opened")
+                lo, hi = get_camera_exposure_range(cam)
+                cam_rec["exposure_range_ms"] = [float(lo), float(hi)]
+                log.log(f"camera exposure range: {lo}–{hi} ms")
+
+                for phase in settings.scan_phases:
+                    source = "blank" if phase == "blank" else phase
+                    display = show(source, slm)
+                    panel = phase_array(source)
+                    prediction = None if phase == "blank" else predict_phase(model, panel)
+                    for index, exposure in enumerate(settings.scan_exposures_ms):
+                        log.log(f"[{phase}] exposure {exposure:g} ms")
+                        set_camera_exposure_ms(cam, float(exposure))
+                        readback = float(get_camera_exposure_ms(cam))
+                        frames = []
+                        for _ in range(settings.scan_frames):
+                            one = np.asarray(cam.get_numpy_image(1, skip_first=False))
+                            if one.ndim == 3 and one.shape[0] == 1:
+                                one = one[0]
+                            frames.append(one.astype(np.uint8))
+                        stack = np.stack(frames, axis=0)
+                        mean_frame = stack.astype(np.float64).mean(axis=0)
+                        row: dict[str, Any] = {
+                            "phase": phase,
+                            "display_sha256": display["sha256"],
+                            "exposure_ms": readback,
+                            "exposure_requested_ms": float(exposure),
+                            "exposure_status": (
+                                "ok" if abs(readback - float(exposure)) < 1e-6
+                                else "clamped"
+                            ),
+                            "status": "captured",
+                            "file": f"frames/scan_{len(points):04d}.npz",
+                            "utc": _utc_now(),
+                            "metrics": scan_metrics(mean_frame),
+                            "spot": dataclasses.asdict(measure_spot(mean_frame.astype(np.uint8), box=40)),
+                        }
+                        if prediction is not None:
+                            crop = crop_frame(model, mean_frame) / max(readback, 1e-9)
+                            estimate = estimate_registration(
+                                model, [(f"{phase}_scan", prediction, crop)]
+                            )
+                            half = int(estimate.get("search_half_px") or 0)
+                            estimate["on_border"] = bool(
+                                half and (
+                                    abs(int(estimate["integer_dy"])) >= half
+                                    or abs(int(estimate["integer_dx"])) >= half
+                                )
+                            )
+                            row["registration"] = estimate
+                            log.log(
+                                f"[{phase}] registration peak "
+                                f"{estimate['integer_peak_score']:.4f} "
+                                f"({estimate['subpixel_dy']:+.2f}, "
+                                f"{estimate['subpixel_dx']:+.2f}) px "
+                                f"border={estimate['on_border']}"
+                            )
+                        points.append(row)
+                        np.savez_compressed(
+                            out / row["file"],
+                            raw_frames=stack,
+                            panel_phase=panel,
+                            exposure_ms=np.float64(readback),
+                            phase=phase,
+                            panel_phase_sha256=display["sha256"],
+                            utc=row["utc"],
+                        )
+                        _write_json(out / "points.json", points)
+                        stats = row["metrics"]["frame_stats"]
+                        log.log(
+                            f"[{phase}] {readback:g} ms: mean "
+                            f"{stats['mean']:.2f} max {stats['max']:.0f} "
+                            f"clip {(stats['saturated_fraction'] or 0) * 100:.3f}%"
+                        )
+
+                try:
+                    show("blank", slm)
+                except ControllerHangError:
+                    log.log("blank restore skipped: controller hung", "ERROR")
+                cam_rec.update(_instrument_close(cam, "camera", log))
+            slm_rec.update(_instrument_close(slm, "SLM", log))
+    except ControllerHangError as exc:
+        log.log(f"FATAL: {exc}", "ERROR")
+        print(f"FATAL: {exc}", file=sys.stderr)
+        warnings.append(f"控制器挂起中止：{exc}")
+        exit_code = 3
+    except SantecError as exc:
+        if _is_controller_hang(exc):
+            log.log(f"FATAL: {HANG_HINT}", "ERROR")
+            print(f"FATAL: {HANG_HINT}", file=sys.stderr)
+            warnings.append(f"控制器挂起中止：{HANG_HINT}")
+            exit_code = 3
+        else:
+            raise
+    finally:
+        release_lock()
+
+    selection = scan_selection(points, settings.scan_phases)
+    recommendation: dict[str, float] = {}
+    branch_picks = [
+        block["pick"]["exposure_ms"]
+        for phase, block in selection.items()
+        if phase != "blank" and block.get("pick")
+    ]
+    if branch_picks:
+        # a single exposure must serve both branches: the smaller pick cannot clip
+        recommendation["registration_exposure_ms"] = float(min(branch_picks))
+        recommendation["lut_anchor_ms"] = float(min(branch_picks))
+
+    payload = {
+        "generated_utc": _utc_now(),
+        "mode": "scan",
+        "device_statement": device["statement"],
+        "settings": settings.as_dict(),
+        "selftest": selftest,
+        "offline_reference": offline,
+        "phase_reset": phase_reset,
+        "points": points,
+        "selection": selection,
+        "recommendation": recommendation,
+        "device": device,
+        "warnings": warnings,
+        "elapsed_wall_s": round(time.monotonic() - started, 3),
+    }
+    _write_json(out / "results.json", payload)
+    _write_json(out / "run_config.json", {
+        "settings": settings.as_dict(),
+        "device_statement": device["statement"],
+        "drivers_import": drivers_import_status(),
+    })
+    (out / REPORT_NAME).write_text(scan_report_markdown(payload), encoding="utf-8")
+    print(json.dumps({
+        "mode": "scan",
+        "exit_code": exit_code,
+        "output_dir": str(out),
+        "points": [
+            {
+                "phase": row["phase"],
+                "exposure_ms": row["exposure_ms"],
+                "peak_fraction": row["metrics"]["peak_fraction_of_full_scale"],
+                "registration_score": (row.get("registration") or {}).get(
+                    "integer_peak_score"
+                ),
+                "on_border": (row.get("registration") or {}).get("on_border"),
+            }
+            for row in points
+        ],
+        "recommendation": recommendation,
+    }, indent=2, ensure_ascii=False, default=str))
+    return exit_code
+
+
 def parse_args(argv: list[str] | None = None) -> Settings:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -2015,9 +2588,30 @@ def parse_args(argv: list[str] | None = None) -> Settings:
     parser.add_argument("--exposure-factors", default=','.join(map(str, EXPOSURE_FACTORS)))
     parser.add_argument("--frames-per-level", type=int, default=FRAMES_PER_LEVEL)
     parser.add_argument("--registration-exposure", type=float, default=None)
+    parser.add_argument(
+        "--lut-anchor-ms", type=float, default=None,
+        help="override the LUT bracket anchor (default: the archived reference exposure, "
+             "0.202 ms, which is far below the light level of the current bench)",
+    )
     parser.add_argument("--wait-until-idle", type=float, default=0.0)
     parser.add_argument("--assume-laser-off", action="store_true")
+    parser.add_argument("--assume-laser-on", action="store_true")
+    parser.add_argument("--skip-dark-field", action="store_true")
     parser.add_argument("--skip-selftest", action="store_true")
+    parser.add_argument(
+        "--scan", action="store_true",
+        help="short exposure scan instead of the staged acquisition: panel is reset to "
+             "zero phase first, then one exposure sweep per phase block",
+    )
+    parser.add_argument(
+        "--scan-exposures", default=",".join(map(str, SCAN_EXPOSURES_MS)),
+        help="comma separated exposure levels in ms for --scan",
+    )
+    parser.add_argument(
+        "--scan-phases", default=",".join(SCAN_PHASES),
+        help="comma separated phase blocks for --scan: blank, U, C",
+    )
+    parser.add_argument("--scan-frames", type=int, default=SCAN_FRAMES)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--print-plan", action="store_true")
     args = parser.parse_args(argv)
@@ -2031,8 +2625,36 @@ def parse_args(argv: list[str] | None = None) -> Settings:
         parser.error("--frames-per-level must be at least 2")
     if args.wait_until_idle < 0:
         parser.error("--wait-until-idle must be non-negative")
+    if args.assume_laser_off and args.assume_laser_on:
+        parser.error("--assume-laser-off and --assume-laser-on contradict each other")
+    if args.lut_anchor_ms is not None and not args.lut_anchor_ms > 0:
+        parser.error("--lut-anchor-ms must be positive")
+    if args.skip_dark_field:
+        skip_dark, dark_reason = True, "--skip-dark-field: operator disabled dark capture"
+    elif args.assume_laser_off:
+        skip_dark, dark_reason = False, ""
+    elif args.assume_laser_on:
+        skip_dark = True
+        dark_reason = (
+            "laser attested on: a dark frame at this state is not dark, "
+            "so the stage is dropped instead of captured wrong"
+        )
+    else:
+        skip_dark, dark_reason = False, ""
     if args.slm_number < 1 or args.cam_id < 0:
         parser.error("device numbers must be non-negative (SLM number is >= 1)")
+    scan_exposures = _parse_floats(args.scan_exposures)
+    scan_phases = tuple(p.strip() for p in args.scan_phases.split(",") if p.strip())
+    if args.scan:
+        unknown = [p for p in scan_phases if p not in {"blank", "U", "C"}]
+        if unknown:
+            parser.error(f"--scan-phases: unknown phase(s) {unknown}; use blank, U, C")
+        if not scan_exposures:
+            parser.error("--scan-exposures must name at least one level")
+        if args.scan_frames < 1:
+            parser.error("--scan-frames must be at least 1")
+        if args.execute:
+            parser.error("--scan replaces the staged acquisition; drop --execute")
     anchor = float(dark[0])
     registration = float(args.registration_exposure) if args.registration_exposure else anchor
     return Settings(
@@ -2046,13 +2668,54 @@ def parse_args(argv: list[str] | None = None) -> Settings:
         exposure_factors=factors,
         frames_per_level=args.frames_per_level,
         registration_exposure_ms=registration,
+        lut_anchor_ms=args.lut_anchor_ms,
         wait_until_idle_s=args.wait_until_idle,
         execute=args.execute,
         assume_laser_off=args.assume_laser_off,
+        assume_laser_on=args.assume_laser_on,
+        skip_dark_field=skip_dark,
+        dark_skip_reason=dark_reason,
         skip_selftest=args.skip_selftest,
+        scan=args.scan,
+        scan_exposures_ms=scan_exposures or SCAN_EXPOSURES_MS,
+        scan_phases=scan_phases or SCAN_PHASES,
+        scan_frames=args.scan_frames,
         quiet=args.quiet,
         print_plan=args.print_plan,
     )
+
+
+def run_scan_plan(settings: Settings, log: RunLog) -> int:
+    """Device-free plan of the exposure scan (``--scan --print-plan``)."""
+    print(json.dumps({
+        "mode": "scan_dry_run",
+        "device_statement": DEVICE_STATEMENT_OFFLINE,
+        "drivers_import": drivers_import_status(),
+        "settings": settings.as_dict(),
+        "plan": {
+            "phase_reset": "display zero (flat) phase first, then wait before any capture",
+            "blocks": [
+                {
+                    "phase": phase,
+                    "display": "blank (zero phase)" if phase == "blank" else phase,
+                    "exposures_ms": list(settings.scan_exposures_ms),
+                    "frames_per_point": settings.scan_frames,
+                }
+                for phase in settings.scan_phases
+            ],
+            "n_frames": (
+                len(settings.scan_phases)
+                * len(settings.scan_exposures_ms)
+                * settings.scan_frames
+            ),
+            "selection": (
+                "per phase: unclipped peak first, correlation peak off the search border, "
+                "then the strongest registration match"
+            ),
+        },
+    }, indent=2, ensure_ascii=False, default=str))
+    log.log("scan plan printed; no device touched")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2060,6 +2723,10 @@ def main(argv: list[str] | None = None) -> int:
     settings.out.mkdir(parents=True, exist_ok=True)
     with RunLog(settings.out / LOG_NAME, quiet=settings.quiet) as log:
         try:
+            if settings.scan:
+                return run_scan_plan(settings, log) if settings.print_plan else run_scan(
+                    settings, log
+                )
             return run_execute(settings, log) if settings.execute else run_dry(settings, log)
         except KeyboardInterrupt:
             log.log("interrupted by operator", "ERROR")

@@ -1029,8 +1029,8 @@ def run_execute(args: argparse.Namespace, opt: Any, ladder: Ladder, out_dir: Pat
                         "source": "现场实测 (SLMCCDCalibrator.calibrate)",
                         "measured_this_run": True,
                         "center": np.asarray(raw_calib["center"]).tolist(),
-                        "kx": float(raw_calib["Kx"]),
-                        "ky": float(raw_calib["Ky"]),
+                        "Kx": float(raw_calib["Kx"]),
+                        "Ky": float(raw_calib["Ky"]),
                         "rotation_deg": float(raw_calib["rotation_deg"]),
                         "mirror": bool(raw_calib["mirror"]),
                         "fwhm0": float(raw_calib["fwhm0"]),
@@ -1044,7 +1044,8 @@ def run_execute(args: argparse.Namespace, opt: Any, ladder: Ladder, out_dir: Pat
                         float(geometry["centre_xy"][1]),
                         float(geometry["centre_xy"][0]),
                     ]
-                k_mean = 0.5 * (float(geometry["kx"]) + float(geometry["ky"]))
+                # load_geometry_npz 的键为 Kx/Ky (大写), 与 k_mean 口径一致。
+                k_mean = 0.5 * (float(geometry["Kx"]) + float(geometry["Ky"]))
                 geometry["k_mean"] = k_mean
                 centre_cy, centre_cx = (float(v) for v in geometry["center"])
                 centre_xy = (centre_cx, centre_cy)
@@ -1061,8 +1062,8 @@ def run_execute(args: argparse.Namespace, opt: Any, ladder: Ladder, out_dir: Pat
                 logger.info(
                     "[geometry] {} Kx={:.1f} Ky={:.1f} K={:.1f} 零级=({:.0f},{:.0f})",
                     geometry["source"],
-                    geometry["kx"],
-                    geometry["ky"],
+                    geometry["Kx"],
+                    geometry["Ky"],
                     k_mean,
                     centre_cx,
                     centre_cy,

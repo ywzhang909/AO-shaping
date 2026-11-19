@@ -511,3 +511,222 @@ def test_weak_path_never_masks_a_harder_failure() -> None:
 
     assert verdict["state"] == "no_response"
     assert verdict["exit_code"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Bit depth / full scale: the S0 precondition is Mono12 (4095), not Mono8 (255)
+# ---------------------------------------------------------------------------
+#: The S0 run at ``data/debug/hw_window_20261118/optical_path_probe/s0/
+#: 20261118_112316Z/optical_path_record.json`` recorded 8 bit / full_scale 255 even
+#: though the window plan requires ``set_bit_depth(12)``. Two separate causes:
+#: ``create_camera`` never passed ``bit_depth`` (Daheng stayed on its default
+#: Mono8), and the ladder derived ``full_scale`` from ``np.iinfo(dtype).max`` --
+#: MONO12 frames are ``uint16``, so that yields 65535 instead of 4095. 8 bit makes
+#: 1 count ~7% of full scale, which invalidates any uniformity conclusion.
+
+
+class _FakeMono12Camera:
+    """A camera that honours the bit-depth contract: 12 bit, uint16 frames, 4095."""
+
+    supported_bit_depths = (8, 12, 16)
+
+    def __init__(self, *, bit_depth: int = 12, peak_counts: float = 3000.0) -> None:
+        self.bit_depth = bit_depth
+        self.peak_counts = peak_counts
+        self.exposure_time_ms = 1.0
+        self.full_scale_reads: list[float] = []
+
+    # -- exposure contract (common.set/get_camera_exposure_ms) --------------
+    def get_exposure_time_ms(self) -> float:
+        return self.exposure_time_ms
+
+    def reset_exposure_time(self, time_ms: float) -> float:
+        self.exposure_time_ms = float(time_ms)
+        return self.exposure_time_ms
+
+    # -- full-scale contract: bit depth decides, the frame dtype does not ---
+    def effective_full_scale(self, img: np.ndarray) -> float:
+        assert np.asarray(img).dtype == np.uint16  # MONO12 rides in a uint16 container
+        self.full_scale_reads.append(1.0)
+        return float((1 << int(self.bit_depth)) - 1)
+
+    # -- capture ------------------------------------------------------------
+    def get_numpy_image(self, n_sample: int = 1, skip_first: bool = False) -> np.ndarray:
+        shape = (120, 120)
+        rows, cols = np.mgrid[0 : shape[0], 0 : shape[1]]
+        sigma = 6.0
+        spot = self.peak_counts * np.exp(
+            -((rows - 60.0) ** 2 + (cols - 60.0) ** 2) / (2.0 * sigma**2)
+        )
+        return spot.astype(np.uint16)
+
+
+def test_ladder_records_the_camera_full_scale_not_the_frame_dtype(tmp_path: Path) -> None:
+    """MONO12 frames are uint16: full_scale must be 4095, never 65535 or 255."""
+    camera = _FakeMono12Camera()
+
+    ladder = probe.measure_exposure_ladder(camera, [1.0, 5.0], 2, tmp_path)
+
+    assert [row["full_scale"] for row in ladder] == [4095.0, 4095.0]
+    assert camera.full_scale_reads, "ladder must ask the camera, not np.iinfo(dtype)"
+    assert np.asarray(camera.get_numpy_image()).dtype == np.uint16
+
+    # Downstream saturation now uses the same scale: a 3000-count peak on a
+    # 4095 scale is 73% -- not saturated. On the old 255 literal it looked blown out.
+    summary = probe.analyse_ladder(ladder, 255.0)
+    assert ladder[0]["saturated"] is False
+    assert summary["saturation_counts"] == pytest.approx(0.95 * 4095.0)
+
+
+def test_bit_depth_readback_mismatch_raises() -> None:
+    """A camera that silently stayed on Mono8 must stop the probe, not skew it."""
+    camera = _FakeMono12Camera(bit_depth=8)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        probe._verify_camera_bit_depth(camera, 12)
+
+    message = str(excinfo.value)
+    assert "12 bit" in message and "8 bit" in message
+
+
+def test_bit_depth_verification_accepts_matching_readback() -> None:
+    camera = _FakeMono12Camera(bit_depth=12)
+
+    assert probe._verify_camera_bit_depth(camera, 12) == 12
+
+
+def test_bit_depth_verification_skips_backends_without_the_attribute() -> None:
+    """ffmpeg / image_folder / sim have no bit-depth truth: dtype fallback is correct."""
+
+    class _NoBitDepthCamera:
+        pass
+
+    assert probe._verify_camera_bit_depth(_NoBitDepthCamera(), 12) is None
+
+
+def test_bit_depth_flag_defaults_to_the_s0_mono12_precondition() -> None:
+    parser = probe.build_parser()
+
+    assert parser.parse_args([]).bit_depth == 12
+    assert parser.parse_args(["--bit-depth", "12"]).bit_depth == 12
+    assert parser.parse_args(["--bit-depth", "16"]).bit_depth == 16
+    assert probe.S0_BIT_DEPTH == 12
+
+
+def test_bit_depth_flag_rejects_unsupported_settings() -> None:
+    parser = probe.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--bit-depth", "10"])
+
+
+# ---------------------------------------------------------------------------
+# Absolute-count thresholds must ride the effective full scale
+# ---------------------------------------------------------------------------
+#: ``RECOMMENDED_PEAK_RANGE`` / ``RECOMMENDED_PEAK_TARGET`` were calibrated when
+#: counts meant 0-255 gray. Left unscaled they target 2.4-4.9% of a Mono12 frame,
+#: so the probe would recommend an exposure ~16x darker than intended. Likewise the
+#: plot drew its saturation line at a literal ``0.95 * 255``, 242 counts, on a
+#: 4095-count axis.
+
+
+def _raw_ladder(
+    rows: list[tuple[float, float]], full_scale: float
+) -> list[dict]:
+    """A synthetic ladder whose records carry an explicit (bit-depth) full scale."""
+    return [
+        {
+            "requested_ms": ms,
+            "effective_ms": ms,
+            "peak_raw": peak,
+            "noise_median_counts": 0.0,
+            "noise_sigma_counts": 1.0,
+            "noise_threshold_counts": 4.0,
+            "full_scale": full_scale,
+        }
+        for ms, peak in rows
+    ]
+
+
+#: The S0 rerun's shape: Mono12 frames (uint16, 4095 max), 0.05 ms baseline ~187
+#: raw counts, and the useful step peaking at ~3000 raw counts (73% of full scale).
+MONO12_LADDER = _raw_ladder([(0.05, 187.0), (1.0, 1200.0), (5.0, 3000.0)], 4095.0)
+
+
+def test_mono12_recommended_band_is_scaled_to_raw_counts() -> None:
+    """100-200 gray on a 4095 scale is 1605.9-3211.8 raw counts, and 3000 is inside."""
+    summary = probe.analyse_ladder(MONO12_LADDER, 255.0)  # the literal is overridden
+
+    recommended = summary["recommended_exposure"]
+    assert recommended is not None
+    assert recommended["exposure_ms"] == pytest.approx(5.0)
+    assert recommended["peak_counts"] == pytest.approx(3000.0)  # raw, for the raw axis
+    assert recommended["target_band_counts"] == pytest.approx(
+        [1605.8823529411764, 3211.764705882353]
+    )
+    assert summary["target_band_counts"] == pytest.approx(
+        [1605.8823529411764, 3211.764705882353]
+    )
+    assert recommended["target_band_gray"] == pytest.approx([100.0, 200.0])
+    assert recommended["in_target_band"] is True
+    # 3000 * 255 / 4095 -- the same reading in the gray view recorded in old runs.
+    assert recommended["peak_gray"] == pytest.approx(186.81318681318683)
+
+
+def test_same_counts_at_8bit_keep_the_gray_band() -> None:
+    """Scaling is driven by full_scale: at 255 the band is still [100, 200]."""
+    ladder = _raw_ladder([(1.0, 1200.0), (5.0, 3000.0)], 255.0)
+
+    summary = probe.analyse_ladder(ladder, 255.0)
+
+    assert summary["target_band_counts"] == pytest.approx([100.0, 200.0])
+    # A 3000-count peak is far past a 255 scale: every step is saturated, so there
+    # is no recommendation to pick a band for.
+    assert all(row["saturated"] for row in ladder)
+    assert summary["recommended_exposure"] is None
+
+
+def test_plot_draws_the_saturation_line_at_the_measured_full_scale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Mono12 plot's saturation line is 0.95*4095 = 3890.25, not 242."""
+    summary = probe.analyse_ladder(MONO12_LADDER, 255.0)
+    response = probe.analyse_defocus_response(
+        [
+            _state(0.0, 250.0, 12.0, 10),
+            _state(1.0, 200.0, 12.6, 20),
+            _state(-1.0, 200.0, 12.7, 30),
+        ],
+        2.4,
+    )
+
+    closed: list = []
+    monkeypatch.setattr(probe.plt, "close", closed.append)  # keep the figure alive
+    out_path = tmp_path / "optical_path_probe.png"
+    probe.plot_results(MONO12_LADDER, summary, response, out_path)
+
+    assert out_path.exists() and closed, "plot_results must save its figure"
+    ax = closed[0].axes[0]
+    saturation = float(summary["saturation_counts"])
+    assert saturation == pytest.approx(3890.25)  # 0.95 * 4095
+
+    at_saturation = [
+        line
+        for line in ax.get_lines()
+        if np.allclose(np.asarray(line.get_ydata(), dtype=float), saturation)
+    ]
+    assert at_saturation, "no horizontal line at the measured saturation level"
+    assert np.asarray(at_saturation[0].get_ydata(), dtype=float).tolist() == pytest.approx(
+        [saturation, saturation]
+    )
+    assert "3890" in at_saturation[0].get_label()
+    # The 8-bit literal must be gone.
+    assert not any(
+        np.allclose(np.asarray(line.get_ydata(), dtype=float), 0.95 * 255.0)
+        for line in ax.get_lines()
+    )
+
+    monkeypatch.undo()
+    probe.plt.close(closed[0])
+
+

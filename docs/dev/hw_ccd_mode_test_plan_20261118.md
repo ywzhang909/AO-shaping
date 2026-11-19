@@ -26,6 +26,12 @@
 | 冷却 | SLM 关闭 ≥200 s，确认 `DeviceLock.default().holder()` 为 None | 200 s | 时间戳 |
 | N1 none | `--ccd-mode none --dataset <同上> --checkpoint <同上> --shapes square --side 1200`（同目标同种子） | ~2 min（无 CCD 段） | session 目录 + open_loop_display.json（acceptance=`open_loop`） |
 
+> **执行入口（2026-11-19 起）**：L1/N1 不再手敲两段，统一交给窗口脚本
+> `scripts/experiments/run_transfer_window_20261119.py --segments k1 k4 light none`
+> （它等锁、持锁贯穿全窗口、段间冷却 200 s、每段独立 `--out`、结束时写 `released.json`/`window.json`）。
+> 数据落 `data/experiments/transfer_window_<date>/{k1,k4,light,none}/`；无 `--execute` 只打印计划。
+> 状态：**脚本就绪，未采集**（见合并版 §7.3）。
+
 验收记录（每段）：SLM/CCD 打开时间、关闭时间、`slm_closed/camera_closed/lock_released`、exit code。
 
 ## 离线判读（设备下线后）
@@ -33,6 +39,7 @@
 1. light vs full 基线：终检 A–B–B–A 的实测 CV / IoU 与同形状同尺寸历史 full run 对比；可接受判据 = 实测 CV 退化 < 20% 相对。
 2. none：无实测帧（不开相机），判读只能依赖随后一次 full/light 运行以 none 相位为种子？——否。none 段本身只记录上屏时间戳；none 的实测质量需另设「none 相位 + 单次 CCD 拍帧」对照段（N2，可选）：用 `transfer validate` 手动上屏 none 合成相位拍 3 帧。是否执行 N2 在窗口内视时间决定。
 3. 耗时拆解：light 相对 full 应省 CCD_model_blocks（~80 s）与 anchored 多余 updates（每块省 4 次采帧）。
+4. **模型科学强度门（独立于本页工程模式验收）**：冻结模型的零步绝对强度图在固定 ROI/mask 上，以未缩放 `relL2` 评估；所有有效独立 pass 均须 `relL2 ≤ 0.20`，并与既有方向门 10/14 联合通过。预注册口径、无效条件及 `δ=0.20` 的适用限制见 [`transfer_strength_gate_preregistration_20261119.md`](transfer_strength_gate_preregistration_20261119.md)。本页 `light` CV 退化 `<20% relative` 是另一项应用质量判据，不等价于 `relL2`，不得互相替代。
 
 ## 红线
 
