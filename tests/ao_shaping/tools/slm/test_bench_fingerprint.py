@@ -305,7 +305,7 @@ class TestSessionWiring:
 
     def test_disabling_the_check_never_touches_the_panel(self, tmp_path, monkeypatch):
         """It must skip the *measurement*, not measure and ignore the verdict."""
-        from ao_shaping.runners.slm import session_calibration as mis
+        from ao_shaping.runners.slm import model_in_loop_session as mis
 
         def _boom(*_a, **_k):
             raise AssertionError("skipped verification must not open devices")
@@ -323,7 +323,7 @@ class TestSessionWiring:
         self, tmp_path, monkeypatch
     ):
         """A run with nothing calibrated has nothing to invalidate."""
-        from ao_shaping.runners.slm import session_calibration as mis
+        from ao_shaping.runners.slm import model_in_loop_session as mis
 
         monkeypatch.setattr(
             "ao_shaping.tools.slm.panel.bench_fingerprint.probe_session_fingerprint",
@@ -340,7 +340,7 @@ class TestSessionWiring:
         assert not (tmp_path / "run" / "bench_fingerprint.json").exists()
 
     def test_a_stored_fingerprint_round_trips(self, tmp_path):
-        from ao_shaping.runners.slm.session_calibration import (
+        from ao_shaping.runners.slm.model_in_loop_session import (
             load_stored_fingerprint,
         )
 
@@ -353,7 +353,7 @@ class TestSessionWiring:
         )
 
     def test_a_corrupt_fingerprint_is_treated_as_absent(self, tmp_path):
-        from ao_shaping.runners.slm.session_calibration import (
+        from ao_shaping.runners.slm.model_in_loop_session import (
             load_stored_fingerprint,
         )
 
@@ -361,7 +361,7 @@ class TestSessionWiring:
         assert load_stored_fingerprint(tmp_path) is None
 
     def test_a_missing_fingerprint_is_not_an_error(self, tmp_path):
-        from ao_shaping.runners.slm.session_calibration import (
+        from ao_shaping.runners.slm.model_in_loop_session import (
             load_stored_fingerprint,
         )
 
@@ -369,17 +369,17 @@ class TestSessionWiring:
 
 
 def _session_params(**overrides):
-    from ao_shaping.runners.slm.session_calibration import SessionCalibrationParams
+    from ao_shaping.runners.runner_common import SlmModelInLoopParams
 
-    return SessionCalibrationParams(**overrides)
+    return SlmModelInLoopParams(**overrides)
 
 
 def _session_config(**overrides):
-    from ao_shaping.runners.slm.session_calibration import SessionCalibrationConfig
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
 
     base = dict(cam_type="daheng", region=64, far_field_padding=8, pupil_center=(960, 600))
     base.update(overrides)
-    return SessionCalibrationConfig(**base)
+    return SlmModelInLoopConfig(**base)
 
 
 class TestKernelUsage:

@@ -39,7 +39,7 @@ TILT_SHIFT_SCALE = 7400.0
 # SLM panel geometry (measured 2026-09-30; single source of truth, R-47).
 # Santec SLM-200 #1 22030108, 1920x1200, 10-bit, 2pi = 993 gray at 1064 nm;
 # Daheng MER2-507, 2592x1944, 2.2 um pixel. Provenance:
-# report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md
+# report/slm/model_in_loop_bench_calibration.md
 # ---------------------------------------------------------------------------
 
 #: Panel width in px (the shape the Santec driver expects, last axis).
@@ -60,7 +60,7 @@ BEAM_RADIUS_PANEL = 450
 # ---------------------------------------------------------------------------
 # Device / grating limits shared by the off-axis shaping configs (batch of
 # #173). These were spelled out as bare literals in the per-mode config
-# validators (``slm_gs_refine`` / ``slm_square_shaping``
+# validators (``slm_gs_refine`` / ``slm_model_in_loop`` / ``slm_square_shaping``
 # / ``_blaze_calibration``). A bench change (different SLM bank, larger CCD
 # crop) would have to update several copies by hand -- the same drift failure
 # the bench-geometry constants above already prevent.

@@ -241,7 +241,7 @@ class TestThreeStates:
     ) -> None:
         """``calibrate_session`` raises plain exceptions; the GUI shows them."""
         _connect_slm(state)
-        from ao_shaping.runners.slm import session_calibration as session
+        from ao_shaping.runners.slm import model_in_loop_session as session
 
         def _boom(*a, **k):
             raise RuntimeError("panel scan response +0.004 is too weak")
@@ -284,7 +284,7 @@ class TestThreeStates:
 
 
 def _fake_calibration(center, geometry):
-    from ao_shaping.runners.slm.session_calibration import SessionCalibration
+    from ao_shaping.runners.slm.model_in_loop_session import SessionCalibration
 
     return SessionCalibration(
         pupil_center=center,
@@ -302,7 +302,7 @@ def _patch_calibrate_session(monkeypatch, module, calibration) -> dict[str, Any]
     of the test is that ``bench_settings`` calls the canonical entry point, so
     the stub has to sit where the real one lives.
     """
-    from ao_shaping.runners.slm import session_calibration as session
+    from ao_shaping.runners.slm import model_in_loop_session as session
 
     seen: dict[str, Any] = {"busy_inside": False, "handle_released": False}
 
@@ -673,7 +673,7 @@ class TestReusableGeometryFile:
     """``reusable_geometry_file`` —— 运行路径唯一的几何来源。
 
     三条规则，按优先级：几何来源「复用」时文本框里的路径 → 本会话已标定的探测产物
-    → 空串（= 没有可复用的几何，由闭环方法的 ``validate`` 拒绝运行）。
+    → 空串（= 没有可复用的几何，由 ``ModelInLoopMethod.validate`` 拒绝运行）。
     """
 
     def test_reuse_mode_uses_the_text_box(self, state, tmp_path) -> None:

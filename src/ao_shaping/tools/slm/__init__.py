@@ -21,6 +21,16 @@ and the camera-only / WFS probes now live beside it::
                        dynamic_compensation, slm_cartographer_ui
         gs_refine_replay.py  interleaved hardware replay of GS-refine phases
                        saved in one run directory
+        analyze_disturbance.py  paired-run metrics with the optical axis
+                       frozen from each flat (offline)
+        compare_disturbance.py  paired GS-refine / model-in-loop comparison
+                       with a fixed SLM aberration
+        model_in_loop_replay.py  interleaved CCD replay of two saved
+                       model-in-loop phases
+        model_in_loop_summary.py  per-item gate summary of a saved
+                       model-in-loop run directory (offline)
+        replay_disturbance.py  interleaved fixed-exposure CCD replay of the
+                       four saved comparison phases
         bench_twin_calibrate.py  parameter inversion (calibration) of the
                        reusable 2f digital twin (``drivers/sim/bench_twin``):
                        joint SSIM / energy / correlation loss, two-stage

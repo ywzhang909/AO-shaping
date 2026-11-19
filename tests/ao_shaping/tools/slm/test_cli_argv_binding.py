@@ -1237,14 +1237,12 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # 38 -> 39 (camera) on 2026-11-13 when transfer/exposure_policy.py landed
     # (0 Santec + 1 camera — no device open in code; the single count is the
     # module docstring quoting the create_camera(exposure_time_ms=...) seed
-    # contract); a genuine new module, re-baselined here deliberately. 36 -> 35
-    # (Santec) and 39 -> 38 (camera) when slm/replay_disturbance.py was deleted
-    # with the model-in-loop removal. This guard pins the
+    # contract); a genuine new module, re-baselined here deliberately. This guard pins the
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
     # deliberately.
-    assert sum(santec.values()) == 35, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 38, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 39, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1264,6 +1262,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
         "slm/transfer/optical_probe.py": 1,
@@ -1299,6 +1298,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
         "slm/transfer/auto_reuse.py": 1,
         "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 2,

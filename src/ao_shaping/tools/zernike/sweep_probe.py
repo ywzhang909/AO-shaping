@@ -21,9 +21,8 @@ What it buys over calling :mod:`ao_shaping.tools.kernels.bench_kernels` directly
   coefficient, and the sweep as a whole carries the aperture geometry, so a
   stored sweep can be re-fitted later without remembering how it was taken.
 
-Layering note: this module deliberately does **not** import the private
-``_SWEEP_MODE_NM`` table from
-``optimizer/wfless/bench_sweep_fit.py`` even though the two
+Layering note: this module deliberately does **not** import
+``model_in_loop_shaping``'s private ``_SWEEP_MODE_NM`` table even though the two
 cover the same modes. The optimizer is a library layer that must not depend on
 hardware tools, so the duplication is intentional and each table is canonical for
 its own layer; :data:`SWEEP_MODE_NM` is the hardware-facing one and is what the
@@ -86,7 +85,7 @@ AUX_MODES: frozenset[str] = frozenset({"flat", "ramp"})
 
 #: Below this centroid/peak ratio the focal plane is a ring, not one lobe, and
 #: its "width" is a ring diameter rather than a spot size. Mirrors
-#: ``optimizer/wfless/bench_sweep.py``'s ``_DEFOCUS_MIN_HOLLOWNESS``.
+#: ``model_in_loop_shaping._DEFOCUS_MIN_HOLLOWNESS``.
 SINGLE_LOBE_MIN_HOLLOWNESS: float = 0.60
 
 #: Stable-mode integer codes for the Recorder sidecar. The standard recorder

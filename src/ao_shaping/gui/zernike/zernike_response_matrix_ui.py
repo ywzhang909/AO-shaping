@@ -854,290 +854,6 @@ def _render_calibration_polling() -> None:
             logger.warning(f"Failed to read progress file: {e}")
 
 
-
-def _render_device_connection_section(col1):
-# Device connection section lifted verbatim
-    st.divider()
-
-    # Device connection
-    st.subheader("设备连接")
-
-    # SLM connection section
-    st.write("**SLM**")
-    col1, col2 = st.columns(2)
-    with col1:
-        if not st.session_state.zrm_slm_connected:
-            if st.button("连接SLM", type="primary", key="zrm_connect_slm"):
-                connect_slm()
-        else:
-            st.success("SLM已连接")
-            if st.button("断开SLM", key="zrm_disconnect_slm"):
-                disconnect_slm()
-
-    # Display SLM info when connected
-    if st.session_state.zrm_slm_connected:
-        width = st.session_state.get("zrm_slm_width")
-        height = st.session_state.get("zrm_slm_height")
-        pixel_size = st.session_state.get("zrm_slm_pixel_size_um")
-        bits = st.session_state.get("zrm_slm_bits")
-        if width and height:
-            st.caption(f"分辨率: {width}×{height}")
-        if pixel_size:
-            st.caption(f"像素尺寸: {pixel_size} μm")
-        if bits:
-            st.caption(f"Bit: {bits}")
-
-    st.divider()
-
-    # WFS connection section
-    st.write("**WFS**")
-    col1, col2 = st.columns(2)
-    with col1:
-        if not st.session_state.zrm_wfs_connected:
-            if st.button("连接WFS", type="primary", key="zrm_connect_wfs"):
-                connect_wfs()
-        else:
-            st.success("WFS已连接")
-            if st.button("断开WFS", key="zrm_disconnect_wfs"):
-                disconnect_wfs()
-    return 
-
-
-
-
-def _render_wfs_params_section():
-# WFS parameter section lifted verbatim
-    st.divider()
-
-    # WFS settings (parameters applied on connect)
-    st.subheader("WFS参数")
-
-    st.session_state.zrm_wfs_mla_res = st.selectbox(
-        "MLA分辨率",
-        options=[0, 1, 2, 3, 4],
-        format_func=lambda x: {0: "1280x1024", 1: "1024x1024", 2: "768x768", 3: "512x512", 4: "320x320"}.get(x, str(x)),
-        index=2,  # Default Res768
-    )
-
-    # Show current exposure range (default or detected)
-    exp_min = st.session_state.get("zrm_wfs_exp_time_min", 0.002)
-    exp_max = st.session_state.get("zrm_wfs_exp_time_max", 86.0)
-    st.caption(f"设备曝光范围: {exp_min:.3f} ~ {exp_max:.3f} ms")
-
-    # Auto-exposure toggle
-    auto_exp = st.checkbox(
-        "自动曝光",
-        value=st.session_state.zrm_wfs_auto_exposure,
-        help="开启时使用WFS自动曝光，曝光时间设置无效",
-    )
-    # Update session state only if changed (avoid unnecessary resets)
-    if auto_exp != st.session_state.zrm_wfs_auto_exposure:
-        st.session_state.zrm_wfs_auto_exposure = auto_exp
-        # Only reset to 0.0 when enabling auto-exposure (for driver),
-        # but keep a separate display value
-        if auto_exp:
-            st.session_state.zrm_wfs_exp_time_display = 0.0
-
-    # Determine display value: use stored display value if in auto mode, else use actual exp_time
-    if st.session_state.zrm_wfs_auto_exposure:
-        # When auto, show the minimum valid value (since actual value is 0.0 for driver)
-        display_value = exp_min
-        st.session_state.zrm_wfs_exp_time_display = exp_min
-    else:
-        display_value = st.session_state.zrm_wfs_exp_time
-        # Ensure manual value is within [exp_min, exp_max] for UI safety
-        if display_value < exp_min:
-            display_value = exp_min
-            st.session_state.zrm_wfs_exp_time = exp_min
-        elif display_value > exp_max:
-            display_value = exp_max
-            st.session_state.zrm_wfs_exp_time = exp_max
-        st.session_state.zrm_wfs_exp_time_display = display_value
-
-    # Exposure time input (disabled when auto-exposure is on)
-    new_exp = st.number_input(
-        "曝光时间 (ms)" + (" (自动)" if st.session_state.zrm_wfs_auto_exposure else ""),
-        min_value=float(exp_min),
-        max_value=float(exp_max),
-        value=float(display_value),
-        step=0.1,
-        format="%.3f",
-        help="自动曝光模式下此设置无效" if st.session_state.zrm_wfs_auto_exposure else "手动曝光时间，0=自动曝光",
-        disabled=st.session_state.zrm_wfs_auto_exposure,
-    )
-
-    # Update exposure time state if not auto and value changed
-    if not st.session_state.zrm_wfs_auto_exposure:
-        st.session_state.zrm_wfs_exp_time = new_exp
-    # Clamp to device range (should be enforced by number_input but ensure safety)
-    st.session_state.zrm_wfs_exp_time = min(
-        max(st.session_state.zrm_wfs_exp_time, float(exp_min)),
-        float(exp_max)
-    )
-
-    st.session_state.zrm_wfs_pupil_diameter = st.number_input(
-        "瞳面直径 (mm)",
-        min_value=0.5,
-        max_value=10.0,
-        value=st.session_state.zrm_wfs_pupil_diameter,
-        step=0.1,
-        format="%.1f"
-    )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳面中心 X", value=st.session_state.zrm_wfs_pupil_center_x, step=0.1, format="%.1f")
-    with col2:
-        st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳面中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
-
-    # Use user reference checkbox
-    st.session_state.zrm_wfs_use_user_ref = st.checkbox(
-        "使用用户参考（设置当前波前为参考）",
-        value=st.session_state.zrm_wfs_use_user_ref,
-        help="勾选后将当前测量的波前设置为参考波前，用于后续测量"
-    )
-    return col1
-
-
-
-
-def _render_slm_params_section():
-# SLM parameter section lifted verbatim
-    st.divider()
-
-    # SLM settings (parameters applied on connect)
-    st.subheader("SLM参数")
-
-    st.session_state.zrm_slm_selection = st.selectbox(
-        "选择SLM编号",
-        options=[1, 2],
-        index=st.session_state.get("zrm_slm_selection", 1) - 1,
-        format_func=lambda x: f"SLM {x}",
-        help="选择要连接的SLM设备编号",
-    )
-
-    st.session_state.zrm_slm_wavelength = st.number_input(
-        "波长 (nm)",
-        min_value=450,
-        max_value=1600,
-        value=st.session_state.zrm_slm_wavelength,
-        step=1,
-    )
-
-    st.session_state.zrm_slm_n_max = st.number_input(
-        "SLM Zernike阶数",
-        min_value=1,
-        max_value=10,
-        value=st.session_state.zrm_slm_n_max,
-        step=1,
-    )
-
-    st.session_state.zrm_shift_x = st.number_input(
-        "SLM Shift X (像素)",
-        min_value=-500,
-        max_value=500,
-        value=st.session_state.zrm_shift_x,
-        step=1,
-    )
-
-    st.session_state.zrm_shift_y = st.number_input(
-        "SLM Shift Y (像素)",
-        min_value=-500,
-        max_value=500,
-        value=st.session_state.zrm_shift_y,
-        step=1,
-    )
-    return 
-
-
-
-
-def _render_calibration_params_section():
-# Calibration parameter section lifted verbatim
-    st.divider()
-
-    # Calibration parameters (only show in calibrate mode)
-    st.subheader("校准参数")
-
-    st.session_state.zrm_n_max = st.number_input(
-        "Zernike最大阶数 (n_max)",
-        min_value=1,
-        max_value=10,
-        value=st.session_state.zrm_n_max,
-        step=1,
-    )
-
-    st.session_state.zrm_magnitude = st.number_input(
-        "扰动幅度 (波长)",
-        min_value=0.01,
-        max_value=20.0,
-        value=st.session_state.zrm_magnitude,
-        format="%.3f",
-    )
-
-    st.session_state.zrm_n_cycles = st.number_input(
-        "正负循环次数",
-        min_value=1,
-        max_value=5,
-        value=st.session_state.zrm_n_cycles,
-        step=1,
-    )
-
-    st.session_state.zrm_n_averages = st.number_input(
-        "WFS平均次数",
-        min_value=1,
-        max_value=100,
-        value=st.session_state.zrm_n_averages,
-        step=1,
-    )
-
-    st.session_state.zrm_wait_time = st.number_input(
-        "等待时间 (s)",
-        min_value=0.01,
-        max_value=5.0,
-        value=st.session_state.zrm_wait_time,
-        step=0.1,
-        format="%.2f",
-    )
-
-    st.session_state.zrm_excluded_piston = st.checkbox(
-        "排除Piston (Z1)",
-        value=st.session_state.zrm_excluded_piston,
-        help="排除Zernike第1项（Piston）的校准，通常不需要校准Piston模式",
-    )
-
-    st.session_state.zrm_excluded_tip_tilt = st.checkbox(
-        "排除Tip/Tilt (Z2, Z3)",
-        value=st.session_state.zrm_excluded_tip_tilt,
-        help="排除Zernike第2、3项（Tip/Tilt）的校准，通常由光路对准补偿",
-    )
-
-    # Auto-enable cancel_tile when excluded_tip_tilt is set
-    if st.session_state.zrm_excluded_tip_tilt and not st.session_state.zrm_cancel_tile:
-        st.session_state.zrm_cancel_tile = True
-        st.caption("💡 已自动启用: 排除tip/tilt时自动启用cancel_tile")
-
-    st.session_state.zrm_cancel_tile = st.checkbox(
-        "去除WFS tip/tilt (cancel_tile)",
-        value=st.session_state.zrm_cancel_tile,
-        help="测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)",
-    )
-
-    st.session_state.zrm_compute_inverses = st.checkbox(
-        "计算逆矩阵",
-        value=st.session_state.zrm_compute_inverses,
-        help="计算并保存响应矩阵的逆矩阵，用于后续波前校正",
-    )
-
-    st.session_state.zrm_verbose = st.checkbox(
-        "显示详细进度",
-        value=st.session_state.zrm_verbose,
-        help="显示校准过程中的详细日志和进度信息",
-    )
-    return 
-
-
-
 def render_sidebar() -> None:
     """Render sidebar configuration."""
     with st.sidebar:
@@ -1161,11 +877,221 @@ def render_sidebar() -> None:
             help="校准结果保存目录",
         )
 
-        _render_calibration_params_section()
+        st.divider()
 
-        col1 = _render_wfs_params_section()
+        # Calibration parameters (only show in calibrate mode)
+        st.subheader("校准参数")
 
-        _render_slm_params_section()
+        st.session_state.zrm_n_max = st.number_input(
+            "Zernike最大阶数 (n_max)",
+            min_value=1,
+            max_value=10,
+            value=st.session_state.zrm_n_max,
+            step=1,
+        )
+
+        st.session_state.zrm_magnitude = st.number_input(
+            "扰动幅度 (波长)",
+            min_value=0.01,
+            max_value=20.0,
+            value=st.session_state.zrm_magnitude,
+            format="%.3f",
+        )
+
+        st.session_state.zrm_n_cycles = st.number_input(
+            "正负循环次数",
+            min_value=1,
+            max_value=5,
+            value=st.session_state.zrm_n_cycles,
+            step=1,
+        )
+
+        st.session_state.zrm_n_averages = st.number_input(
+            "WFS平均次数",
+            min_value=1,
+            max_value=100,
+            value=st.session_state.zrm_n_averages,
+            step=1,
+        )
+
+        st.session_state.zrm_wait_time = st.number_input(
+            "等待时间 (s)",
+            min_value=0.01,
+            max_value=5.0,
+            value=st.session_state.zrm_wait_time,
+            step=0.1,
+            format="%.2f",
+        )
+
+        st.session_state.zrm_excluded_piston = st.checkbox(
+            "排除Piston (Z1)",
+            value=st.session_state.zrm_excluded_piston,
+            help="排除Zernike第1项（Piston）的校准，通常不需要校准Piston模式",
+        )
+
+        st.session_state.zrm_excluded_tip_tilt = st.checkbox(
+            "排除Tip/Tilt (Z2, Z3)",
+            value=st.session_state.zrm_excluded_tip_tilt,
+            help="排除Zernike第2、3项（Tip/Tilt）的校准，通常由光路对准补偿",
+        )
+
+        # Auto-enable cancel_tile when excluded_tip_tilt is set
+        if st.session_state.zrm_excluded_tip_tilt and not st.session_state.zrm_cancel_tile:
+            st.session_state.zrm_cancel_tile = True
+            st.caption("💡 已自动启用: 排除tip/tilt时自动启用cancel_tile")
+
+        st.session_state.zrm_cancel_tile = st.checkbox(
+            "去除WFS tip/tilt (cancel_tile)",
+            value=st.session_state.zrm_cancel_tile,
+            help="测量时去除WFS的tip/tilt (对应Thorlabs的cancel_tile功能)",
+        )
+
+        st.session_state.zrm_compute_inverses = st.checkbox(
+            "计算逆矩阵",
+            value=st.session_state.zrm_compute_inverses,
+            help="计算并保存响应矩阵的逆矩阵，用于后续波前校正",
+        )
+
+        st.session_state.zrm_verbose = st.checkbox(
+            "显示详细进度",
+            value=st.session_state.zrm_verbose,
+            help="显示校准过程中的详细日志和进度信息",
+        )
+
+        st.divider()
+
+        # WFS settings (parameters applied on connect)
+        st.subheader("WFS参数")
+
+        st.session_state.zrm_wfs_mla_res = st.selectbox(
+            "MLA分辨率",
+            options=[0, 1, 2, 3, 4],
+            format_func=lambda x: {0: "1280x1024", 1: "1024x1024", 2: "768x768", 3: "512x512", 4: "320x320"}.get(x, str(x)),
+            index=2,  # Default Res768
+        )
+
+        # Show current exposure range (default or detected)
+        exp_min = st.session_state.get("zrm_wfs_exp_time_min", 0.002)
+        exp_max = st.session_state.get("zrm_wfs_exp_time_max", 86.0)
+        st.caption(f"设备曝光范围: {exp_min:.3f} ~ {exp_max:.3f} ms")
+
+        # Auto-exposure toggle
+        auto_exp = st.checkbox(
+            "自动曝光",
+            value=st.session_state.zrm_wfs_auto_exposure,
+            help="开启时使用WFS自动曝光，曝光时间设置无效",
+        )
+        # Update session state only if changed (avoid unnecessary resets)
+        if auto_exp != st.session_state.zrm_wfs_auto_exposure:
+            st.session_state.zrm_wfs_auto_exposure = auto_exp
+            # Only reset to 0.0 when enabling auto-exposure (for driver),
+            # but keep a separate display value
+            if auto_exp:
+                st.session_state.zrm_wfs_exp_time_display = 0.0
+
+        # Determine display value: use stored display value if in auto mode, else use actual exp_time
+        if st.session_state.zrm_wfs_auto_exposure:
+            # When auto, show the minimum valid value (since actual value is 0.0 for driver)
+            display_value = exp_min
+            st.session_state.zrm_wfs_exp_time_display = exp_min
+        else:
+            display_value = st.session_state.zrm_wfs_exp_time
+            # Ensure manual value is within [exp_min, exp_max] for UI safety
+            if display_value < exp_min:
+                display_value = exp_min
+                st.session_state.zrm_wfs_exp_time = exp_min
+            elif display_value > exp_max:
+                display_value = exp_max
+                st.session_state.zrm_wfs_exp_time = exp_max
+            st.session_state.zrm_wfs_exp_time_display = display_value
+
+        # Exposure time input (disabled when auto-exposure is on)
+        new_exp = st.number_input(
+            "曝光时间 (ms)" + (" (自动)" if st.session_state.zrm_wfs_auto_exposure else ""),
+            min_value=float(exp_min),
+            max_value=float(exp_max),
+            value=float(display_value),
+            step=0.1,
+            format="%.3f",
+            help="自动曝光模式下此设置无效" if st.session_state.zrm_wfs_auto_exposure else "手动曝光时间，0=自动曝光",
+            disabled=st.session_state.zrm_wfs_auto_exposure,
+        )
+
+        # Update exposure time state if not auto and value changed
+        if not st.session_state.zrm_wfs_auto_exposure:
+            st.session_state.zrm_wfs_exp_time = new_exp
+        # Clamp to device range (should be enforced by number_input but ensure safety)
+        st.session_state.zrm_wfs_exp_time = min(
+            max(st.session_state.zrm_wfs_exp_time, float(exp_min)),
+            float(exp_max)
+        )
+
+        st.session_state.zrm_wfs_pupil_diameter = st.number_input(
+            "瞳面直径 (mm)",
+            min_value=0.5,
+            max_value=10.0,
+            value=st.session_state.zrm_wfs_pupil_diameter,
+            step=0.1,
+            format="%.1f"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳面中心 X", value=st.session_state.zrm_wfs_pupil_center_x, step=0.1, format="%.1f")
+        with col2:
+            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳面中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
+
+        # Use user reference checkbox
+        st.session_state.zrm_wfs_use_user_ref = st.checkbox(
+            "使用用户参考（设置当前波前为参考）",
+            value=st.session_state.zrm_wfs_use_user_ref,
+            help="勾选后将当前测量的波前设置为参考波前，用于后续测量"
+        )
+
+        st.divider()
+
+        # SLM settings (parameters applied on connect)
+        st.subheader("SLM参数")
+
+        st.session_state.zrm_slm_selection = st.selectbox(
+            "选择SLM编号",
+            options=[1, 2],
+            index=st.session_state.get("zrm_slm_selection", 1) - 1,
+            format_func=lambda x: f"SLM {x}",
+            help="选择要连接的SLM设备编号",
+        )
+
+        st.session_state.zrm_slm_wavelength = st.number_input(
+            "波长 (nm)",
+            min_value=450,
+            max_value=1600,
+            value=st.session_state.zrm_slm_wavelength,
+            step=1,
+        )
+
+        st.session_state.zrm_slm_n_max = st.number_input(
+            "SLM Zernike阶数",
+            min_value=1,
+            max_value=10,
+            value=st.session_state.zrm_slm_n_max,
+            step=1,
+        )
+
+        st.session_state.zrm_shift_x = st.number_input(
+            "SLM Shift X (像素)",
+            min_value=-500,
+            max_value=500,
+            value=st.session_state.zrm_shift_x,
+            step=1,
+        )
+
+        st.session_state.zrm_shift_y = st.number_input(
+            "SLM Shift Y (像素)",
+            min_value=-500,
+            max_value=500,
+            value=st.session_state.zrm_shift_y,
+            step=1,
+        )
 
         # Apply shift button (only enabled when SLM connected)
         if st.session_state.zrm_slm_connected:
@@ -1174,7 +1100,49 @@ def render_sidebar() -> None:
         else:
             st.caption("连接SLM后可设置shift")
 
-        _render_device_connection_section(col1)
+        st.divider()
+
+        # Device connection
+        st.subheader("设备连接")
+
+        # SLM connection section
+        st.write("**SLM**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if not st.session_state.zrm_slm_connected:
+                if st.button("连接SLM", type="primary", key="zrm_connect_slm"):
+                    connect_slm()
+            else:
+                st.success("SLM已连接")
+                if st.button("断开SLM", key="zrm_disconnect_slm"):
+                    disconnect_slm()
+
+        # Display SLM info when connected
+        if st.session_state.zrm_slm_connected:
+            width = st.session_state.get("zrm_slm_width")
+            height = st.session_state.get("zrm_slm_height")
+            pixel_size = st.session_state.get("zrm_slm_pixel_size_um")
+            bits = st.session_state.get("zrm_slm_bits")
+            if width and height:
+                st.caption(f"分辨率: {width}×{height}")
+            if pixel_size:
+                st.caption(f"像素尺寸: {pixel_size} μm")
+            if bits:
+                st.caption(f"Bit: {bits}")
+
+        st.divider()
+
+        # WFS connection section
+        st.write("**WFS**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if not st.session_state.zrm_wfs_connected:
+                if st.button("连接WFS", type="primary", key="zrm_connect_wfs"):
+                    connect_wfs()
+            else:
+                st.success("WFS已连接")
+                if st.button("断开WFS", key="zrm_disconnect_wfs"):
+                    disconnect_wfs()
 
 def render_calibrate_mode() -> None:
     """Render calibration mode UI."""

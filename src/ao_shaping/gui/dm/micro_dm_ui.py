@@ -490,10 +490,74 @@ def _render_waveform_preview(period: float, wave_type: str,
 # Tab 1: 单单元控制
 # =============================================================================
 
+@st.fragment(run_every=0.15)
+def _tab1_fragment():
+    """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
+    _drain_bg_loop(
+        _SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY, _SINGLE_Q_KEY,
+        set_tab1_feedback,
+        sample_sink=_record_single_sample,
+        bounds_ref=st.session_state.get(_SINGLE_BOUNDS_KEY),
+    )
 
+    # ---- 顶部状态栏 ----
+    col_status1, col_status2 = st.columns([1, 4])
+    with col_status1:
+        if st.session_state.mdm_single_connected:
+            st.success("✅ 已连接")
+        else:
+            st.error("❌ 未连接")
+    with col_status2:
+        if st.session_state.mdm_single_connection_error:
+            st.caption(f"错误: {st.session_state.mdm_single_connection_error}")
 
-def _mdm_tab1_voltage_control_block(channel):
-# Voltage control container lifted verbatim
+    show_and_clear_feedback("tab1")
+
+    # ---- 连接配置 ----
+    with st.container(border=True):
+        st.markdown("##### 连接配置")
+        col_ip, col_port, col_test, col_conn = st.columns([3, 1, 1, 1])
+        with col_ip:
+            st.text_input("IP 地址", value=st.session_state.mdm_single_ip,
+                          key="mdm_single_ip")
+        with col_port:
+            st.number_input("端口", min_value=1, max_value=65535,
+                            value=st.session_state.mdm_single_port, step=1,
+                            key="mdm_single_port")
+        with col_test:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
+                test_single_connectivity()
+        with col_conn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if not st.session_state.mdm_single_connected:
+                if st.button("🔌 连接", type="primary", use_container_width=True, key="mdm_single_connect"):
+                    with st.spinner("连接中..."):
+                        connect_single()
+                    st.rerun()
+            else:
+                if st.button("⏏ 断开", use_container_width=True, key="mdm_single_disconnect"):
+                    disconnect_single()
+                    st.rerun()
+
+    # ---- 电压上下限 (两个 Tab 共享) ----
+    with st.container(border=True):
+        # tab1 fragment 每 0.15s 轮询, 不写回共享状态 (由 tab2 负责写回)
+        render_voltage_limits("single", write_back=False)
+
+    # ---- 通道选择 ----
+    col_ch1, col_ch2 = st.columns([2, 2])
+    with col_ch1:
+        channel = st.number_input(
+            "通道号", min_value=0, max_value=SINGLE_CHANNELS - 1,
+            value=st.session_state.mdm_single_channel, step=1, key="mdm_single_channel",
+        )
+    with col_ch2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.checkbox("应用到全部通道 (50)", value=st.session_state.mdm_single_apply_all,
+                    key="mdm_single_apply_all")
+
+    # ---- 发送模式 ----
     with st.container(border=True):
         st.markdown("##### 发送模式")
         mode = st.segmented_control(
@@ -639,94 +703,6 @@ def _mdm_tab1_voltage_control_block(channel):
                              key="mdm_single_period_stop"):
                     _stop_bg_loop(_SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY)
                     set_tab1_feedback("周期下发已停止", "info")
-    return 
-
-
-
-
-def _mdm_tab1_channel_columns():
-# Channel selection columns lifted verbatim
-    col_ch1, col_ch2 = st.columns([2, 2])
-    with col_ch1:
-        channel = st.number_input(
-            "通道号", min_value=0, max_value=SINGLE_CHANNELS - 1,
-            value=st.session_state.mdm_single_channel, step=1, key="mdm_single_channel",
-        )
-    with col_ch2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.checkbox("应用到全部通道 (50)", value=st.session_state.mdm_single_apply_all,
-                    key="mdm_single_apply_all")
-    return channel
-
-
-
-
-def _mdm_tab1_status_containers():
-# Status containers lifted verbatim
-    with st.container(border=True):
-        st.markdown("##### 连接配置")
-        col_ip, col_port, col_test, col_conn = st.columns([3, 1, 1, 1])
-        with col_ip:
-            st.text_input("IP 地址", value=st.session_state.mdm_single_ip,
-                          key="mdm_single_ip")
-        with col_port:
-            st.number_input("端口", min_value=1, max_value=65535,
-                            value=st.session_state.mdm_single_port, step=1,
-                            key="mdm_single_port")
-        with col_test:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("📡 测试连通性", use_container_width=True, key="mdm_single_test_btn"):
-                test_single_connectivity()
-        with col_conn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if not st.session_state.mdm_single_connected:
-                if st.button("🔌 连接", type="primary", use_container_width=True, key="mdm_single_connect"):
-                    with st.spinner("连接中..."):
-                        connect_single()
-                    st.rerun()
-            else:
-                if st.button("⏏ 断开", use_container_width=True, key="mdm_single_disconnect"):
-                    disconnect_single()
-                    st.rerun()
-
-    # ---- 电压上下限 (两个 Tab 共享) ----
-    with st.container(border=True):
-        # tab1 fragment 每 0.15s 轮询, 不写回共享状态 (由 tab2 负责写回)
-        render_voltage_limits("single", write_back=False)
-    return 
-
-
-@st.fragment(run_every=0.15)
-def _tab1_fragment():
-    """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
-    _drain_bg_loop(
-        _SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY, _SINGLE_Q_KEY,
-        set_tab1_feedback,
-        sample_sink=_record_single_sample,
-        bounds_ref=st.session_state.get(_SINGLE_BOUNDS_KEY),
-    )
-
-    # ---- 顶部状态栏 ----
-    col_status1, col_status2 = st.columns([1, 4])
-    with col_status1:
-        if st.session_state.mdm_single_connected:
-            st.success("✅ 已连接")
-        else:
-            st.error("❌ 未连接")
-    with col_status2:
-        if st.session_state.mdm_single_connection_error:
-            st.caption(f"错误: {st.session_state.mdm_single_connection_error}")
-
-    show_and_clear_feedback("tab1")
-
-    # ---- 连接配置 ----
-    _mdm_tab1_status_containers()
-
-    # ---- 通道选择 ----
-    channel = _mdm_tab1_channel_columns()
-
-    # ---- 发送模式 ----
-    _mdm_tab1_voltage_control_block(channel)
 
     # ---- 实时电压可视化 ----
     st.divider()
@@ -866,176 +842,6 @@ def _hw_reset_action() -> None:
         set_tab2_feedback(f"归零失败: {e}", "error")
 
 
-
-
-def _mdm_render_dynamic_voltage_section(vmax, vmin):
-# Dynamic sustained voltage expander lifted verbatim
-    st.divider()
-    with st.expander("🔄 动态持续电压", expanded=False):
-        st.markdown("持续将当前矩阵电压发送到硬件，适用于需要稳定电压输出的场景。")
-        col_cv1, col_cv2 = st.columns(2)
-        with col_cv1:
-            continuous_voltage = st.number_input(
-                "持续电压值 (V)", min_value=vmin, max_value=vmax,
-                value=st.session_state.mdm_matrix_continuous_voltage, step=1.0, format="%.1f",
-                key="mdm_cv_voltage",
-            )
-        with col_cv2:
-            continuous_interval = st.number_input(
-                "发送间隔 (s)", min_value=0.01, max_value=10.0,
-                value=st.session_state.mdm_matrix_continuous_interval, step=0.01, format="%.2f",
-                key="mdm_cv_interval",
-            )
-        col_cv_btn1, col_cv_btn2 = st.columns(2)
-        with col_cv_btn1:
-            if st.button("▶ 开始持续发送", type="primary",
-                         disabled=st.session_state.mdm_matrix_continuous_running,
-                         use_container_width=True, key="mdm_cv_start"):
-                if not st.session_state.mdm_connected:
-                    set_tab2_feedback("设备未连接", "error")
-                else:
-                    st.session_state.mdm_matrix_continuous_voltage = continuous_voltage
-                    st.session_state.mdm_matrix_continuous_interval = continuous_interval
-                    _start_bg_loop(
-                        _matrix_continuous_loop,
-                        (continuous_voltage, continuous_interval, st.session_state.mdm_dm,
-                         float(st.session_state.mdm_vmin), float(st.session_state.mdm_vmax)),
-                        running_key=_MATRIX_RUNNING_KEY,
-                        stop_key=_MATRIX_STOP_KEY,
-                        queue_key=_MATRIX_Q_KEY,
-                        thread_name="mdm-matrix-loop",
-                    )
-                    set_tab2_feedback(f"矩阵持续发送中: {continuous_voltage}V, 间隔{continuous_interval}s", "success")
-        with col_cv_btn2:
-            if st.button("⏹ 停止发送",
-                         disabled=not st.session_state.mdm_matrix_continuous_running,
-                         use_container_width=True, type="secondary", key="mdm_cv_stop"):
-                _stop_bg_loop(_MATRIX_RUNNING_KEY, _MATRIX_STOP_KEY)
-                set_tab2_feedback("矩阵持续发送已停止", "info")
-        if st.session_state.mdm_matrix_continuous_running:
-            st.success(f"🔵 持续发送中: {continuous_voltage} V, 间隔 {continuous_interval} s")
-    return 
-
-
-
-
-def _mdm_render_io_section(vmax, vmin):
-# Import export section lifted verbatim
-    st.divider()
-    col_io1, col_io2 = st.columns(2)
-    with col_io1:
-        uploaded = st.file_uploader("上传 .npy 文件", type=["npy"], label_visibility="collapsed", key="mdm_file_upload")
-        if uploaded is not None:
-            try:
-                data = np.load(uploaded)
-                if data.shape == (GRID_SIZE, GRID_SIZE):
-                    st.session_state.mdm_matrix = np.clip(data.astype(np.float64), vmin, vmax)
-                    set_tab2_feedback(f"矩阵已加载 ({data.shape})", "success")
-                else:
-                    set_tab2_feedback(f"形状不匹配: 期望 ({GRID_SIZE},{GRID_SIZE}), 实际 {data.shape}", "error")
-            # policy: a rejected upload is a user-correctable input error: report it in the panel and keep the existing matrix untouched
-            except Exception as e:
-                set_tab2_feedback(f"加载失败: {e}", "error")
-    with col_io2:
-        buffer = io.BytesIO()
-        np.save(buffer, st.session_state.mdm_matrix)
-        buffer.seek(0)
-        st.download_button(
-            label="💾 下载 .npy",
-            data=buffer,
-            file_name="dm_matrix.npy",
-            mime="application/octet-stream",
-            use_container_width=True,
-            key="mdm_download_btn",
-        )
-    return 
-
-
-
-
-def _mdm_render_hardware_ops_section():
-# Hardware operations section lifted verbatim
-    st.divider()
-    st.markdown("##### 硬件操作")
-    col_hw1, col_hw2, col_hw3 = st.columns(3)
-    with col_hw1:
-        if st.button("⬆ 应用到硬件", type="primary", use_container_width=True, key="mdm_btn_apply"):
-            if not st.session_state.mdm_connected:
-                set_tab2_feedback("设备未连接", "error")
-            else:
-                try:
-                    st.session_state.mdm_dm.send_voltages(st.session_state.mdm_matrix.flatten())
-                    set_tab2_feedback(f"矩阵已发送 ({TOTAL_CHANNELS} 通道)", "success")
-                # policy: a failed apply is reported in-panel and the session matrix is deliberately left as edited, so the operator can retry without re-entering it
-                except Exception as e:
-                    set_tab2_feedback(f"应用失败: {e}", "error")
-    with col_hw2:
-        if st.button("⬇ 从硬件读取", use_container_width=True, key="mdm_btn_read_matrix"):
-            if not st.session_state.mdm_connected:
-                set_tab2_feedback("设备未连接", "error")
-            else:
-                try:
-                    voltages = st.session_state.mdm_dm.get_actuator_positions()
-                    st.session_state.mdm_matrix = voltages.reshape((GRID_SIZE, GRID_SIZE))
-                    set_tab2_feedback("矩阵已刷新", "success")
-                # policy: a failed read-back is reported and the displayed matrix is kept -- half-read voltages are worse than stale ones
-                except Exception as e:
-                    set_tab2_feedback(f"读取失败: {e}", "error")
-    with col_hw3:
-        if st.button("⚡ 硬件归零", type="primary", use_container_width=True, key="mdm_btn_hw_reset"):
-            if not st.session_state.mdm_connected:
-                set_tab2_feedback("设备未连接", "error")
-            else:
-                st.session_state.mdm_confirm_action = {
-                    "message": "将所有通道电压归零。此操作将立即发送到硬件。",
-                    "callback": lambda: _hw_reset_action(),
-                }
-    return 
-
-
-
-
-def _mdm_render_pattern_generation_section(fill_value, vmax, vmin):
-# Pattern generation section lifted verbatim
-    st.divider()
-    st.markdown("##### 图案生成")
-    col_batch1, col_batch2, col_batch3, col_batch4, col_batch5, col_batch6 = st.columns(6)
-    with col_batch1:
-        if st.button("🔄 归零", use_container_width=True, key="mdm_btn_reset_zero"):
-            st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
-            set_tab2_feedback("矩阵已归零", "success")
-    with col_batch2:
-        if st.button("📋 全填充", use_container_width=True, key="mdm_btn_fill_all"):
-            st.session_state.mdm_matrix[:, :] = fill_value
-            set_tab2_feedback(f"全部 {TOTAL_CHANNELS} 单元 → {fill_value} V", "success")
-    with col_batch3:
-        if st.button("🎲 随机", use_container_width=True, key="mdm_btn_random"):
-            st.session_state.mdm_matrix = np.random.uniform(vmin, vmax, (GRID_SIZE, GRID_SIZE))
-            set_tab2_feedback("矩阵已随机生成", "success")
-    with col_batch4:
-        if st.button("🌊 正弦", use_container_width=True, key="mdm_btn_sine_pattern"):
-            x = np.linspace(0, 4 * np.pi, GRID_SIZE)
-            y = np.linspace(0, 4 * np.pi, GRID_SIZE)
-            X, Y = np.meshgrid(x, y)
-            pattern = np.clip(((vmin + vmax) / 2.0) + ((vmax - vmin) / 2.0) * np.sin(X) * np.cos(Y), vmin, vmax)
-            st.session_state.mdm_matrix = pattern
-            set_tab2_feedback("正弦图案已生成", "success")
-    with col_batch5:
-        if st.button("🔺 高斯", use_container_width=True, key="mdm_btn_gaussian"):
-            x = np.linspace(-3, 3, GRID_SIZE)
-            y = np.linspace(-3, 3, GRID_SIZE)
-            X, Y = np.meshgrid(x, y)
-            pattern = np.clip(vmax - (vmax - vmin) * (1.0 - np.exp(-(X ** 2 + Y ** 2) / 2.0)), vmin, vmax)
-            st.session_state.mdm_matrix = pattern
-            set_tab2_feedback("高斯图案已生成", "success")
-    with col_batch6:
-        if st.button("📐 渐变", use_container_width=True, key="mdm_btn_gradient"):
-            pattern = np.tile(np.linspace(vmin, vmax, GRID_SIZE), (GRID_SIZE, 1)).T
-            st.session_state.mdm_matrix = pattern
-            set_tab2_feedback("渐变图案已生成", "success")
-    return 
-
-
 @st.fragment()
 def _tab2_fragment():
     """Tab 2 矩阵联合控制 fragment — 按钮点击自动刷新."""
@@ -1168,16 +974,154 @@ def _tab2_fragment():
                     set_tab2_feedback(f"第 {col_idx} 列 ({GRID_SIZE}单元) → {fill_value} V", "success")
 
     # ---- 批量操作 ----
-    _mdm_render_pattern_generation_section(fill_value, vmax, vmin)
+    st.divider()
+    st.markdown("##### 图案生成")
+    col_batch1, col_batch2, col_batch3, col_batch4, col_batch5, col_batch6 = st.columns(6)
+    with col_batch1:
+        if st.button("🔄 归零", use_container_width=True, key="mdm_btn_reset_zero"):
+            st.session_state.mdm_matrix = np.zeros((GRID_SIZE, GRID_SIZE), dtype=np.float64)
+            set_tab2_feedback("矩阵已归零", "success")
+    with col_batch2:
+        if st.button("📋 全填充", use_container_width=True, key="mdm_btn_fill_all"):
+            st.session_state.mdm_matrix[:, :] = fill_value
+            set_tab2_feedback(f"全部 {TOTAL_CHANNELS} 单元 → {fill_value} V", "success")
+    with col_batch3:
+        if st.button("🎲 随机", use_container_width=True, key="mdm_btn_random"):
+            st.session_state.mdm_matrix = np.random.uniform(vmin, vmax, (GRID_SIZE, GRID_SIZE))
+            set_tab2_feedback("矩阵已随机生成", "success")
+    with col_batch4:
+        if st.button("🌊 正弦", use_container_width=True, key="mdm_btn_sine_pattern"):
+            x = np.linspace(0, 4 * np.pi, GRID_SIZE)
+            y = np.linspace(0, 4 * np.pi, GRID_SIZE)
+            X, Y = np.meshgrid(x, y)
+            pattern = np.clip(((vmin + vmax) / 2.0) + ((vmax - vmin) / 2.0) * np.sin(X) * np.cos(Y), vmin, vmax)
+            st.session_state.mdm_matrix = pattern
+            set_tab2_feedback("正弦图案已生成", "success")
+    with col_batch5:
+        if st.button("🔺 高斯", use_container_width=True, key="mdm_btn_gaussian"):
+            x = np.linspace(-3, 3, GRID_SIZE)
+            y = np.linspace(-3, 3, GRID_SIZE)
+            X, Y = np.meshgrid(x, y)
+            pattern = np.clip(vmax - (vmax - vmin) * (1.0 - np.exp(-(X ** 2 + Y ** 2) / 2.0)), vmin, vmax)
+            st.session_state.mdm_matrix = pattern
+            set_tab2_feedback("高斯图案已生成", "success")
+    with col_batch6:
+        if st.button("📐 渐变", use_container_width=True, key="mdm_btn_gradient"):
+            pattern = np.tile(np.linspace(vmin, vmax, GRID_SIZE), (GRID_SIZE, 1)).T
+            st.session_state.mdm_matrix = pattern
+            set_tab2_feedback("渐变图案已生成", "success")
 
     # ---- 硬件操作 ----
-    _mdm_render_hardware_ops_section()
+    st.divider()
+    st.markdown("##### 硬件操作")
+    col_hw1, col_hw2, col_hw3 = st.columns(3)
+    with col_hw1:
+        if st.button("⬆ 应用到硬件", type="primary", use_container_width=True, key="mdm_btn_apply"):
+            if not st.session_state.mdm_connected:
+                set_tab2_feedback("设备未连接", "error")
+            else:
+                try:
+                    st.session_state.mdm_dm.send_voltages(st.session_state.mdm_matrix.flatten())
+                    set_tab2_feedback(f"矩阵已发送 ({TOTAL_CHANNELS} 通道)", "success")
+                # policy: a failed apply is reported in-panel and the session matrix is deliberately left as edited, so the operator can retry without re-entering it
+                except Exception as e:
+                    set_tab2_feedback(f"应用失败: {e}", "error")
+    with col_hw2:
+        if st.button("⬇ 从硬件读取", use_container_width=True, key="mdm_btn_read_matrix"):
+            if not st.session_state.mdm_connected:
+                set_tab2_feedback("设备未连接", "error")
+            else:
+                try:
+                    voltages = st.session_state.mdm_dm.get_actuator_positions()
+                    st.session_state.mdm_matrix = voltages.reshape((GRID_SIZE, GRID_SIZE))
+                    set_tab2_feedback("矩阵已刷新", "success")
+                # policy: a failed read-back is reported and the displayed matrix is kept -- half-read voltages are worse than stale ones
+                except Exception as e:
+                    set_tab2_feedback(f"读取失败: {e}", "error")
+    with col_hw3:
+        if st.button("⚡ 硬件归零", type="primary", use_container_width=True, key="mdm_btn_hw_reset"):
+            if not st.session_state.mdm_connected:
+                set_tab2_feedback("设备未连接", "error")
+            else:
+                st.session_state.mdm_confirm_action = {
+                    "message": "将所有通道电压归零。此操作将立即发送到硬件。",
+                    "callback": lambda: _hw_reset_action(),
+                }
 
     # ---- 数据导入/导出 ----
-    _mdm_render_io_section(vmax, vmin)
+    st.divider()
+    col_io1, col_io2 = st.columns(2)
+    with col_io1:
+        uploaded = st.file_uploader("上传 .npy 文件", type=["npy"], label_visibility="collapsed", key="mdm_file_upload")
+        if uploaded is not None:
+            try:
+                data = np.load(uploaded)
+                if data.shape == (GRID_SIZE, GRID_SIZE):
+                    st.session_state.mdm_matrix = np.clip(data.astype(np.float64), vmin, vmax)
+                    set_tab2_feedback(f"矩阵已加载 ({data.shape})", "success")
+                else:
+                    set_tab2_feedback(f"形状不匹配: 期望 ({GRID_SIZE},{GRID_SIZE}), 实际 {data.shape}", "error")
+            # policy: a rejected upload is a user-correctable input error: report it in the panel and keep the existing matrix untouched
+            except Exception as e:
+                set_tab2_feedback(f"加载失败: {e}", "error")
+    with col_io2:
+        buffer = io.BytesIO()
+        np.save(buffer, st.session_state.mdm_matrix)
+        buffer.seek(0)
+        st.download_button(
+            label="💾 下载 .npy",
+            data=buffer,
+            file_name="dm_matrix.npy",
+            mime="application/octet-stream",
+            use_container_width=True,
+            key="mdm_download_btn",
+        )
 
     # ---- 动态持续电压 ----
-    _mdm_render_dynamic_voltage_section(vmax, vmin)
+    st.divider()
+    with st.expander("🔄 动态持续电压", expanded=False):
+        st.markdown("持续将当前矩阵电压发送到硬件，适用于需要稳定电压输出的场景。")
+        col_cv1, col_cv2 = st.columns(2)
+        with col_cv1:
+            continuous_voltage = st.number_input(
+                "持续电压值 (V)", min_value=vmin, max_value=vmax,
+                value=st.session_state.mdm_matrix_continuous_voltage, step=1.0, format="%.1f",
+                key="mdm_cv_voltage",
+            )
+        with col_cv2:
+            continuous_interval = st.number_input(
+                "发送间隔 (s)", min_value=0.01, max_value=10.0,
+                value=st.session_state.mdm_matrix_continuous_interval, step=0.01, format="%.2f",
+                key="mdm_cv_interval",
+            )
+        col_cv_btn1, col_cv_btn2 = st.columns(2)
+        with col_cv_btn1:
+            if st.button("▶ 开始持续发送", type="primary",
+                         disabled=st.session_state.mdm_matrix_continuous_running,
+                         use_container_width=True, key="mdm_cv_start"):
+                if not st.session_state.mdm_connected:
+                    set_tab2_feedback("设备未连接", "error")
+                else:
+                    st.session_state.mdm_matrix_continuous_voltage = continuous_voltage
+                    st.session_state.mdm_matrix_continuous_interval = continuous_interval
+                    _start_bg_loop(
+                        _matrix_continuous_loop,
+                        (continuous_voltage, continuous_interval, st.session_state.mdm_dm,
+                         float(st.session_state.mdm_vmin), float(st.session_state.mdm_vmax)),
+                        running_key=_MATRIX_RUNNING_KEY,
+                        stop_key=_MATRIX_STOP_KEY,
+                        queue_key=_MATRIX_Q_KEY,
+                        thread_name="mdm-matrix-loop",
+                    )
+                    set_tab2_feedback(f"矩阵持续发送中: {continuous_voltage}V, 间隔{continuous_interval}s", "success")
+        with col_cv_btn2:
+            if st.button("⏹ 停止发送",
+                         disabled=not st.session_state.mdm_matrix_continuous_running,
+                         use_container_width=True, type="secondary", key="mdm_cv_stop"):
+                _stop_bg_loop(_MATRIX_RUNNING_KEY, _MATRIX_STOP_KEY)
+                set_tab2_feedback("矩阵持续发送已停止", "info")
+        if st.session_state.mdm_matrix_continuous_running:
+            st.success(f"🔵 持续发送中: {continuous_voltage} V, 间隔 {continuous_interval} s")
 
 
 def render_tab_matrix() -> None:

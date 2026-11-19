@@ -275,7 +275,7 @@ class TestPersistence:
 
 class TestSingleLobeGate:
     def test_hollowness_threshold_matches_the_fitters_constant(self) -> None:
-        from ao_shaping.optimizer.wfless.bench_sweep import (
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
             _DEFOCUS_MIN_HOLLOWNESS,
         )
 

@@ -5,7 +5,7 @@
 **一次实验 = 一条光路**。相机型号 / ID、读出窗口、曝光、去零级载波，以及每台
 SLM 的入射位置与几何，都在一次实验内固定。把它们留在主区的整形参数里，
 就是「每次都要重填一屏数字，换一条光路就直接失效」的根因 —— 尤其
-CLI 的硬件 runner 每次会话本来会自动做
+``slm-model-in-loop`` 的 CLI 每次会话本来会自动做
 **全板随机相位盘扫描定位入射中心 → sweep 几何标定**，GUI 却绕过这条流程，
 只能让操作员手填 ``pupil_center="960,690"``、``panel_span_px=900``。
 
@@ -84,7 +84,6 @@ from ao_shaping.gui.slm.exposure_status import (
     record_exposure_probe,
 )
 from ao_shaping.tools.slm.panel.focus_probe import FOCUS_PROBE_DEBUG_DIR
-from ao_shaping.gui.slm.bench_point_parse import _coerce_point, _parse_point_text
 
 __all__ = [
     "BLAZE_DIRECTIONS",
@@ -199,7 +198,7 @@ FALLBACK_WINDOW_MAX_SIDE = 1944
 FALLBACK_WINDOW_STEP = 10
 
 #: 读出窗口边长的**默认选择**（px）。这不是设备值，而是本仓库历史默认的读出窗口
-#: （主区整形控件的历史 ``cam_size`` 默认同为 250）。控件用它做默认值，上界
+#: （主区 ``MIL_WIDGET_DEFAULTS["cam_size"]`` 同为 250）。控件用它做默认值，上界
 #: 仍由设备特征网格决定。**不要**拿 ``WindowBounds.min_side`` 当默认值 —— 那是网格
 #: 步长（device 时 = ``inc``，相机不可达时 = 10），会把「当前窗口边长」塌成个位数，
 #: 而主区 ``target_side`` 的上界就是它（2026-10-16 启动崩溃）。
@@ -496,6 +495,30 @@ def set_bench_busy(busy: bool) -> None:
 # ---------------------------------------------------------------------------
 # 三态判定
 # ---------------------------------------------------------------------------
+
+
+def _coerce_point(value: Any) -> tuple[float, float] | None:
+    """``"960,690"`` / ``(960, 690)`` / ``[960, 690]`` → ``(960.0, 690.0)``。"""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parts = [p for p in value.replace("，", ",").split(",") if p.strip() != ""]
+        if len(parts) != 2:
+            return None
+        try:
+            return float(parts[0]), float(parts[1])
+        except ValueError:
+            return None
+    try:
+        seq = list(value)
+    except TypeError:
+        return None
+    if len(seq) != 2:
+        return None
+    try:
+        return float(seq[0]), float(seq[1])
+    except (TypeError, ValueError):
+        return None
 
 
 def _field_tolerance(field: BenchField) -> float:
@@ -815,7 +838,7 @@ def build_send_overlay(
     """按当前 session 状态合成**发送管线叠加层**（离焦 + 载波 + 底相位）。
 
     这是「叠加层真值」的唯一读取点：controller 的 ``_apply_slm_overlays`` 和
-    闭环整形的 GUI 入口共用它，保证 GUI 会话句柄
+    闭环整形（gs-refine / model-in-loop）的 GUI 入口共用它，保证 GUI 会话句柄
     与优化器自开句柄拿到**同一份**叠加。纯读 session，无硬件 I/O：
 
     * 离焦（弧度）：受 ``{prefix}_defocus_enabled`` 开关门控，全零视同不叠加
@@ -1091,6 +1114,17 @@ def _centre_from_values(state: Any, slm_num: int) -> tuple[float, float] | None:
     return (float(point[0]), float(point[1]))
 
 
+def _parse_point_text(text: str) -> tuple[float, float] | None:
+    """``"960,690"`` → ``(960.0, 690.0)``；不合法返回 ``None``。"""
+    parts = [p for p in str(text).replace("，", ",").split(",") if p.strip()]
+    if len(parts) != 2:
+        return None
+    try:
+        return (float(parts[0]), float(parts[1]))
+    except ValueError:
+        return None
+
+
 def _radius_from_sweep(
     results: dict[str, Any],
     centre: tuple[float, float] | None,
@@ -1156,7 +1190,7 @@ def measure_illuminated_radius(
 
     这个量原先没有实测来源：``model_in_loop_hw_runbook --stage fit`` 用 sweep
     的 Zernike 半径（默认 200 px）代替，而两条焦面尺度推断相差 152% 的根因就是
-    这个口径未经实测（该 warning 已随 model-in-loop 优化器一并移除）。
+    这个口径未经实测（见 ``model_in_loop_shaping.py`` 中该 warning 的措辞）。
 
     曝光缺省时先探一次（与 A 组「探测」同一个入口），否则 0 会让大恒钳到
     0.02 ms、边界扫描量到的是噪声。
@@ -1304,35 +1338,80 @@ def auto_check_camera_pixel_um(
 # ---------------------------------------------------------------------------
 
 
-#: 标定产物的模型网格口径。物理预测模型（model-in-loop）适配器已移除，主区不再
-#: 有 ``region`` / ``far_field_padding`` 控件；sweep 几何仍按这个口径筛选与校验，
-#: 因此这里保留与历史控件一致的默认值，供 ``discover_model_in_loop_geometry`` 使用。
-CALIBRATION_REGION = 64
-CALIBRATION_FAR_FIELD_PADDING = 8
+def _calibration_widget_values(prefix: str) -> dict[str, Any]:
+    """标定所需的、可能只在主区渲染过的控件值（主区没展开时用默认值）。"""
 
+    def _read(key: str, fallback: Any) -> Any:
+        return st.session_state.get(key, fallback)
 
-def _calibration_widget_values() -> dict[str, Any]:
-    """标定所需的模型网格口径（主区对应控件已随 model-in-loop 适配器移除）。"""
+    from ao_shaping.gui.slm.shaping_controls import MIL_WIDGET_DEFAULTS
+
     return {
-        "region": CALIBRATION_REGION,
-        "far_field_padding": CALIBRATION_FAR_FIELD_PADDING,
+        "region": int(
+            _read(f"{prefix}_shp_model-in-loop_region", MIL_WIDGET_DEFAULTS["region"])
+        ),
+        "far_field_padding": int(
+            _read(
+                f"{prefix}_shp_model-in-loop_far_field_padding",
+                MIL_WIDGET_DEFAULTS["far_field_padding"],
+            )
+        ),
+        "min_holdout_correlation": float(
+            _read(f"{prefix}_shp_model-in-loop_min_holdout_correlation", 0.5)
+        ),
+        "probe_spread": float(
+            _read(
+                f"{prefix}_shp_model-in-loop_probe_spread",
+                MIL_WIDGET_DEFAULTS["probe_spread"],
+            )
+        ),
+        "probe_count": int(
+            _read(
+                f"{prefix}_shp_model-in-loop_probe_count",
+                MIL_WIDGET_DEFAULTS["probe_count"],
+            )
+        ),
+        "n_rounds": int(
+            _read(
+                f"{prefix}_shp_model-in-loop_n_rounds", MIL_WIDGET_DEFAULTS["n_rounds"]
+            )
+        ),
+        "seed": int(MIL_WIDGET_DEFAULTS["seed"]),
     }
 
 
 def build_calibration_params(prefix: str, slm_num: int) -> Any:
-    """构造 :func:`calibrate_session` 所需的 ``SessionCalibrationParams``。
+    """构造 ``calibrate_session`` 所需的 ``SlmModelInLoopParams``。
 
-    只用**实验级 / 每 SLM 级**的光路设置；标定本身不关心目标与评分，所以那些
-    字段不在参数对象里。
+    只用**实验级 / 每 SLM 级**的光路设置 + 主区已渲染过的探针参数；标定本身
+    不关心目标与评分，所以那些字段取默认值。
     """
-    from ao_shaping.runners.slm.session_calibration import SessionCalibrationParams
+    from ao_shaping.runners.runner_common import SlmModelInLoopParams
 
-    cam_type, _cam_id = bench_camera()
-    return SessionCalibrationParams(
-        cam_type=cam_type,
-        geometry_file=_geometry_file_for_source(prefix),
+    cam_type, cam_id = bench_camera()
+    w = _calibration_widget_values(prefix)
+    geometry_file = _geometry_file_for_source(prefix)
+    return SlmModelInLoopParams(
+        n_rounds=w["n_rounds"],
+        seed=w["seed"],
+        target_shape="square",
+        target_side=60,
+        w_uniformity=0.4,
+        w_efficiency=0.6,
+        probe_count=w["probe_count"],
+        probe_spread=w["probe_spread"],
+        step_a_iterations=0,
+        step_b_iterations=1,
+        holdout_probe_count=2,
+        freeform_holdout_count=0,
+        min_holdout_correlation=w["min_holdout_correlation"],
+        region=w["region"],
+        panel_span_px=float(bench_value(prefix, "panel_span_px", 900.0)),
         pupil_center=bench_pupil_center(prefix),
-        slm_number=slm_num,
+        far_field_padding=w["far_field_padding"],
+        geometry_file=geometry_file,
+        cam_type=cam_type,
+        cam_id=cam_id,
         # Unset session exposure used to reach the params as a bare 0.0, which the
         # exposure resolver now rejects; 'default' is the token that means
         # "don't change it", i.e. the same behaviour.
@@ -1340,30 +1419,16 @@ def build_calibration_params(prefix: str, slm_num: int) -> Any:
             float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
             or DEFAULT_EXPOSURE_TOKEN
         ),
-    )
-
-
-def build_calibration_config(prefix: str, params: Any) -> Any:
-    """构造 :func:`calibrate_session` 所需的 ``SessionCalibrationConfig``。"""
-    from ao_shaping.runners.runner_common import parse_point
-    from ao_shaping.runners.slm.session_calibration import SessionCalibrationConfig
-    from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
-
-    cam_type, cam_id = bench_camera()
-    w = _calibration_widget_values()
-    return SessionCalibrationConfig(
-        exposure_time_ms=exposure_ms_legacy(
-            resolve_exposure(params.exposure_time_ms, param_hint="--exposure-time-ms")
+        max_exposure_ms=float(configured_daheng_exposure_limit()),
+        cam_size=int(
+            st.session_state.get("bench_cam_size", DEFAULT_WINDOW_SIDE_PX) or 0
         ),
-        pupil_center=parse_point(params.pupil_center),
-        region=int(w["region"]),
-        far_field_padding=int(w["far_field_padding"]),
-        panel_span_px=float(bench_value(prefix, "panel_span_px", 900.0)),
-        slm_number=int(params.slm_number),
-        slm_wavelength=int(params.slm_wavelength),
-        cam_type=cam_type,
-        cam_id=cam_id,
-        min_geometry_correlation=0.5,
+        camera_pixel_um=float(
+            st.session_state.get(CAMERA_PIXEL_KEY, DEFAULT_CAMERA_PIXEL_UM)
+        ),
+        slm_number=slm_num,
+        blaze_period_px=int(st.session_state.get("bench_blaze_period_px", -1)),
+        blaze_direction=str(st.session_state.get("bench_blaze_direction", "vertical")),
     )
 
 
@@ -1418,21 +1483,21 @@ def uncalibrated_note(prefix: str) -> str:
 def run_session_calibration(prefix: str, slm_num: int) -> str | None:
     """跑一次会话标定：入射定位 → sweep 几何；返回错误文本，成功返回 ``None``。
 
-    走 :func:`ao_shaping.runners.slm.session_calibration.calibrate_session`
-    —— 与 CLI **同一个入口**，所以 GUI 不会和 CLI 漂移。
+    走 :func:`ao_shaping.runners.slm.model_in_loop_session.calibrate_session`
+    —— 与 CLI ``slm-model-in-loop`` **同一个入口**，所以 GUI 不会和 CLI 漂移。
     该函数会自己 open SLM + CCD（句柄不可重入），因此经
     :func:`ao_shaping.gui.slm.shaping_controls.with_slm_ownership` 交出句柄，
     标定按钮与整形运行按钮共用这一条交接路径。
     """
     try:
-        from ao_shaping.runners.slm.session_calibration import (
+        from ao_shaping.runners.slm.model_in_loop_session import (
             apply_session_calibration,
             calibrate_session,
         )
     except ImportError as exc:  # pragma: no cover - 另一条 lane 的模块缺失
         message = (
             "会话标定入口 "
-            "ao_shaping.runners.slm.session_calibration 不可用，无法自动标定："
+            "ao_shaping.runners.slm.model_in_loop_session 不可用，无法自动标定："
             f"{exc}"
         )
         logger.error(message)
@@ -1452,7 +1517,9 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
     save_dir = debug_run_dir(Path("data"), "slm_bench_calibration")
     try:
         params = build_calibration_params(prefix, slm_num)
-        config = build_calibration_config(prefix, params)
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        config = build_model_in_loop_config(params, debug=False)
     except Exception as exc:  # policy: 标定参数不可用是操作者可修正的输入问题：界面报错后返回消息，不抛到重跑
         message = f"标定参数不可用: {exc}"
         logger.exception("标定参数不可用: {}", exc)
@@ -1540,7 +1607,7 @@ def _detected_backfill(prefix: str, resolved_config: Any = None) -> dict[str, An
     """探测值 → widget key 的回填表（跳过人工字段）。
 
     ``resolved_config`` is the object
-    :func:`ao_shaping.runners.slm.session_calibration.apply_session_calibration`
+    :func:`ao_shaping.runners.slm.model_in_loop_session.apply_session_calibration`
     produced, so the value written into the widget is the one the next run will
     actually consume rather than a re-derived copy.
     """
@@ -1639,8 +1706,9 @@ def merge_bench_values(
 ) -> dict[str, Any]:
     """把侧栏光路设置并入方法的 values 表（就地修改并返回）。
 
-    ``build_gs_refine_params`` 的映射与语义因此**完全不变** —— 它仍然只读
-    ``values``，只是 ``values`` 现在带上了实验级与每 SLM 级的光路字段。
+    ``build_gs_refine_params`` / ``build_model_in_loop_params`` 的映射与语义
+    因此**完全不变** —— 它们仍然只读 ``values``，只是 ``values`` 现在带上了
+    实验级与每 SLM 级的光路字段。
     """
     crop = bool(st.session_state.get("bench_cam_crop", True))
     cam_type, cam_id = bench_camera()
@@ -2278,7 +2346,7 @@ def _geometry_help_text(prefix: str) -> str:
         discover_model_in_loop_geometry,
     )
 
-    region = _calibration_widget_values()["region"]
+    region = _calibration_widget_values(prefix)["region"]
     raw = str(
         st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or ""
     ).strip()
