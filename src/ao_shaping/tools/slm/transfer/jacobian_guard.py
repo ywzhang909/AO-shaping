@@ -127,8 +127,9 @@ def direction_agreement(predicted_anchor, predicted_candidate, measured_anchor,
 class TrustRegionSchedule:
     """按方向一致性收缩 / 恢复 ``step_rms_cap`` 的调度器。
 
-    设计取意与已移除的 MIL 信任域策略 (``optimizer/wfless/adaptive_trust_region.py``
-    的 ``TrustRegionPolicy``) 一致 —— **增长靠证据, 收缩靠一次否定** —— 但这里的证据不是"接受/拒绝"
+    设计取意与
+    :class:`ao_shaping.optimizer.wfless.adaptive_trust_region.TrustRegionPolicy`
+    一致 —— **增长靠证据, 收缩靠一次否定** —— 但这里的证据不是"接受/拒绝"
     (那已经由 ``phase_lr`` 调度), 而是"模型方向与实测方向是否一致"。两者正交:
     一个块可以实测接受但方向被否定, 这时 ``phase_lr`` 不变而 cap 减半。
 

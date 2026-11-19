@@ -232,13 +232,16 @@ class _Setting:
     reads: int = 1
 
 
-def _patch_capture_devices(monkeypatch, *, statuses=None) -> tuple[list[str], list[dict]]:
+def _patch_capture_devices(monkeypatch, *, statuses=None, camera=None,
+                           create_kwargs=None) -> tuple[list[str], list[dict]]:
     """Replace ``capture.capture``'s device layer.
 
     Returns the close log and every ``adapt_exposure`` keyword set, so a test can
     pin how the exposure is armed as well as what was written. ``statuses`` feeds
     the ladder's verdicts one per call (``"ok"`` once the list runs out): that is
-    how the re-arm path is driven without a camera.
+    how the re-arm path is driven without a camera. ``camera`` / ``create_kwargs``
+    let a bit-depth test inject a fake with a readback and record the constructor
+    keywords; existing callers keep the plain 8-bit fake.
     """
     from types import SimpleNamespace
     from ao_shaping.drivers.ccd import common
@@ -247,9 +250,15 @@ def _patch_capture_devices(monkeypatch, *, statuses=None) -> tuple[list[str], li
 
     closed: list[str] = []
     calls: list[dict] = []
-    camera = _FakeCamera(closed)
+    camera = camera if camera is not None else _FakeCamera(closed)
     monkeypatch.setattr(hardware, "prepare_camera_sdk", lambda _: None)
-    monkeypatch.setattr(common, "create_camera", lambda *a, **kw: camera)
+
+    def _create(*a, **kw):
+        if create_kwargs is not None:
+            create_kwargs.append(dict(kw))
+        return camera
+
+    monkeypatch.setattr(common, "create_camera", _create)
     monkeypatch.setattr(common, "get_camera_exposure_range", lambda _: (.02, 10.))
     monkeypatch.setattr(common, "get_camera_exposure_ms", lambda cam: cam.readback_ms)
     monkeypatch.setitem(sys.modules, "ao_shaping.drivers.slm.santec",
@@ -442,6 +451,90 @@ def test_capture_still_fails_when_every_ladder_attempt_misses_the_band(tmp_path,
     with pytest.raises(RuntimeError, match="Unusable exposure"):
         capture_module.capture(_capture_args(tmp_path))
     assert len(calls) == 1 + capture_module.EXPOSURE_RETRIES
+
+
+# ---------------------------------------------------------------------------
+# bit depth reaches the device and drives the full scale (issue #246 / transfer)
+# ---------------------------------------------------------------------------
+
+
+class _BitDepthCamera(_FakeCamera):
+    """Fake CCD that reports an effective bit depth and its full scale."""
+
+    def __init__(self, closed: list[str], bit_depth: int | None, full_scale: float) -> None:
+        super().__init__(closed)
+        self.bit_depth = bit_depth
+        self._fs = full_scale
+
+    def _full_scale(self, source_dtype=None) -> float:
+        return self._fs
+
+
+def test_capture_forwards_requested_bit_depth_to_create_camera(tmp_path, monkeypatch):
+    """A requested 12-bit depth is actually handed to create_camera and sets full scale."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    create_kwargs: list[dict] = []
+    cam = _BitDepthCamera([], bit_depth=12, full_scale=4095.0)
+    _, adapt_calls = _patch_capture_devices(
+        monkeypatch, camera=cam, create_kwargs=create_kwargs
+    )
+    _one_probe(monkeypatch)
+
+    capture_module.capture(_capture_args(tmp_path, bit_depth=12))
+
+    assert create_kwargs and create_kwargs[0]["bit_depth"] == 12
+    assert all(call["full_scale"] == 4095.0 for call in adapt_calls)
+
+
+def test_capture_omits_bit_depth_when_caller_has_none(tmp_path, monkeypatch):
+    """No bit_depth on the namespace keeps the old 8-bit / 255 behaviour."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    create_kwargs: list[dict] = []
+    cam = _BitDepthCamera([], bit_depth=None, full_scale=255.0)
+    _, adapt_calls = _patch_capture_devices(
+        monkeypatch, camera=cam, create_kwargs=create_kwargs
+    )
+    _one_probe(monkeypatch)
+
+    capture_module.capture(_capture_args(tmp_path))
+
+    assert create_kwargs and "bit_depth" not in create_kwargs[0]
+    assert all(call["full_scale"] == 255.0 for call in adapt_calls)
+
+
+def test_capture_rejects_bit_depth_readback_mismatch(tmp_path, monkeypatch):
+    """A camera that ignores the 12-bit request aborts instead of using a wrong scale."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    cam = _BitDepthCamera([], bit_depth=8, full_scale=255.0)
+    _patch_capture_devices(monkeypatch, camera=cam)
+    _one_probe(monkeypatch)
+
+    with pytest.raises(RuntimeError, match=r"Requested bit depth 12 .*reports 8"):
+        capture_module.capture(_capture_args(tmp_path, bit_depth=12))
+
+
+def test_cap_sample_row_saturation_threshold_follows_full_scale():
+    """saturation_pixels counts >= full_scale, not the hardcoded 8-bit 255."""
+    from ao_shaping.tools.slm.transfer import capture as capture_module
+
+    raw = np.zeros((2, 4, 4), dtype=np.uint16)
+    raw[0, 0, 0] = 4095  # at 12-bit full scale -> saturated
+    raw[0, 0, 1] = 4094  # below 12-bit full scale, above 255
+    raw[0, 0, 2] = 300
+
+    kwargs = dict(
+        attempt=1, clocks=[], exposure=0.1, exposure_clocks=[], flat_frame_name=None,
+        label="probe", live_prediction=[None], path="sample.npz", raw=raw,
+        setting=_Setting(), split="train", x=1.0, y=2.0,
+    )
+    row_12 = capture_module._cap_sample_row(**kwargs, full_scale=4095.0)
+    assert row_12["saturation_pixels"] == 1
+
+    row_8 = capture_module._cap_sample_row(**kwargs, full_scale=255.0)
+    assert row_8["saturation_pixels"] == 3
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ from .exposure_policy import (
     argparse_exposure_type,
     resolve_seed_exposure,
 )
+from .protocol import target_intensity_rmse
 
 #: 满阱判据系数：``frame >= full_scale * SATURATION_FRACTION`` 即计为饱和像素。
 #: 与 validate 记录的 ``saturation_pixels``（validate.py）同一口径，#243 前置三。
@@ -201,10 +202,18 @@ def replay(args):
                         shape_objective = ShapeObjective(target, cv_only=True)
                         shape_objective.core = core
                         core_peak = float(sample[core].max())
+                        # Measured-vs-target intensity distance for the CCD
+                        # acceptance protocol (protocol.target_intensity_rmse).
+                        # ``None`` when the archived target lives on another
+                        # grid than this window: a mismatch must not abort a
+                        # live capture halfway through a block.
+                        target_rmse = (target_intensity_rmse(sample, target)
+                                       if np.shape(target) == np.shape(sample) else None)
                         record = dict(label=name, file=filename, exposure_ms=float(get_camera_exposure_ms(camera)),
                             full_scale=4095, bit_depth=12, counts_scale=16., frames=stamps,
                             camera_grid=list(grid.shape),
                             metrics=image_metrics(sample, shape_objective), core_peak=core_peak,
+                            target_rmse=target_rmse,
                             saturation_pixels=saturation_pixels(mean_frame, 4095.0),
                             core_saturated=core_saturated(core_peak), **clock())
                         records.append(record)

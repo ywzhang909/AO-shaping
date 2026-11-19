@@ -49,11 +49,13 @@ __all__ = [
     "judge_pair",
     "compare_repeats",
     "shape_agreement",
+    "target_intensity_rmse",
     "insufficient_keys",
     "plan_reference_blocks",
     "replay_audit",
     "derive_replay_exposures",
     "SHAPE_AGREEMENT_KEYS",
+    "TARGET_INTENSITY_KEYS",
     "REPLAY_PEAK_GUARD_FRACTION",
     "REPLAY_LADDER_FRACTIONS",
 ]
@@ -61,6 +63,11 @@ __all__ = [
 #: Metric keys a shape-agreement read-out must report. Kept as a tuple so a
 #: caller cannot silently ship a verdict that omits the boundary term.
 SHAPE_AGREEMENT_KEYS = ("iou", "boundary_mean_px", "boundary_p95_px", "coverage_fraction")
+
+#: Keys :func:`target_intensity_rmse` reports. Kept as a tuple so a verdict can
+#: require the distance *and* the missed-energy term, never one without the
+#: other (the shape-only mask verdict already had this defect once).
+TARGET_INTENSITY_KEYS = ("rmse", "rel_l2", "energy_fraction")
 
 
 @dataclass(frozen=True)
@@ -442,6 +449,62 @@ def shape_agreement(measured: np.ndarray, target: np.ndarray, *,
                 missing_keys=[key for key in SHAPE_AGREEMENT_KEYS
                               if key not in ("iou", "boundary_mean_px", "boundary_p95_px",
                                              "coverage_fraction")])
+
+
+def target_intensity_rmse(measured: np.ndarray, target: np.ndarray, *,
+                          floor: float = 0.0) -> dict:
+    """Scale-free RMS distance between a measured and a target intensity pattern.
+
+    Why this is not the fit's ``relative_l2``: that number compares a
+    *prediction* with the *measurement* of one frame, so both sides share one
+    radiometry. The acceptance question is different -- "does the measured far
+    field have the target's intensity distribution" -- and the target is a
+    pattern (mask or desired intensity), not a measured frame. Both sides are
+    therefore normalized to unit sum over the **whole window** before
+    subtracting, which takes lamp power, exposure and camera gain out of the
+    number.
+
+    Normalizing over the whole window, not over the target support only, is
+    deliberate: light that lands outside the target is part of the answer (the
+    same reason :func:`target_pearson` correlates over the full window). It is
+    reported separately as ``energy_fraction`` so "right shape, wrong place"
+    cannot hide inside one number.
+
+    ``floor`` is the measured background (dark plus stray light) subtracted
+    before normalizing; values below it clamp to 0. Passing the frame's
+    background estimate makes the comparison about the optical distribution
+    rather than the camera's dark offset.
+
+    Returns ``None`` fields -- never ``0.0`` -- when either side carries no
+    energy, matching ``cv=None``: "nothing measured" must not read as "perfect
+    match".
+
+    ``rel_l2 = ||m - t|| / ||t||`` is the cross-grid-comparable headline (a
+    different camera window step changes ``rmse`` through the pixel count but
+    not ``rel_l2``); ``rmse`` is the same distance in unit-sum-normalized
+    intensity per pixel.
+    """
+    measured = np.asarray(measured, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    if measured.shape != target.shape:
+        raise ValueError(
+            f"measured {measured.shape} and target {target.shape} differ; "
+            "the target must be resampled to the camera window first"
+        )
+    frame = np.clip(measured - float(floor), 0.0, None)
+    pixels = int(frame.size)
+    frame_total, target_total = float(frame.sum()), float(target.sum())
+    if frame_total <= 0 or target_total <= 0 or pixels == 0:
+        return dict(rmse=None, rel_l2=None, energy_fraction=None, pixels=pixels)
+    frame_hat, target_hat = frame / frame_total, target / target_total
+    diff = frame_hat - target_hat
+    support = target > 0
+    return dict(
+        rmse=float(np.sqrt(np.mean(diff**2))),
+        rel_l2=float(np.linalg.norm(diff) / np.linalg.norm(target_hat)),
+        energy_fraction=float(frame[support].sum() / frame_total) if support.any() else 0.0,
+        pixels=pixels,
+    )
 
 
 def judge_pair(baseline: Mapping, candidate: Mapping, *, noise: Mapping | None = None) -> dict:

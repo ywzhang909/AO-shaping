@@ -21,6 +21,7 @@ from ao_shaping.tools.slm.transfer.protocol import (
     repeat_statistics,
     replay_audit,
     shape_agreement,
+    target_intensity_rmse,
     verdict_with_uncertainty,
 )
 
@@ -393,3 +394,101 @@ def test_min_attainable_pvalue_agrees_with_the_statistics_module():
 def test_empty_condition_list_is_rejected():
     with pytest.raises(ValueError, match="no conditions"):
         plan_reference_blocks([], block_seconds=10.0)
+
+
+# --------------------------------------------------------------------------
+# measured-vs-target intensity RMSE -- the term the CCD acceptance protocol
+# needs and the fit metrics do not provide (they compare a prediction to a
+# measurement on one frame, where the radiometry is shared by both sides).
+# --------------------------------------------------------------------------
+
+
+def _spot(size=21, *, centre=(10, 10), value=1.0, shape=None):
+    frame = np.zeros((size, size))
+    if shape is None:
+        frame[centre] = value
+    else:
+        rows, cols = shape
+        r0, c0 = centre
+        frame[r0:r0 + rows, c0:c0 + cols] = value
+    return frame
+
+
+def test_identical_pattern_has_zero_distance():
+    target = _spot(shape=(5, 5))
+
+    result = target_intensity_rmse(target * 900.0, target)
+
+    assert result["rmse"] == pytest.approx(0.0, abs=1e-12)
+    assert result["rel_l2"] == pytest.approx(0.0, abs=1e-12)
+    assert result["energy_fraction"] == pytest.approx(1.0)
+    assert result["pixels"] == target.size
+
+
+def test_metric_is_invariant_to_radiometry():
+    # Lamp power / exposure / gain must not move a shape verdict: the 2026-10-28
+    # review found stage-to-stage comparisons unsound for exactly this reason.
+    target = _spot(shape=(5, 5))
+    dim = target_intensity_rmse(target * 120.0, target)
+    bright = target_intensity_rmse(target * 4000.0, target)
+
+    assert dim["rmse"] == pytest.approx(bright["rmse"], rel=1e-12)
+    assert dim["rel_l2"] == pytest.approx(bright["rel_l2"], rel=1e-12)
+    assert dim["energy_fraction"] == pytest.approx(bright["energy_fraction"])
+
+
+def test_light_outside_the_target_is_penalized_and_reported():
+    target = _spot(shape=(5, 5), value=1.0)
+    measured = np.zeros_like(target)
+    measured[10:15, 10:12] = 1.0  # 10 of 25 target pixels kept
+    measured[1:6, 1:3] = 1.0  # same amount of energy, outside the target
+
+    result = target_intensity_rmse(measured, target)
+
+    assert result["energy_fraction"] == pytest.approx(0.5)
+    assert result["rel_l2"] > 0.5
+    assert result["rmse"] > 0.0
+
+
+def test_centred_spot_beats_displaced_spot():
+    target = _spot(shape=(5, 5))
+    centred = target_intensity_rmse(_spot(shape=(5, 5)), target)
+    displaced = target_intensity_rmse(_spot(shape=(5, 5), centre=(10, 14)), target)
+
+    assert centred["rel_l2"] < displaced["rel_l2"]
+    assert centred["energy_fraction"] > displaced["energy_fraction"]
+
+
+def test_background_floor_is_subtracted_before_normalizing():
+    target = _spot(shape=(5, 5))
+    measured = target * 37.0 + 11.0
+
+    assert target_intensity_rmse(measured, target)["rel_l2"] > 0.1
+    assert target_intensity_rmse(measured, target, floor=11.0)["rel_l2"] == pytest.approx(
+        0.0, abs=1e-12)
+
+
+def test_no_energy_is_none_not_a_perfect_score():
+    # Same convention as cv=None: "nothing measured" must not read as "matched".
+    target = _spot(shape=(5, 5))
+
+    dark = target_intensity_rmse(np.zeros_like(target), target)
+    no_target = target_intensity_rmse(_spot(shape=(5, 5)), np.zeros_like(target))
+
+    for result in (dark, no_target):
+        assert result["rmse"] is None
+        assert result["rel_l2"] is None
+        assert result["energy_fraction"] is None
+
+
+def test_shape_mismatch_is_rejected():
+    with pytest.raises(ValueError, match="differ"):
+        target_intensity_rmse(_spot(21), _spot(19))
+
+
+def test_reported_keys_are_the_frozen_contract():
+    from ao_shaping.tools.slm.transfer.protocol import TARGET_INTENSITY_KEYS
+
+    result = target_intensity_rmse(_spot(shape=(5, 5)), _spot(shape=(5, 5)))
+
+    assert set(TARGET_INTENSITY_KEYS) <= set(result)

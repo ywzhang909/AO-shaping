@@ -138,6 +138,59 @@ def test_build_fit_model_forwards_train_all_only_when_set(tmp_path, monkeypatch)
     with pytest.raises(_Reached):
         fit_module.build_fit_model(tmp_path, checkpoint, span=10, train_all=True)
     assert seen["kwargs"]["train_all"] is True
+@pytest.mark.parametrize(
+    "residual",
+    [{}, {"5": 0.02}],
+    ids=["no-residual", "partial-residual"],
+)
+def test_build_fit_model_fills_the_residual_basis_from_a_residual_free_checkpoint(
+    tmp_path, monkeypatch, residual
+):
+    """M1/M3 导出的 checkpoint 里 ``residual_noll_radians`` 是空的。
+
+    ``PhysicalForwardFit`` 无论 checkpoint 怎样都要为 Z5..Z11 逐个取基
+    (``basis_arrays[j]``)，所以热启动必须把这几个模式的基补齐；否则拟合在
+    建模型时以 ``KeyError: 5`` 失败 (2026-11-18 实测)。
+    """
+    _tiny_dataset(tmp_path)
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text(
+        json.dumps(
+            dict(
+                defocus_diopter=0.0,
+                origin=[20.0, 20.0],
+                amplitude_center=[960.0, 600.0],
+                amplitude_width=[400.0, 300.0],
+                residual_noll_radians=residual,
+                gain=1.0,
+                background=0.0,
+                sigma_ccd_px=0.0,
+                ramp_matrix=[[0.0, 1.0], [1.0, 0.0]],
+                grid_size=8,
+                fft_size=64,
+                pixel_samples=3,
+            )
+        ),
+        encoding="utf-8",
+    )
+    seen: dict = {}
+
+    class _Reached(Exception):
+        """测试到这里就停: 只验证基的接线, 不跑真正的拟合。"""
+
+    class _FakeFit:
+        def __init__(self, *args, basis_arrays=None, **kwargs):
+            seen["modes"] = sorted(basis_arrays)
+            seen["shapes"] = {j: np.asarray(b).shape for j, b in basis_arrays.items()}
+            raise _Reached
+
+    import ao_shaping.algorithm.signal_processing.physical_forward_fit as forward_fit
+
+    monkeypatch.setattr(forward_fit, "PhysicalForwardFit", _FakeFit)
+    with pytest.raises(_Reached):
+        fit_module.build_fit_model(tmp_path, checkpoint, span=10)
+    assert seen["modes"] == list(range(4, 12))
+    assert set(seen["shapes"].values()) == {(8, 8)}
 
 
 # ---------------------------------------------------------------------------

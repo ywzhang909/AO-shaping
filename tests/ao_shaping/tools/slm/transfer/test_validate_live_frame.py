@@ -287,11 +287,6 @@ def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     (``functools.partial`` 在原处绑定), 归属者链变成
     ``run → _run_validate_session → _session_capture``: 先钉住这条链,
     循环体结构性质再钉在最终归属者上, 曝光阶梯钉子仍属于会话段。
-
-    第 111 批把会话段内的 ``tune_exposure`` 闭包逐字提为工厂
-    ``_make_tune_exposure`` (闭包体里的 ``read_exposure`` 随之整体搬家),
-    曝光阶梯钉子沿链改钉新归属者:
-    ``run → _run_validate_session → _make_tune_exposure``。
     """
     import inspect
 
@@ -303,10 +298,8 @@ def test_validate_emits_a_frame_inside_the_per_frame_read_loop():
     assert _emits_payload(body), body
     assert any('phase="validate"' in line for line in body)
 
-    # 曝光阶梯的每一档也是一次读出, 同样逐帧上屏。第 111 批后该阶梯住在
-    # ``_make_tune_exposure`` 工厂里 —— 先钉委派边存在, 再把发帧钉子钉到工厂。
-    assert "_make_tune_exposure(" in session
-    assert 'phase="exposure"' in inspect.getsource(validate._make_tune_exposure)
+    # 曝光阶梯的每一档也是一次读出, 同样逐帧上屏。
+    assert 'phase="exposure"' in session
 
 
 def test_capture_emits_a_frame_from_its_single_read_funnel():
@@ -354,9 +347,7 @@ def test_capture_read_funnel_threads_the_displayed_phase_grid():
     assert source.index("live_phase = [None]") < source.index("read = _cap_live_reader(")
     assert "live_phase" in inspect.signature(capture_mod._cap_live_reader).parameters
     # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
-    # #205 第 108 批: 平场落值搬进 _cap_show_flat_phase, 钉归属者链 capture → helper。
-    assert "_cap_show_flat_phase(" in source
-    assert "live_phase[0] = np.zeros" in inspect.getsource(capture_mod._cap_show_flat_phase)
+    assert "live_phase[0] = np.zeros" in source
     assert "live_phase[0] = grid" in source
 
 

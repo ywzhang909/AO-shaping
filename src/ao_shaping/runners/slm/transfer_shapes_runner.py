@@ -449,43 +449,48 @@ def _ts_geometry_models(amplitude_center_lr, auto_reuse, cam_id, camera, capture
 
 
 
+def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None,
+                     **kwargs: Any) -> dict[str, Any]:
+    """Run the *executing* half of :func:`run` — this one opens the device.
 
-def _campaign_journal_setup(amplitude_center_lr, aspect_ratio, auto_reuse, cam_id, camera, campaign_matrix, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, gs_seed, initial_phase, matrix_totals, model_dir, out, period, record_responses, records_only, resume, seed, seed_bakeoff, shapes, should_stop, side, slm_number, tilt, values, window_span, window_step, zero_radius):
-# Journal and stop-request wiring lifted verbatim
-    totals = matrix_totals(campaign_matrix(shapes))
-    summary = {"out": str(out), "stages": totals["segments"], "blocks": totals["blocks"],
-               "stopped": False}
+    Why it is a function of its own: the GUI campaign page runs it in a background
+    thread (``Thread(target=...)`` bodies may not touch ``st.session_state``), and
+    copying the runner's 38-parameter call plus its model/replay/records sequencing
+    into the page would fork the flow into two implementations that drift.
 
-    def stop_requested() -> bool:
-        return bool(should_stop is not None and should_stop())
+    Arguments
+    ---------
+    ``**kwargs`` uses the click parameter names of ``slm-transfer-shapes`` (minus
+    ``--out``), so ``campaign.CampaignSettings.kwargs()`` expands straight in.
+    Omitted values fall back to **click's own defaults** (read off ``run.params``)
+    rather than a second table written here: two copies of the same default drift
+    silently, and click is the contract the lane scripts already bind to.
 
-    out.mkdir(parents=True, exist_ok=True)
-    journal = _Journal(path=out / "journal.json")
-    if resume and journal.path.is_file():
-        journal.entries = _json(journal.path)
-    journal.record("plan", "complete",
-                   plan=_plan_dict(out=out, execute=True, **values))
+    ``should_stop`` is a cooperative, **segment-granularity** stop: it is asked once
+    before each CCD block group (i.e. before each ``(shape, stage)`` segment) and once
+    before ``replay`` and before ``records``. A single block (~24-40 s: one A1(+B)
+    capture, its optimization and its write) is an atomic transaction — interrupting
+    it mid-way leaves a half-written ``manifest.json``, so it is never polled inside
+    a block. "Stop" therefore means "stop after this segment", not "cut the device".
+    A segment that never starts is journalled ``stopped`` (``campaign_progress``
+    reads any unknown status verbatim and does not raise), and this function returns
+    normally — an operator pressing stop is not a failure.
 
-    model_640, wide_dir, zero_xy = _ts_geometry_models(amplitude_center_lr, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, journal, model_dir, out, period, record_responses, records_only, resume, seed, slm_number, window_span, window_step, zero_radius)
+    Returns:
+        ``{"out": str, "stages": int, "blocks": int, "stopped": bool}``. ``stages`` /
+        ``blocks`` are the **planned** totals (``campaign.campaign_matrix``: 4 shapes
+        → 16 / 112); what actually ran is read back from the directory by
+        ``campaign_progress.collect_campaign_progress``.
 
-    # ------------------------------------------------------- seed bake-off
-    chosen: dict[str, str] = {}
-    chosen = _campaign_seed_choice(seed_bakeoff, values, shapes, out,
-                                 journal, model_640, zero_xy, device,
-                                 camera, cam_id, slm_number, frames, side,
-                                 period, window_span, window_step,
-                                 zero_radius, resume, tilt, aspect_ratio,
-                                 gs_seed, initial_phase, chosen)
+    Raises:
+        OpticalPathInvalid: no usable light on this path (someone blocked the beam, the
+            laser is off, the path walked away). Expected on the bench, not a defect:
+            the exception carries the exposure ladder readings plus ``reason`` /
+            ``cause`` / ``report()``. Only :func:`run` turns it into exit code 3 — a
+            programmatic caller (the GUI) gets the object and can render the numbers.
+    """
+    from ao_shaping.tools.slm.transfer.campaign import campaign_matrix, matrix_totals
 
-    # ------------------------------------------------------------- shaping
-    recorder = _ts_make_recorder()
-    return chosen, journal, model_640, recorder, stop_requested, summary, wide_dir, zero_xy
-
-
-
-
-def _campaign_kwargs_unpack(kwargs):
-# Campaign kwargs unpacking lifted verbatim
     defaults = {param.name: param.default for param in run.params
                 if param.name not in ("out_dir", "execute", "records_only")}
     unknown = sorted(set(kwargs) - set(defaults))
@@ -539,55 +544,34 @@ def _campaign_kwargs_unpack(kwargs):
     aspect_ratio = float(values["aspect_ratio"])
     auto_reuse = bool(values.get("auto_reuse", True))
     records_only = bool(values.get("records_only", False))
-    return accept_abs_tol, accept_rel_tol, amplitude_center_lr, aspect_ratio, async_capture_write, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, gs_seed, initial_phase, jacobian_floor, jacobian_guard, jacobian_high, jacobian_low, jacobian_min_signal, model_dir, objective, order, period, profile_timing, record_responses, records_only, replay_exposures, replay_exposures_auto, resume, seed, seed_bakeoff, shapes, side, slm_number, spectral_cutoff, spectral_weight, tilt, values, weight_schedule, window_span, window_step, zero_radius
 
+    totals = matrix_totals(campaign_matrix(shapes))
+    summary = {"out": str(out), "stages": totals["segments"], "blocks": totals["blocks"],
+               "stopped": False}
 
+    def stop_requested() -> bool:
+        return bool(should_stop is not None and should_stop())
 
-def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None,
-                     **kwargs: Any) -> dict[str, Any]:
-    """Run the *executing* half of :func:`run` — this one opens the device.
+    out.mkdir(parents=True, exist_ok=True)
+    journal = _Journal(path=out / "journal.json")
+    if resume and journal.path.is_file():
+        journal.entries = _json(journal.path)
+    journal.record("plan", "complete",
+                   plan=_plan_dict(out=out, execute=True, **values))
 
-    Why it is a function of its own: the GUI campaign page runs it in a background
-    thread (``Thread(target=...)`` bodies may not touch ``st.session_state``), and
-    copying the runner's 38-parameter call plus its model/replay/records sequencing
-    into the page would fork the flow into two implementations that drift.
+    model_640, wide_dir, zero_xy = _ts_geometry_models(amplitude_center_lr, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, journal, model_dir, out, period, record_responses, records_only, resume, seed, slm_number, window_span, window_step, zero_radius)
 
-    Arguments
-    ---------
-    ``**kwargs`` uses the click parameter names of ``slm-transfer-shapes`` (minus
-    ``--out``), so ``campaign.CampaignSettings.kwargs()`` expands straight in.
-    Omitted values fall back to **click's own defaults** (read off ``run.params``)
-    rather than a second table written here: two copies of the same default drift
-    silently, and click is the contract the lane scripts already bind to.
+    # ------------------------------------------------------- seed bake-off
+    chosen: dict[str, str] = {}
+    chosen = _campaign_seed_choice(seed_bakeoff, values, shapes, out,
+                                 journal, model_640, zero_xy, device,
+                                 camera, cam_id, slm_number, frames, side,
+                                 period, window_span, window_step,
+                                 zero_radius, resume, tilt, aspect_ratio,
+                                 gs_seed, initial_phase, chosen)
 
-    ``should_stop`` is a cooperative, **segment-granularity** stop: it is asked once
-    before each CCD block group (i.e. before each ``(shape, stage)`` segment) and once
-    before ``replay`` and before ``records``. A single block (~24-40 s: one A1(+B)
-    capture, its optimization and its write) is an atomic transaction — interrupting
-    it mid-way leaves a half-written ``manifest.json``, so it is never polled inside
-    a block. "Stop" therefore means "stop after this segment", not "cut the device".
-    A segment that never starts is journalled ``stopped`` (``campaign_progress``
-    reads any unknown status verbatim and does not raise), and this function returns
-    normally — an operator pressing stop is not a failure.
-
-    Returns:
-        ``{"out": str, "stages": int, "blocks": int, "stopped": bool}``. ``stages`` /
-        ``blocks`` are the **planned** totals (``campaign.campaign_matrix``: 4 shapes
-        → 16 / 112); what actually ran is read back from the directory by
-        ``campaign_progress.collect_campaign_progress``.
-
-    Raises:
-        OpticalPathInvalid: no usable light on this path (someone blocked the beam, the
-            laser is off, the path walked away). Expected on the bench, not a defect:
-            the exception carries the exposure ladder readings plus ``reason`` /
-            ``cause`` / ``report()``. Only :func:`run` turns it into exit code 3 — a
-            programmatic caller (the GUI) gets the object and can render the numbers.
-    """
-    from ao_shaping.tools.slm.transfer.campaign import campaign_matrix, matrix_totals
-
-    accept_abs_tol, accept_rel_tol, amplitude_center_lr, aspect_ratio, async_capture_write, auto_reuse, cam_id, camera, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, gs_seed, initial_phase, jacobian_floor, jacobian_guard, jacobian_high, jacobian_low, jacobian_min_signal, model_dir, objective, order, period, profile_timing, record_responses, records_only, replay_exposures, replay_exposures_auto, resume, seed, seed_bakeoff, shapes, side, slm_number, spectral_cutoff, spectral_weight, tilt, values, weight_schedule, window_span, window_step, zero_radius = _campaign_kwargs_unpack(kwargs)
-
-    chosen, journal, model_640, recorder, stop_requested, summary, wide_dir, zero_xy = _campaign_journal_setup(amplitude_center_lr, aspect_ratio, auto_reuse, cam_id, camera, campaign_matrix, capture_count, capture_grid, control_grid, device, fft_size, fit_iterations, fit_span, frames, gs_seed, initial_phase, matrix_totals, model_dir, out, period, record_responses, records_only, resume, seed, seed_bakeoff, shapes, should_stop, side, slm_number, tilt, values, window_span, window_step, zero_radius)
+    # ------------------------------------------------------------- shaping
+    recorder = _ts_make_recorder()
 
     stopped = run_stages(
         out=out, shapes=shapes, order=order, resume=resume, journal=journal,

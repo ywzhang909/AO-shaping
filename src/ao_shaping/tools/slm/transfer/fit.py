@@ -194,6 +194,7 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
         FrozenDefocusForward, load_frozen_parameters,
     )
     from ao_shaping.algorithm.signal_processing.physical_forward_fit import PhysicalForwardFit
+    from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
     from .adaptation import configure_adaptation
 
     dataset = Path(dataset)
@@ -214,7 +215,19 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     initial = replace(old, ramp_matrix=tuple(tuple(x) for x in matrix))
     frozen = FrozenDefocusForward(initial, xy, device=device)
     basis = {4: frozen.z4.detach().cpu().numpy()}
-    basis.update({j: b.detach().cpu().numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
+    if frozen.residual_basis is not None:
+        basis.update({j: b.detach().cpu().numpy()
+                      for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
+    # ``PhysicalForwardFit`` optimises Z5..Z11 and indexes ``basis_arrays[j]`` for
+    # every one of them, so a checkpoint that declares no residual modes (an empty
+    # ``residual_noll_radians``, e.g. an older M1/M3 export) or only some of them
+    # would fail the fit with a KeyError. Fill the gap with the same fallback
+    # ``PhysicalForwardFit`` uses when no basis is passed at all: the bare mode on
+    # the control grid.
+    for j in range(5, 12):
+        if j not in basis:
+            basis[j] = np.nan_to_num(
+                generate_zernike_phase({j: 1.0}, (old.grid_size, old.grid_size)))
     # Global registration (issue #237) is carried in from the checkpoint and is not
     # fitted here, so the refit sees the same camera correspondence the frozen model did.
     model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
