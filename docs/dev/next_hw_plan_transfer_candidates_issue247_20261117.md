@@ -63,6 +63,38 @@
 - 判据：零级中心漂移 ≤ 2 px（本轮 flat 本底）且目标级按预测方向移动；
 - 本轮**不启用**硬件零级校正——模型映射未对齐前贸然校正会把 panel-x 校正加到 CCD-y 上。
 
+### 任务 B 状态补充（2026-11-20，纯离线复核）
+
+用当前跟踪的 `scripts/slm/issue247_zero_order_stability_20261117.py` 对同一归档 session 重放：
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/issue247_zero_order_stability_20261117.py --session data/debug/issue247_tilt_20261117 --out C:/Users/zhangh/AppData/Local/Temp/opencode/issue247_20261120_replay.json
+```
+
+命令输出 13 captures、0 saturated；旋转角 **+88.543997°**，panel-x/y 目标半位移分别约 **54.54 / 59.28 px**，跨轴分量均约 **0.12 px**，orthogonality error **0.2435°**、scale ratio **1.085895**；aligned shape 为 `2641×2010`。该次复现与 2026-11-17 的 `issue247_analysis.json` 一致。实际 JSON 在 `C:/Users/zhangh/AppData/Local/Temp/opencode/issue247_20261120_replay.json/issue247_analysis.json`（脚本把 `--out` 视为目录）。未覆盖归档输入。
+
+但 `data/debug/issue247_analysis_rot_20261118/issue247_analysis.json` 对同一 session 记录 **86.938333° / 1.170798 / 7.0970°**，panel 位移向量与 aligned shape 也不同（`2693×2080`）。在仓库内未找到生成该结果的脚本、精确命令或输入变换记录；两份 JSON 的峰值计数一致，但其间处理口径不可追溯。因此：**88.544° 是当前跟踪脚本可复现的结果，不等于两份历史分析的分歧已解释，也不得据此冻结物理映射或写入 `ramp_matrix`**。
+
+新增纯离线待办：① 找回/登记 11-18 rot 结果的生成代码、命令和输入哈希；若不可恢复，将其标为不可复现探索结果，不与规范结果混用；② 对同一原始输入用唯一受控脚本逐步对照两种处理，说明角度、尺度及画布差异；③ 再核对 panel pitch、CCD pitch、焦距/放大率和 ramp 符号约定。缺任一依据时，保留“不应用于 `FrozenDefocusForward.ramp_matrix`”的停止线。完成前不开展依赖该几何常数的硬件零级校正；任何新增设备采集仍须单独明确批准。
+
+#### 任务 B 离线溯源复核（2026-11-20 补充）
+
+- 11-17 与 11-18 rot 两份分析 JSON 的 13 组峰值/饱和计数相同；归档 13 个 `.npz` 与 `.slim/worktrees/sim2f-model-correction` 副本逐个 SHA-256 一致，后者不是独立重复。11-18 结果于 05:24 写入，Temp 中 `issue247-bgfix-run` 于 05:30 只剩与 11-17 口径相同的输出，仓库分析脚本/JSON 于 05:32 更新；因此时间顺序支持同一数据的中间/修正分析，但“bgfix”只是目录名，不能据此断言具体修复内容。
+- 当前跟踪脚本已在本轮再次只读重放至 `C:/Users/zhangh/AppData/Local/Temp/opencode/issue247_20261120_replay_run/issue247_analysis.json`，返回 13 captures、0 saturated、`correction_deg=88.5439972581`、`scale_ratio=1.0858949312`、`orthogonality_error_deg=0.2434973656`，与 11-17 结果一致。11-18 rot 的 `86.938333° / 1.170798 / 7.0970°` 仍无可追溯生成代码、命令及输入变换记录；当前归档最多支持在受控脚本口径下的经验几何描述，不足以冻结物理映射或关闭 #247。
+
+#### 任务 B 对称性与可辨性复核（2026-11-20 追加，纯离线）
+
+用归档 13 帧、`_pair_displacement` + `estimate_axis_rotation` 直接重算（未改任何仓库文件）：
+
+- **重复性**：5 次重复的逐帧角度 `[88.628, 88.620, 88.548, 88.504, 88.415]°`，SD **0.088°**。88.544° 是统计上稳定的测量值，不是噪声。
+- **标签交换被拒**：交换两轴标签时抛 `AxisRotationError: mirror axis pair`，不会静默给出互补角（设计保护有效）。
+- **180° 不可分辨（关键）**：把 (vx, vy) 同时翻号后同一估计量给出 **−91.457°**。数据本身无法区分 88.543° 与 −91.457°，符号分支只由 `image_alignment.convention` 字符串钉住，没有任何独立观测（旋转标定板 / 正交光栅双向扫描）验证该分支。
+- **几何常数仍缺**：`data/slm_geometry_calib.npz` 只含波前拟合的 center `[1104.84, 1224.42]`、`Kx/Ky`、`rotation 0.1675°`、`fwhm0 16.0`（来源 `persist_live_geometry.py`），**不含** panel pitch、CCD pitch、焦距/放大率，也**不含** ramp 符号约定。§1 的前置条件因此仍未满足。
+- **可微零级校正确实未实现（对物理预测成立）**：`src/ao_shaping/utils/wavefront/zero_order_overlay.py` 为死代码（src/scripts/tests/report 全库零调用、零测试）；`FrozenDefocusForward` 全文无零级项；唯一可微零级模型在 sim2f 代理（`src/ml/sim2f/optics.py` 的 `OpticsErrors.zero_order_eta`），从未接入物理 transfer 前向，也未对 #247 数据做过数据驱动 eta 估计。
+- **测试覆盖现状**：合成模板恢复（`test_issue247_zero_order_rotation.py` + `utils/image/test_rotation.py`）与无校准逐位兼容实测 **18 passed**，判定力高；但梯度一致性单测因缺 `data/debug/physical_forward_defocus/uniformity_refit_20261022_r1` 被 **skip（13 skipped）**，batch/vmap 一致性**完全没有测试**。可用 `data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`（grid=128/fft=512）补一个可跑的梯度单测——当前未被任何测试引用。
+
+结论：**88.544° 作为受控脚本口径下的可复现测量值成立，但不是已锚定的物理映射**；不冻结、不写 `ramp_matrix`、不据此开展硬件零级校正。
+
 ## 代码准备状态（均已就绪，勿重复造）
 
 | 用途 | 文件 | 状态 |

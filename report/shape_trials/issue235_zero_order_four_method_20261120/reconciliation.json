@@ -1,0 +1,127 @@
+{
+  "centres_cy_cx": {
+    "argmax": [
+      1106,
+      1229
+    ],
+    "centroid": [
+      1106,
+      1226
+    ],
+    "box_centroid": [
+      1106,
+      1226
+    ],
+    "ellipse": [
+      1106,
+      1227
+    ]
+  },
+  "centres_xy": {
+    "argmax": [
+      1229,
+      1106
+    ],
+    "centroid": [
+      1226,
+      1106
+    ],
+    "box_centroid": [
+      1226,
+      1106
+    ],
+    "ellipse": [
+      1227,
+      1106
+    ]
+  },
+  "pairwise": [
+    {
+      "a": "argmax",
+      "b": "centroid",
+      "dy_px": 0,
+      "dx_px": 3,
+      "distance_px": 3.0,
+      "within_tol": true
+    },
+    {
+      "a": "argmax",
+      "b": "box_centroid",
+      "dy_px": 0,
+      "dx_px": 3,
+      "distance_px": 3.0,
+      "within_tol": true
+    },
+    {
+      "a": "argmax",
+      "b": "ellipse",
+      "dy_px": 0,
+      "dx_px": 2,
+      "distance_px": 2.0,
+      "within_tol": true
+    },
+    {
+      "a": "centroid",
+      "b": "box_centroid",
+      "dy_px": 0,
+      "dx_px": 0,
+      "distance_px": 0.0,
+      "within_tol": true
+    },
+    {
+      "a": "centroid",
+      "b": "ellipse",
+      "dy_px": 0,
+      "dx_px": -1,
+      "distance_px": 1.0,
+      "within_tol": true
+    },
+    {
+      "a": "box_centroid",
+      "b": "ellipse",
+      "dy_px": 0,
+      "dx_px": -1,
+      "distance_px": 1.0,
+      "within_tol": true
+    }
+  ],
+  "max_pairwise_distance_px": 3.0,
+  "tolerance_px": 3.0,
+  "all_pairs_within_tolerance": true,
+  "default_method": "ellipse",
+  "default_centre_xy": [
+    1227,
+    1106
+  ],
+  "verdict": "ellipse_centre_usable",
+  "summary_crosscheck": {
+    "archived_argmax_cy_cx": [
+      1106.0,
+      1229.0
+    ],
+    "archived_box_centroid_cy_cx": [
+      1106.2306604868468,
+      1225.991933710388
+    ],
+    "recomputed_argmax_cy_cx": [
+      1106,
+      1229
+    ],
+    "recomputed_box_centroid_cy_cx": [
+      1106,
+      1226
+    ],
+    "note": "archived box_centroid used a 0.15-threshold fixed-window local helper (float); production zero_order.py uses the half-max connected component then rounds to int. Compare after rounding."
+  },
+  "knife_centres_separate_frames": {
+    "slm_panel_find_beam_yx": [
+      617.7973652771004,
+      882.001771457396
+    ],
+    "slm_panel_fit_yx": [
+      615.9722896785551,
+      887.142352991607
+    ],
+    "frame_note": "Both are SLM-panel coordinates from the differential knife-edge fit (1920x1200 panel frame); they are NOT in the CCD frame of flat.npy (2592x1944) and must not be differenced against the zero-order spot."
+  }
+}

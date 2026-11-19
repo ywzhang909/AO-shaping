@@ -54,6 +54,15 @@
 2. D2′ 已判“未检出收益”，不得用原三变体结果放行闭环。实现默认关闭，先做合成模板恢复、无校准逐位兼容和梯度/批量一致性单测；离线 held-out CCD replay 只有超出预注册最小效应并且区间排除 0 后才能考虑后续。
 3. 在 `target_shape_ccd_acceptance_plan_20261118.md` 冻结目标 rel-L2 上界、energy-fraction 下界、background floor、零级坐标后，方可申请新鲜配对实测。任何后续设备采集是单独授权事项。
 
+### 2026-11-20 纯离线可执行性复核
+
+- **#234**：检查确认 P0 `identifiability_rate.structured=0.0`、`matrix_ok=false`，现有 checkpoint 无双门通过；历史 seed→final 改善不能归因于该分支。剩余候选 SHA / checkpoint / split 冻结与归档 strength-gate 复核可离线完成，但方向门要求独立新鲜 holdout，因此这些前置动作不能单独改变 OPEN 判定，也不能放行算法对比或合并。
+- **#236**：现有新损失实现仅有 `lane-236-maskcv` 分支上的 masked CV；Sobel、log、JVP、异方差/Huber 尚未实现。还存在可以改变**证据状态**的离线工作：先修复 11-07 消融中的基线复现失败，再以不触碰锁定 holdout 的开发 split 实现并单项测试损失，随后在 `bench_twin` 和 `data/debug/slm_transfer/20261103_*` 归档回放上跑预登记消融。`compare_loss_algorithms.py --quick` 仅是 2-epoch、单种子 smoke，不能替代该矩阵。即使离线结果可判别，也只能更新收益证据；没有同一 frozen checkpoint 的 signed-direction + strength 双门及配对验证前，仍不升默认、不合并、不关闭 issue。JVP 的真实响应仍需结构化 ±A / ABBA 数据，任何补采须另行批准。
+- **#247**：2026-11-20 用当前跟踪脚本对 11-17 原始 session 的只读重放与 11-17 结果一致（13 captures、0 saturated、`88.543997°`、`scale_ratio=1.085895`、`orthogonality_error=0.243497°`）。11-18 rot 结果的生成器、命令及输入变换仍不可追溯；不冻结物理映射、不写 `ramp_matrix`，详情见 `next_hw_plan_transfer_candidates_issue247_20261117.md` 的任务 B 补充。
+- **#238（2026-11-20 追加）**：§6.6 的联合诊断只执行了第一阶段（清单核验 + 固定 ROI 描述量），脚本 `scripts/slm/issue238_run4_spatial_diagnostic_20261120.py`，产物只在 Temp，未写 `report/`。两段 960/960 帧清单/曝光/饱和/顺序全部 ok、零丢帧；`zero` 级 `capture_small` 0.882 vs 0.868（Δ CI 不含 0），`+1` 级 Δ CI 含 0，`−1` 级 Δ 最大（+0.10，CI 不含 0）但其位置由 `+1` 点对称给出、不能读成物理不对称。因 period 与采集时段/束功率漂移完全共线（§6.5 已记 +31.53% / −13.33%），M0/M1 嵌套模型未实现且不满足“按时间块验证集的稳定预测改善”门槛，结论仍为**当前 run4 无法区分机制**；#238 判定不变（不更新 LUT / 不冻结 2π 灰度 / 不宣称串扰定标）。详见 `issue238_binary_gray_capture_plan_20261119.md` §6.7。
+- **#235（2026-11-20 追加）**：三个剩余子项在离线域**均无判别力**——`shift_phase` 在归档数据中与理想无平移编码字节一致（mismatch=0），`apply_shift` 在 shift 不变时不重写相位，`FrozenDefocusForward` 也没有 shift_phase 输入，故离线无法构造“生效 vs 未生效”的对照；独立 pupil（瞳面）-center 的离线反演分辨率仅 Δx ±20 px / Δy ±30–40 px，低于结论所需；物理 LUT 只剩 `data/debug/lut_checker_modulation_20261118b/summary.json`（24 cells，棋盘格调制比，非逐像元灰度→相位 LUT），全库无脚本消费它，且 Q1/Q2 显示“实测点状 vs 模型满幅平顶”的形态差不是逐像元振幅加权能产生的。**结论：无离线检验能改变 #235 的 OPEN 判定**，剩余闭环需新采（须另行批准）。
+- **#247（2026-11-20 追加，定量）**：对归档 13 帧离线重算，5 次重复的逐帧角度 `[88.628, 88.620, 88.548, 88.504, 88.415]°`，SD **0.088°**（统计精度充足、非噪声）；标签交换被 `AxisRotationError: mirror axis pair` 拒绝；但全局翻号给出 **−91.457°** ⇒ 该估计本质是 **180° 对称族**，符号分支只能由 `image_alignment.convention` 字符串钉住，数据本身不可分辨。`data/slm_geometry_calib.npz` 只含波前拟合的 center/Kx/Ky/rotation/fwhm0，**不含** panel pitch / CCD pitch / 焦距与放大率，故 §1 的物理几何常数仍缺。可微零级校正：`utils/wavefront/zero_order_overlay.py` 为死代码（全库零调用零测试），`FrozenDefocusForward` 无零级项，唯一可微零级在 sim2f 代理（`OpticsErrors.zero_order_eta`）且从未接入物理预测。梯度一致性单测因缺 `physical_forward_defocus/uniformity_refit_20261022_r1` 被 skip，batch/vmap 一致性无测试。**结论：88.544° 是可复现测量值但不是已锚定的物理映射，不得冻结**。
+
 ## 4. 停止线
 
 - 现有证据可以支持“问题有效”“局部估计器改进”“改进未证明”三种彼此独立的陈述；禁止将其合并为“已验收算法优化”。

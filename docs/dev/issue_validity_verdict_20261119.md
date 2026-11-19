@@ -66,3 +66,9 @@
 - 上述 §4/§6 是当时的状态记录；随后 `issue238_binary_phase_20261119/run4_period_sweep` 的 period32/48 两段已经完成采集并确认 SLM、CCD 与设备锁正常释放。新证据已按离线 fit 复核，详见 `issue238_binary_gray_capture_plan_20261119.md` §6.5。fold 值低于 993 但伴随显著漂移与系统误差，故不改 LUT、不把问题判成已解决。
 - 7 个 issue 的逐条状态、#235 定位收益边界以及 #234/#235/#236/#238/#247 的缺失数据与下一步门禁详见 [`open_issue_offline_followup_20261119.md`](open_issue_offline_followup_20261119.md)。本次补记只做离线复核，未新占硬件、未更新 GitHub issue 状态；有效但收益未证明者保持 OPEN，#244 已 CLOSED（无效），#242 已 CLOSED（实现完成）。
 - **本窗口 §2.3 主门实测（离线）**：`validate_pairs` 的 `square_seed → square_final` 配对在冻结 floor=`14.9375 counts` 下**未通过且方向为负**——`rel_l2` 1.1575→1.2958（Δ=−0.1383，噪声地板 0.0424）、`energy_fraction` 0.4556→0.3919（Δ=−0.0637，噪声地板 0.0146）；目标核 CV 反降（0.3271→0.1728）。均属实测退化。完整 3 对表、逐 capture、窗口级判定与 replay 边界见 [`hw_window_20261119_preregistration.md`](hw_window_20261119_preregistration.md) §6。此结论只说明端到端相对目标变差，不指向任何单一 issue 子项。
+
+### 7.1 2026-11-20 追加：三份离线结论，判定均未变
+
+- **#238**：§6.6 联合诊断仅有第一阶段（清单核验 + 固定 ROI 描述量）已执行，`scripts/slm/issue238_run4_spatial_diagnostic_20261120.py`，产物只在 Temp。两段 960/960 帧完整、零丢帧；period 与时段/漂移共线，M0/M1 未实现，故永久报告门槛未触发。判定不变：**有效、收益未证明，仍不可定标**。见 `issue238_binary_gray_capture_plan_20261119.md` §6.7。
+- **#235**：`shift_phase` 与独立 pupil（瞳面）-center 在离线域已判**零判别力**（归档编码字节一致、前向无该自由度；反演分辨率 Δx ±20 px / Δy ±30–40 px）；物理 LUT 仅剩 `lut_checker_modulation_20261118b` 的棋盘格调制比，属间接代理且全库无消费脚本。判定不变：**OPEN**。
+- **#247**：88.544° 可复现（5 次重复 SD **0.088°**），但本质是 **180° 对称族**（全局翻号为 −91.457°），符号分支只由 convention 字符串钉住；`data/slm_geometry_calib.npz` 仍缺 panel/CCD pitch 与焦距放大率。判定不变：**OPEN**，不冻结物理映射、不写 `ramp_matrix`。
