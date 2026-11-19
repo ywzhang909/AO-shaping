@@ -14,9 +14,9 @@
 | issue | 主题 | 判定 | GitHub 状态 | 核心依据 |
 |---|---|---|---|---|
 | #234 | zernike_block 三档微调 + 结构化探针 + 在线回灌 | **有效、算法收益未证明** | OPEN | 实施代码在 `feat/zernike-block-transfer`（`234f0741`，未入 master）；P0 结构化设计条件数差、可辨识模率 0.0；无双门通过 checkpoint，无实测核心 CV≤0.10。 |
-| #235 | 输入相位一致性 + 零级 box centroid | **有效（部分子项已完成），原根因已否定** | OPEN | panel_gray 14 帧 mismatch 0；换实际相位方向 cosine 仍≈0 ⇒「输入相位错是根因」被否；box centroid 已落地（`fc4d3cf3`）；剩可信 LUT / `--pupil-center-xy` / shift_phase 写入前向。 |
+| #235 | 输入相位一致性 + 零级 box centroid | **有效（部分子项已完成），原根因已否定** | OPEN | panel_gray 14 帧 mismatch 0；换实际相位方向 cosine 仍≈0 ⇒「输入相位错是根因」被否；box centroid 已落地（`fc4d3cf3`），历史双瓣定位 SD 由 argmax 0.394 px 降至 0.297–0.330 px（仅为定位稳定性，不是整形收益）；剩可信 LUT / `--pupil-center-xy` / shift_phase 写入前向。 |
 | #236 | 拟合损失重构（掩膜 CV 等） | **有效但时机未到** | OPEN | fit.py 仍是旧三项损失；唯一消融无区分度（方向中位 −0.043…+0.070）、基线复现 FAILED；实验复跑需 SLM #1（11-16 探测 −10003）。 |
-| #238 | 逐像元 LUT + 3×3/5×5 串扰核 | **有效、未实施，证据偏模型依赖** | OPEN | 核心模块不存在；二值光栅 run1 破 γ–g₂π 简并（g₂π≈964±13，γ≈0.91），但与设备回读 993 未判决；run2 USB `-10032` 中止；串扰仍「不可判定」。 |
+| #238 | 逐像元 LUT + 3×3/5×5 串扰核 | **有效、收益未证明，仍不可定标** | OPEN | run4 period32/48 fold `g₂π=952.6 [948,956]` / `946.9 [945,950]`，低于回读 993；但束功率漂移 +31.53%/−13.33%、±1 极小分裂与整曲线残差仍大，bootstrap 仅计帧噪声，不足以更新 LUT；串扰仍不可判定。详见 `issue238_binary_gray_capture_plan_20261119.md` §6.5。 |
 | #242 | transfer-desktop campaign 安全门 UI | **有效且已实现** | CLOSED | `a046dc5d` 接入 G2/G2b/G3/P4，`gates.py`/`verdict_lines.py`/`page.py` 全部在 HEAD；`test_transfer_desktop_gates_ui.py` 19 passed（offscreen，`.venv`）。文本 0.80 与后端 0.85 为措辞差，实现遵循后端单一来源 0.85。 |
 | #244 | 双屏逐 ROI 对准（10×10 ROI） | **无效（当前系统不适用）** | CLOSED | 单 SLM 2f 只有一个调制器、无第二像素网格，逐 ROI 前提不成立；全局 ramp 拟合 + 瞳面模型已覆盖真实需求。 |
 | #247 | 倾斜/离焦探测零级 + 可微前向校正 | **有效、收益未证明** | OPEN | 硬件证实零级可分离与面板↔CCD 轴交换（+88.54°、尺度 1.086）；独立回测 r²=−0.00348（CI 含 0）、方向门 0/3；可微零级模板/统一观测校正全未实现。 |
@@ -60,3 +60,9 @@
 - **结论**：设备健康，历史上的 `-10032`/`-10003` 未复现；具备实验取数条件。**更正**：历史归档已有 measured-vs-target 配对数据并显示相对改善（见重算文档），但阈值未预注册、绝对保真度未达标，7 个 issue 的实测整形验收门槛仍未被满足。
 
 历史 run2 `-10032` 中止时已正常关闭 SLM/CCD 并释放锁（平场归零失败单独记录），无残留占用。
+
+## 7. 后续离线复核补记（2026-11-19）
+
+- 上述 §4/§6 是当时的状态记录；随后 `issue238_binary_phase_20261119/run4_period_sweep` 的 period32/48 两段已经完成采集并确认 SLM、CCD 与设备锁正常释放。新证据已按离线 fit 复核，详见 `issue238_binary_gray_capture_plan_20261119.md` §6.5。fold 值低于 993 但伴随显著漂移与系统误差，故不改 LUT、不把问题判成已解决。
+- 7 个 issue 的逐条状态、#235 定位收益边界以及 #234/#235/#236/#238/#247 的缺失数据与下一步门禁详见 [`open_issue_offline_followup_20261119.md`](open_issue_offline_followup_20261119.md)。本次补记只做离线复核，未新占硬件、未更新 GitHub issue 状态；有效但收益未证明者保持 OPEN，#244 已 CLOSED（无效），#242 已 CLOSED（实现完成）。
+- **本窗口 §2.3 主门实测（离线）**：`validate_pairs` 的 `square_seed → square_final` 配对在冻结 floor=`14.9375 counts` 下**未通过且方向为负**——`rel_l2` 1.1575→1.2958（Δ=−0.1383，噪声地板 0.0424）、`energy_fraction` 0.4556→0.3919（Δ=−0.0637，噪声地板 0.0146）；目标核 CV 反降（0.3271→0.1728）。均属实测退化。完整 3 对表、逐 capture、窗口级判定与 replay 边界见 [`hw_window_20261119_preregistration.md`](hw_window_20261119_preregistration.md) §6。此结论只说明端到端相对目标变差，不指向任何单一 issue 子项。
