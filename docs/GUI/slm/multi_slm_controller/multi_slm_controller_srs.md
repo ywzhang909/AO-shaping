@@ -4,7 +4,7 @@
 
 ### 1.1 文档目的
 
-本文件定义 `src/ao_shaping/gui/slm/multi_slm_controller.py` 的功能需求、非功能需求、接口规范与关键设计约束。本模块是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM，每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与物理预测模型闭环）。
+本文件定义 `src/ao_shaping/gui/slm/multi_slm_controller.py` 的功能需求、非功能需求、接口规范与关键设计约束。本模块是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多 8 台 SLM（2026-11-19 `1d776314` 起从硬编码 2 台改为 N 台，`MAX_SLMS=8`），每台可独立连接、配置和相位编程，并内置闭环远场光束整形（GS+SPGD 与物理预测模型闭环）。
 
 ### 1.2 启动方式
 
@@ -39,7 +39,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 | FR-1.2 | 空闲设备读取序列号、Panel_Res、Pitch_um、波长等设备参数 | 必须 |
 | FR-1.3 | 已占用设备（ret > 0）标记为“使用中”，不可连接 | 必须 |
 | FR-1.4 | 无设备（ret < 0）跳过，不报错 | 必须 |
-| FR-1.5 | 支持最多两台 SLM 同时连接，各自独立 session state 命名空间 `slm1` / `slm2` | 必须 |
+| FR-1.5 | 支持最多 8 台 SLM 同时连接，各自独立 session state 命名空间 `slm1` … `slm8`（2026-11-19 `1d776314` 起，上限 `MAX_SLMS=8` 定义于 `slm_registry.py`） | 必须 |
 | FR-1.6 | 探测运行在守护线程中，单台超时 3s，避免 Santec SDK 挂起阻塞 UI | 必须 |
 
 ### 2.2 SLM 参数配置

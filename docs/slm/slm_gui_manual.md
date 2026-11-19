@@ -2,8 +2,8 @@
 
 ## 1. 概述
 
-`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面。
-支持最多两台 SLM，每台可独立连接、配置和相位编程。
+`multi_slm_controller.py` 是 Santec SLM-200 的 Streamlit 前端页面。
+支持最多 8 台 SLM（2026-11-19 `1d776314` 起从硬编码 2 台改为 N 台，`MAX_SLMS=8`），每台可独立连接、配置和相位编程。
 
 启动方式：
 
