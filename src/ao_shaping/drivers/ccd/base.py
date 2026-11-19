@@ -503,6 +503,61 @@ class BaseCamera(ABC):
             )
         return value
 
+    @property
+    def serial_number(self) -> str | None:
+        """设备序列号 (驱动回读真值); 未知 / 未打开时为 ``None``。
+
+        暗帧、像元尺寸之外的按序列号存档数据 (见 :mod:`ao_shaping.drivers.ccd.dark_frames`)
+        一律以本属性为匹配键。基类读后端在 ``open()`` 时写入的 ``_sn``; 有更可靠
+        序列号来源的后端可以覆写本属性。
+        """
+        return getattr(self, "_sn", None)
+
+    def load_dark_frames(self, *, rel_tol: float = 0.02):
+        """载入本相机序列号对应的暗帧配置集。
+
+        按 :attr:`serial_number` 从 ``<CCD_CONFIG_DIR>/ccd/<serial>/darks`` 读取;
+        目录/清单不存在时返回**空集** (可经 ``bool(set)`` 判断), 格式错误则报错。
+        ``rel_tol`` 保留给曝光匹配约定 (:meth:`get_dark_frame`), 加载本身不过滤曝光。
+
+        Raises:
+            CameraError: 相机没有序列号, 无法确定该用哪一档暗帧配置。
+        """
+        serial = self.serial_number
+        if not serial:
+            raise CameraError(
+                f"{type(self).__name__} 没有可用的序列号 (serial_number={serial!r}), "
+                "无法按序列号匹配暗帧; 请先 open() 让驱动回读序列号, "
+                "或在采集端用 --serial 显式指定。"
+            )
+        from ao_shaping.drivers.ccd.dark_frames import load_dark_frames as _load
+
+        return _load(serial)
+
+    def get_dark_frame(
+        self,
+        exposure_ms: float,
+        *,
+        rel_tol: float = 0.02,
+        allow_nearest: bool = False,
+    ):
+        """按当前曝光取本相机的暗帧 (默认只接受同曝光, 不隐式跨曝光套用)。
+
+        ``allow_nearest=True`` 时退到最接近的一档, 调用方需自行承担跨曝光偏置风险。
+        返回 ``None`` 表示没有可用暗帧 (空集或曝光不匹配)。
+        """
+        serial = self.serial_number
+        if not serial:
+            return None
+        from ao_shaping.drivers.ccd.dark_frames import load_dark_frame as _load_one
+
+        return _load_one(
+            serial,
+            exposure_ms,
+            rel_tol=rel_tol,
+            allow_nearest=allow_nearest,
+        )
+
     def set_bit_depth(self, bits: int) -> int:
         """切换输出位深 (bit), 返回**设备生效**的位深。
 

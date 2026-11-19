@@ -32,3 +32,38 @@
 - 离线 e 域直接拟合无偏、SD<1 灰度：真值 847→847.0、885→884.9、938→938.0、993→992.9、1023→1023.1（20 帧平均）；993 vs 938 分离 16σ、938 vs 885 分离 11σ，足以破简并。验证脚本：`C:\Users\zhangh\AppData\Local\Temp\opencode\binary_validate238{,b,c,d}.py`。
 - 采集脚本 `scripts/slm/issue238_gray_phase_probes.py` 已新增 `binary` 模式（`binary_gray` / `binary_sweep_levels` / `_build_binary_plan` / CLI 参数），尚未提交；v2 二值光栅采集尚未执行。新采集须用独立 `--out`，不得复用 run1 目录。
 - 设备行为待确认：g > g₂π 后是饱和还是缠绕，决定用全点拟合还是仅首支拟合。
+
+### 结论 6：二值光栅实测修订（10:39–10:50 UTC）
+
+> 本节修订上方结论 5 中“逐点绝对相位 / SD<1 / 足以破简并”的理想仿真外推；那不是实测结论。
+
+- **设备占用/释放**：Santec SLM #1 + Daheng CCD #0 + 1064 nm 激光，10:39 左右开始、10:50:12 UTC 释放；单进程，无并行设备进程；SLM 灰度归零、SLM/CCD 关闭、lock 释放均 `ok`，`error=null`。未再占用设备。
+- **数据**：`data/debug/issue238_binary_phase_20261119/run1/`，777 帧 / 48 灰度 × 16，Mono12，0.04 ms；曝光峰值 2048，无饱和；扫前后 0 级漂移 −0.56%。
+- 对称二值光栅数据支持 **g₂π≈964 灰度**，但只应报告约 **±13 灰度系统 allowance**（由 +1/−1 级 minima 分离决定，约 951–978），不能把仅含帧噪声的 fold bootstrap CI [959,966] 当作总不确定度。平均级次折叠 962.6、e1 极小抛物线 962.4、两级各自极小位置中点 964.5、设备码线性外推 964.1 相互吻合；但 +1 和 −1 单级极小分别约 978 和 951，显示真实灰度相关不对称。
+- 条件性 landmark 模型给 γ≈0.91；以 g₂π≈963 预测灰度 993 相位 2.057π，与设备回读 2.06π 自洽。**仅能说二值光栅 landmark 模型下 γ–g₂π 简并显著缓解，不可宣称 model-independent 绝对相位标定**。
+- 理想全曲线 e 域拟合 g₂π≈898，残差 rms≈0.18，拒绝为校准估计；含 0 级 pedestal 的全曲线拟合 g₂π≈1009 虽 rms≈0.009，但错过实测首级 minima（预测在约 1009、观测在约 960），同样不采纳。二者反映全曲线模型对未建模的 0 级背景/级次不对称敏感。
+- 二值中心值 964 与既有 blaze 拟合 938、CI[917,961] 有中心差异但区间仍重叠，不得声称 blaze 区间已被决定性排除；885 与 1023 仍受现有 blaze 与二值数据共同反对。更大周期探针只在需要更强、model-independent 的精密标定前再采。
+
+### 结论 7：mil 分支成果迁入 master 并退役（离线，未占用设备）
+
+- 算法验证包（脚本 / 权威 JSON / NPZ / 权重 / 探针数据 / 术语 T-77 / 设备锁证据 / 残差基热启动用例）已逐路径迁入 master，权威数值以原始 JSON/NPZ 为准；适配到 master API 的诊断脚本重跑输出带 `*_master_api` 后缀。provenance `--check` 为 clean。
+- 未并入的两处 mil 实验脚手架（`physical_forward_fit.residual_modes`、`fit.py` 的 blur/static/sigma_ccd 观测模型）已原样归档为 `report/shape_trials/physical_refine/mil_only_experimental_20261119.patch`，随后删除 `.worktrees/mil` 与 `mil` 分支；mil 独有提交 `2e39dd25`（provenance REPORTS 条目错位修复）在 master 工作树中已具备等价内容。
+- 新增可选入口 `scripts/slm/refit_transfer_forward.py`（train-only 拟合、calibration 排除、test 单次评分、`--out` 不覆盖、`--dry-run` 不落盘），冒烟 1 步：B test corr 0.7228→0.7417。**不改** optimizer 默认更新规则。
+- 边界未变：目标形状 CCD 验收仍缺 measured-vs-target intensity RMSE 与带锁 replay 实测，详见 `report/shape_trials/physical_refine/transfer_mil_hardware_plan_20261118.md` §11。
+
+## 真实暗场采集、扣暗无效与暗帧配置库（用户仅授权一次采集，硬件已停）
+
+- **设备占用/释放**：Daheng CCD #0，仅相机（无 SLM / 不动激光，用户确认激光已关），三档曝光各 16 帧；采集完成后相机正常关闭、bench DeviceLock 已释放；此后未再占用任何设备。原始帧落在 `.worktrees/direction-model-class-20261118/data/debug/darks_20261119_laseroff/`（`dark_0.024.npy` / `dark_0.043.npy` / `dark_0.047.npy`，各约 38 MB）。这是本轮**唯一**一次被授权的硬件采集，之后暂停主动采集，重测曝光线性度 / 重采 pass 均须另行授权。
+- **暗场实测**：三档（设备回读曝光 0.024 / 0.043 / 0.047 ms）全帧均值 0.2666 / 0.3055 / 0.3054 counts，峰值 1.9 / 2.0 / 2.0 counts —— 暗场近零，随曝光基本不变（读出噪声底）。
+- **扣暗不能救线性度**：扣暗后阶梯峰值 `[129.8, 193.2, 196.9]`，相邻比值 `[1.489, 1.019]`；0.043→0.047 ms 峰值比 1.019 远小于曝光比 1.093（高曝光档响应滚降到约 200 counts 平台）。因此 `non_monotonic` 结论不变，不按原计划重跑原判据。若强行要求翻转这段单调性，需对所有档统一扣除约 `b=143.7` counts 才能把 193.2/196.9 拉回递增 —— 与暗场实测（≈0.3 counts）矛盾，物理不成立，故否决。
+- **结论归属**：高曝光档滚降是传感器/前端在短曝光下的真实响应平台，不是暗场偏置；曝光线性度修复（pass2 固定曝光 + 逐帧回读，提交 `df0ea76d`）与双门评估脚本（`f9220430`）均未推送。**双门未联合通过前不放行锚定闭环**；零步绝对强度门无预注册数值门槛（0.25 仅为诊断线）。验证帧不得用于配准或强度门参考。
+- **暗帧配置库（新增，离线）**：`drivers/ccd/dark_frames.py` 按序列号分目录存暗帧配置，`<CCD_CONFIG_DIR>/ccd/<serial>/darks/{manifest.json, dark-exp-<expo>ms.npz}`，manifest (`ao_shaping.ccd.dark_frames/v1`) 为唯一索引，曝光存设备回读真值，默认 `rel_tol=0.02` 严格匹配、不跨曝光回退（`allow_nearest=True` 须显式）。`BaseCamera` 新增 `serial_number` / `load_dark_frames()` / `get_dark_frame()` 入口（无序列号报错/返回 None，空集合法）。采集 CLI `tools/ccd/capture_darks.py`（多曝光 + `--no-hw` + 设备锁 + 曝光回读）与离线测试同步落地。配置数据属运行时资产（`.npz` / `data/*` 被 gitignore），默认不入库。
+
+
+### 结论 8：32 px 二值光栅尝试（run2）— SLM USB 中止、部分数据退化（离线判读 + 中止记录）
+
+- **设备占用/释放**：SLM #1 + CCD #0 + 1064 nm 激光，单进程；run2 于 11:35 起采，至第 725/969 帧（gray 0..928）时 SLM 写入报 `SantecError: 写入相位数据到内存#41失败（错误码 -10032, USB其他错误）` 中止（耗时 529 s）。finally 已执行：SLM 关闭 ok / 相机关闭 ok / 锁释放 ok，平场归零失败（同 USB 错误）；`release.json.error` 已记录，无残留进程。此后未再占用设备。
+- **曝光选点缺陷（已修，须记住）**：原 `choose_exposure` 取「最亮不饱和」档，贴 0.9 饱和度线零裕度——bracket 0.16 ms 峰值 3519 判不饱和，正式平场重拍 3712、6 像素越线。改为在「峰值 ≤ 0.7×满量程」的可用档里取最亮（`PREFERRED_PEAK_FRACTION=0.7`），留激光暖机/热点漂移裕度；配 4 项单测。任何新采集不得再选贴饱和线的档。
+- **部分数据退化、结论不成立**：run2 只到 gray=928，缺 936..1023（±1 各自极小 ~951/981 与 2π 回归段）。`fit_partial.json` 给出 +1/−1 顶点都被钉在 928.0（数据边缘）、折叠 916 [916,928]（较 run1 低 ≈46 灰度）——边缘受限、明确退化。故 **32 px 未收紧 g₂π，工作值仍取 run1 = 964 ±13**。
+- **下一步（需健康设备会话，非本轮）**：`--period-px 32 --frames-per-level 20` 重跑**完整**序列覆盖到 1023；开跑前先 fresh open + 状态/读写自检，-10032 若复现按已知假死流程手动重启控制器，不反复重试。计划见 `issue238_binary_gray_capture_plan_20261119.md` §6.1。
+
