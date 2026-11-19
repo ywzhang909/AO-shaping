@@ -272,3 +272,17 @@ improvement 0.11498 / 0.11426 / 0.11431；3×3 交叉评估中 baseline 前向�
 - 诊断性地将 11/07 M3 defocus/envelope 与 11/18 residual 合并，在 11/07 单模屏上得到 7/14、8/14、7/14 配对过门，未达到既有每档 10/14；该组合跨 epoch，不能作为可部署 checkpoint 通过证明。
 - 混合参数在 11/18 held-out 强度窗口上零步回放 CV_pred 2.206、CV_measured 3.832、relative L2 0.735，未达到绝对强度质量要求。
 - 详细方法、数值与复现命令：`report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md`。设备未占用；因此没有进入锚定闭环验收。
+
+## 13 采集状态与数据路径（2026-11-19 补记）
+
+| 项 | 状态 | 路径 |
+|---|---|---|
+| 独立采集（S7b） | ✅ 已完成并释放（锁 `holder=None`） | `data/debug/slm_transfer/axis_mismatch_validation_20261118/`（`capture`/`initial`/`fit`） |
+| 三变体离线回验 | ✅ 已完成 | `data/debug/deswivel_forward_inverse_20261118/independent_20261118/report.json`、`paired_bootstrap_heldout.json` |
+| 结论 | ✅ 无收益（axis − baseline r² −0.00348，CI95 [−0.00824, +0.00160] 含 0） | 判据见 §10；本计划**不再需要新窗口重跑** |
+
+- 本计划**新增采集脚本**：无。这一段就是标准 transfer 管线（`transfer.capture` → `bootstrap` →
+  `fit` → `compare_deswivel_forward_inverse_20261118.py`），已在 2026-11-18 完整在线实现，命令见 §2。
+- 若将来仍需「物理 xy 轴失配」的**独立**测量（旋转标定板 / 正交光栅双向扫描），按 §10 另立计划；
+  不得复用本次会话的 `capture/` 目录（`exist_ok=False`）。
+- 新采集若发生，统一落 `data/experiments/`（用户 2026-11-19 约定）；历史数据保持原位。

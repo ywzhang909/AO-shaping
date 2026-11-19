@@ -30,9 +30,14 @@
 目的：只验证 K>1 在真实 SLM/CCD 上跑通（**不是**测加速——优化器本体占端到端 <0.5%）。
 
 ```powershell
-# 一次 open/close，K=1 与 K=4 各一次（两次之间冷却 ≥3 min）
-.venv/Scripts/python.exe -m ao_shaping.tools.slm.transfer run `
-  --out data/debug/transfer_k4_hw_YYYYMMDD --execute --candidates 4
+# 一次 open/close，K=1 与 K=4 各一次（段间冷却 200 s，由窗口脚本负责）
+.venv\Scripts\python.exe scripts/experiments/run_transfer_window_20261119.py `
+  --window data/experiments/transfer_window_20261119 `
+  --segments k1 k4 --shapes square --side 1200
+# 加 --execute 才占用设备；段表/冷却/锁/证据见 scripts/experiments/_window.py
+
+# 数据落 data/experiments/transfer_window_20261119/{k1,k4}/；
+# 2026-11-19 状态：脚本就绪，未采集（见合并版 §7.3）。
 ```
 
 记录：墙钟、每步 loss、`current_phase` 2D 形状、是否 0 饱和、released.json 全 true。
