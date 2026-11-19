@@ -1057,6 +1057,37 @@ def _offline_synthesize(config, *, checkpoint, zero, reference, out, device):
         encoding="utf-8",
     )
 
+def _open_loop_stage(config, *, checkpoint, zero, reference, out, device, stage):
+    """No-camera session: synthesize the phases from the frozen model, then put
+    each one on the SLM for a short dwell. The camera and its SDK stay closed
+    for the whole session (see ``open_loop``).
+
+    Lifted verbatim out of ``_run_session_rounds``' ``ccd_mode == "none"``
+    branch to keep that loop under its #205 span ceiling.
+    """
+
+    def _open_loop_display(checkpoint=checkpoint, zero=zero, reference=reference):
+        from . import open_loop
+
+        _offline_synthesize(
+            config,
+            checkpoint=checkpoint,
+            zero=zero,
+            reference=reference,
+            out=out,
+            device=device,
+        )
+        return open_loop.display_phases(
+            config.shapes,
+            source=out,
+            out_path=out / "open_loop_display.json",
+            dwell_s=config.open_loop_dwell_s,
+            slm_number=config.slm_number,
+        )
+
+    stage("open_loop_slm_display", _open_loop_display)
+
+
 def _round_calibration_stages(config, *, out, suffix, prefix, model_out, checkpoint,
                               options, stage, on_frame):
     """Exposure-response capture/analysis and the blur calibration for one round.
@@ -1237,29 +1268,10 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
                 ),
             )
         elif config.ccd_mode == "none":
-            # No camera at all: synthesize the phases from the frozen model,
-            # then put each one on the SLM for a short dwell. The camera and its
-            # SDK stay closed for the whole session (see ``open_loop``).
-            def _open_loop_display(checkpoint=checkpoint, zero=zero, reference=reference):
-                from . import open_loop
-
-                _offline_synthesize(
-                    config,
-                    checkpoint=checkpoint,
-                    zero=zero,
-                    reference=reference,
-                    out=out,
-                    device=device,
-                )
-                return open_loop.display_phases(
-                    config.shapes,
-                    source=out,
-                    out_path=out / "open_loop_display.json",
-                    dwell_s=config.open_loop_dwell_s,
-                    slm_number=config.slm_number,
-                )
-
-            stage("open_loop_slm_display", _open_loop_display)
+            _open_loop_stage(
+                config, checkpoint=checkpoint, zero=zero, reference=reference,
+                out=out, device=device, stage=stage,
+            )
             # ``none`` has no CCD round to loop over; it stays a single pass.
             break
         else:

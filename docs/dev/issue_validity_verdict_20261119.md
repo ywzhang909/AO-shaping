@@ -72,3 +72,23 @@
 - **#238**：§6.6 联合诊断仅有第一阶段（清单核验 + 固定 ROI 描述量）已执行，`scripts/slm/issue238_run4_spatial_diagnostic_20261120.py`，产物只在 Temp。两段 960/960 帧完整、零丢帧；period 与时段/漂移共线，M0/M1 未实现，故永久报告门槛未触发。判定不变：**有效、收益未证明，仍不可定标**。见 `issue238_binary_gray_capture_plan_20261119.md` §6.7。
 - **#235**：`shift_phase` 与独立 pupil（瞳面）-center 在离线域已判**零判别力**（归档编码字节一致、前向无该自由度；反演分辨率 Δx ±20 px / Δy ±30–40 px）；物理 LUT 仅剩 `lut_checker_modulation_20261118b` 的棋盘格调制比，属间接代理且全库无消费脚本。判定不变：**OPEN**。
 - **#247**：88.544° 可复现（5 次重复 SD **0.088°**），但本质是 **180° 对称族**（全局翻号为 −91.457°），符号分支只由 convention 字符串钉住；`data/slm_geometry_calib.npz` 仍缺 panel/CCD pitch 与焦距放大率。判定不变：**OPEN**，不冻结物理映射、不写 `ramp_matrix`。
+
+### 7.2 2026-11-20 追加：#249 / #250 判定与修复
+
+本轮逐一核验了上下文新发现的两个 code-scan / ci-fix issue，均为**有效**且属离线可修类别；全程未开 SLM/CCD/激光、未新采数据。两 issue 的判定与补丁范围如下。
+
+**#249 — call_graph 双 JSON 函数 span 漂移（12→40→47 三连涨、无 CI 守卫）：判定有效，已修复。**
+
+- 实测复现：`docs/dev/call_graph_wiki/raw/assets/call_graph.json` 与 `call_graph_final.json` **逐字节一致**（234,184 bytes、indent=1、CRLF + 尾换行）；全量 AST 对拍按 `(file, qualname)` 匹配 **checked=190、stale=45**（issue 报 47，差异来自匹配启发式：另有 4 个节点定义已外提/删除，无法对拍）。`runner_common` 的 8 个 span 经基线核对为 **BASE-ALREADY-STALE**，本窗口 #205 外提只是整体平移。
+- 修复（对应 issue 推荐档 **A + B**）：脚本按 AST 实测 span **重钉 45 处**，两份 JSON 同步写回，`stale→0`；序列化保持原格式（`ensure_ascii=False, indent=1`、CRLF、尾换行），双文件仍逐字节一致、节点数 215 不变、`git diff` 仅 `lineno`/`end` 两类行（各 89 行）。
+- CI 守卫（issue 档 B）：在 `tests/ao_shaping/test_conventions.py` 新增 `test_call_graph_json_function_spans_track_source`，对双 JSON 一致性 + 每个可解析节点的 span 做 **零漂移** 门禁（checked≥180）。4 个外提/删除节点列入具名豁免并注释迁移出处。正向 1 passed；注入人工漂移的负向测试证实能捕获。此前 `test_wiki_source_citations_land_on_definitions` 只读 `.md` front-matter、完全不读 JSON，是三连涨无人发现的原因。
+
+**#250 — master tip 合并损坏（#205 守卫缝坏 + MIL 恢复漏模块 + 本地链无 CI）：判定有效，核心损坏已修复。**
+
+- 三态实测：本地 HEAD `4d0aa1b8` 是损坏合并 `3d0fe7f2`（=`gitub/master`）上的 4 个本地提交；3 个 MIL 模块在 `gitub/master`/`3d0fe7f2`/`HEAD` 全部缺失，仅上游 `00225c3f` 历史存在；#205 守卫文件实测 **73 个常量定义 / 11 个引用未定义**（issue 记 42 行引用 11 常量，吻合）；`workflow.py` 的 SyntaxError 子项已由本地提交 `4d0aa1b8` 修复。
+- 修复清单（均离线、无设备占用）：
+  1. 从 `00225c3f`（== `af9a55a0^` 的删除前状态，API 与本地 `slm_model_in_loop.py:2970` 的 `AdaptiveTrustRegionConfig(initial_c_l2=…)` 一致）恢复 `adaptive_trust_region.py`、`model_in_loop_summary.py`、`model_in_loop_auto.py`。import 冒烟 + 运行时实例化 OK；`py_compile` exit 0、ruff clean。
+  2. #205 守卫补回 11 个上游路径常量（逐值取自 `00225c3f`）；并把已增长到 288 行、越过 280 行 #205 天花板的 `_run_session_rounds` 中 `ccd_mode == "none"` 分支外提为 `_open_loop_stage()`（逻辑逐字搬运，不改 public signature/行为）。
+  3. 恢复 `bench_settings.py` 从 `slm_registry` 导入 `MAX_SLMS/connected_slm_handles/connected_slm_numbers`（`__all__` 导出与 `connected_slm_numbers()` 调用此前 F822/F821）；`ccd_analyzer.py` 的两个 `_ccd_render_*` 定义在上游存在、本地被整段删除但其调用点仍在，按上游原样恢复（本地无独有行）。
+- 验收：`test_issue205_function_shape.py` **433 passed**（原 collection 即 `NameError`）；8 个相关套件合计 **578 passed**；全树 `pytest --collect-only` **13407 collected，exit 0**；仓库级 ruff 由 278 降到 **4**（剩 `scripts/_common/provenance.py` F601×3 与其他车道 `sweep_stepb_budget.py` F401×1，均非本任务范围）。`test_conventions.py` 全树 11 failed 与 HEAD 基线**逐条相同**（操作前经 detached worktree 对照），本轮未新增门禁失败。
+- 未做/不越界：未改 LUT、未碰 `scripts/_common/provenance.py`（其他车道脏）、未调整 `test_conventions.py` 的 print allowlist 与基线数字、未推送。判定：**有效，本轮修复核心合并损坏；#249/#250 的 GitHub 状态维持 OPEN，待 owner 复核后再关闭。**

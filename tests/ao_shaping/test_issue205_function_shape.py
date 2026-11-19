@@ -134,6 +134,21 @@ _PHASE_GRAYSCALE_LUT = "src/ao_shaping/tools/slm/cartographer/phase_grayscale_lu
 _TRANSFER_CAMPAIGN = "src/ao_shaping/tools/slm/transfer/campaign.py"
 _TRANSFER_PREFLIGHT = "src/ao_shaping/tools/slm/transfer/preflight.py"
 
+# Restored #205 hoist targets: merge 3d0fe7f2 dropped these 11 path constants
+# while keeping the TARGETS entries below that reference them (NameError on
+# collection). Values restored verbatim from upstream 00225c3f.
+_DIFFERENTIABLE_SHAPING = "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py"
+_GREEDY_ZERNIKE = "src/ao_shaping/optimizer/wf/greedy_zernike.py"
+_FLOOR_PROBE = "src/ao_shaping/tools/ccd/floor_probe.py"
+_GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
+_RMS_DM = "src/ao_shaping/optimizer/wf/rms.py"
+_CLOSED_LOOP = "src/ao_shaping/optimizer/wf/closed_loop.py"
+_ABBA_PROBE = "src/ao_shaping/tools/zernike/abba_probe.py"
+_CAPRESP = "src/ao_shaping/tools/slm/transfer/capture_response.py"
+_OBJ = "src/ao_shaping/utils/image/target/objective.py"
+_DIFF_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
+_SWEEP_ANALYSIS = "src/ao_shaping/tools/kernels/sweep_analysis.py"
+
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
 TARGETS = [

@@ -4562,6 +4562,104 @@ def test_wiki_source_citations_land_on_definitions() -> None:
         "gen_wiki_pages.py; if a page is hand-written, derive its citation instead of "
         "pinning a literal."
     )
+
+
+#: Issue #249: the two call-graph JSON assets pin every node's (lineno, end) span,
+#: but only the wiki .md citations were guarded -- JSON spans drifted 12->40->47
+#: silently across three windows with no CI failure. These four nodes no longer
+#: resolve to a definition at their recorded path: three were hoisted to
+#: ``runners/voltage_io.py`` in 7f1184d7, one was deleted. They are excluded from
+#: the strict zero-drift check below until the JSON asset is regenerated.
+_CALL_GRAPH_JSON = (
+    REPO / "docs" / "dev" / "call_graph_wiki" / "raw" / "assets" / "call_graph.json"
+)
+_CALL_GRAPH_JSON_FINAL = (
+    REPO / "docs" / "dev" / "call_graph_wiki" / "raw" / "assets" / "call_graph_final.json"
+)
+_UNRESOLVED_CALL_GRAPH_NODES = frozenset({
+    "save_best_voltages", "load_init_v", "plot_pib_debug_grid", "_measured_peak_rates"
+})
+_MIN_CALL_GRAPH_CHECKED_NODES = 180
+
+
+def _call_graph_def_spans(path: Path) -> dict[tuple[str, str], tuple[int, int]]:
+    """(file, qualname) -> (lineno, end_lineno) for every def in one source file."""
+    tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=str(path))
+    out: dict[tuple[str, str], tuple[int, int]] = {}
+
+    def walk(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = f"{prefix}.{child.name}" if prefix else child.name
+                out.setdefault((str(path), qualname), (child.lineno, child.end_lineno))
+                walk(child, qualname)
+            elif isinstance(child, ast.ClassDef):
+                qualname = f"{prefix}.{child.name}" if prefix else child.name
+                walk(child, qualname)
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return out
+
+
+def test_call_graph_json_function_spans_track_source() -> None:
+    """Every resolvable node in both call-graph JSONs must pin the live AST span.
+
+    The two assets are byte-identical; a span that silently rots makes the wiki
+    diagrams and source citations point at unrelated code. After the #249 full
+    re-pin this guard must pass with **zero** stale nodes, so drift can no longer
+    accumulate across windows. Regenerate both assets together when a function's
+    real span changes (scripts/call_graph/build_call_graph.py + finalize_graph.py).
+    """
+    import json
+
+    raw = _CALL_GRAPH_JSON.read_bytes()
+    final = _CALL_GRAPH_JSON_FINAL.read_bytes()
+    assert raw == final, (
+        "call_graph.json and call_graph_final.json diverged -- they must stay byte-identical"
+    )
+    nodes = json.loads(raw.decode("utf-8"))["nodes"]
+    checked = 0
+    stale: list[str] = []
+    span_cache: dict[str, dict[tuple[str, str], tuple[int, int]]] = {}
+
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        rel_path, qualname = node.get("file"), node.get("qualname")
+        if not rel_path or not qualname or qualname in _UNRESOLVED_CALL_GRAPH_NODES:
+            continue
+        source = REPO / rel_path
+        if not source.is_file():
+            continue
+        if rel_path not in span_cache:
+            span_cache[rel_path] = _call_graph_def_spans(source)
+        defs = span_cache[rel_path]
+        key = (rel_path, qualname)
+        if key in defs:
+            want = defs[key]
+        else:
+            candidates = sorted({
+                span for (file, name), span in defs.items()
+                if name == qualname or name.endswith(f".{qualname}")
+                or ("." in qualname and qualname.endswith(f".{name}"))
+            })
+            if len(candidates) != 1:
+                continue  # moved/deleted def -- add to _UNRESOLVED... with a note
+            want = candidates[0]
+        checked += 1
+        got = (node.get("lineno"), node.get("end"))
+        if got != want:
+            stale.append(f"{rel_path}::{qualname} json{got} -- source{want}")
+
+    assert checked >= _MIN_CALL_GRAPH_CHECKED_NODES, (
+        f"only {checked} node span(s) were checked, below the floor "
+        f"{_MIN_CALL_GRAPH_CHECKED_NODES} -- the guard is checking nothing"
+    )
+    assert not stale, (
+        f"{len(stale)} call-graph node span(s) drifted from source:\n  " + "\n  ".join(stale[:20])
+    )
 #: Two docs restate the CLI inventory by hand as a table plus a count: ``README.md``'s command
 #: overview and ``docs/user/cli-reference.md``'s reference table. Both were wrong at one point
 #: (TODO 8.9 item 29 found 8 places naming a retired command as top-level), and nothing re-checks

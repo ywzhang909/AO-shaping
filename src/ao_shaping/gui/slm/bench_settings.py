@@ -84,6 +84,11 @@ from ao_shaping.gui.slm.exposure_status import (
     record_exposure_probe,
 )
 from ao_shaping.tools.slm.panel.focus_probe import FOCUS_PROBE_DEBUG_DIR
+from ao_shaping.gui.slm.slm_registry import (
+    MAX_SLMS,
+    connected_slm_handles,
+    connected_slm_numbers,
+)
 
 __all__ = [
     "BLAZE_DIRECTIONS",

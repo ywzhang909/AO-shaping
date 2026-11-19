@@ -63,6 +63,11 @@
 - **#235（2026-11-20 追加）**：三个剩余子项在离线域**均无判别力**——`shift_phase` 在归档数据中与理想无平移编码字节一致（mismatch=0），`apply_shift` 在 shift 不变时不重写相位，`FrozenDefocusForward` 也没有 shift_phase 输入，故离线无法构造“生效 vs 未生效”的对照；独立 pupil（瞳面）-center 的离线反演分辨率仅 Δx ±20 px / Δy ±30–40 px，低于结论所需；物理 LUT 只剩 `data/debug/lut_checker_modulation_20261118b/summary.json`（24 cells，棋盘格调制比，非逐像元灰度→相位 LUT），全库无脚本消费它，且 Q1/Q2 显示“实测点状 vs 模型满幅平顶”的形态差不是逐像元振幅加权能产生的。**结论：无离线检验能改变 #235 的 OPEN 判定**，剩余闭环需新采（须另行批准）。
 - **#247（2026-11-20 追加，定量）**：对归档 13 帧离线重算，5 次重复的逐帧角度 `[88.628, 88.620, 88.548, 88.504, 88.415]°`，SD **0.088°**（统计精度充足、非噪声）；标签交换被 `AxisRotationError: mirror axis pair` 拒绝；但全局翻号给出 **−91.457°** ⇒ 该估计本质是 **180° 对称族**，符号分支只能由 `image_alignment.convention` 字符串钉住，数据本身不可分辨。`data/slm_geometry_calib.npz` 只含波前拟合的 center/Kx/Ky/rotation/fwhm0，**不含** panel pitch / CCD pitch / 焦距与放大率，故 §1 的物理几何常数仍缺。可微零级校正：`utils/wavefront/zero_order_overlay.py` 为死代码（全库零调用零测试），`FrozenDefocusForward` 无零级项，唯一可微零级在 sim2f 代理（`OpticsErrors.zero_order_eta`）且从未接入物理预测。梯度一致性单测因缺 `physical_forward_defocus/uniformity_refit_20261022_r1` 被 skip，batch/vmap 一致性无测试。**结论：88.544° 是可复现测量值但不是已锚定的物理映射，不得冻结**。
 
+### 2026-11-20 追加：#249 / #250（离线可修的代码/门禁类，均已落地补丁）
+
+- **#249（call_graph 双 JSON span 漂移）**：双 JSON 逐字节一致已复验；全量 AST 对拍 checked=190、stale=45（另 4 节点定义外提/删除无法对拍）。按 issue 档 A 重钉 45 处 span 后 stale→0、双文件仍逐字节一致、节点数不变、`git diff` 仅 span 行；并按档 B 在 `test_conventions.py` 新增零漂移 CI 守卫 `test_call_graph_json_function_spans_track_source`（4 个外提/删除节点具名豁免），正向 1 passed、人工注漂负向可捕获。判定：**有效且本轮已修复存量债务 + 防复发守卫**；GitHub 状态维持 OPEN 待 owner 复核。
+- **#250（master tip 合并损坏）**：#205 守卫 collection `NameError`（73 定义 / 11 引用未定义）、3 个 MIL 模块缺失致 `import slm_model_in_loop` 失败、`workflow.py` SyntaxError（已由 `4d0aa1b8` 修复）均实测复现。本轮从 `00225c3f` 恢复 3 个 MIL 模块（API 与本地调用点一致、import + 实例化冒烟 OK）、补回 11 个 #205 路径常量、把越界的 `_run_session_rounds`（288>280）中 `ccd_mode == "none"` 分支外提为 `_open_loop_stage()`、恢复 `bench_settings.py` 的 slm_registry 导入与 `ccd_analyzer.py` 的两个被删定义。验收：#205 守卫 433 passed、8 套件 578 passed、全树 collect 13407 exit 0、repo ruff 278→4（余 4 条属其他车道）。`test_conventions.py` 11 failed 与 HEAD 基线逐条一致（detached worktree 对照），未新增门禁失败。判定：**有效，核心合并损坏已修复**；未改 LUT / 未碰其他车道脏文件 / 未推送，GitHub 状态维持 OPEN 待复核。
+
 ## 4. 停止线
 
 - 现有证据可以支持“问题有效”“局部估计器改进”“改进未证明”三种彼此独立的陈述；禁止将其合并为“已验收算法优化”。
