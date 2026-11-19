@@ -2,7 +2,7 @@
 
 The 13 pure-array symbols moved from ``tools/kernels/bench_kernels`` to
 ``utils/image/frame_analysis``; ``bench_kernels`` re-exports them and
-``bench_geometry_common`` aliases ``_spot_fwhm``. These tests pin the wiring so a
+``model_in_loop_shaping`` aliases ``_spot_fwhm``. These tests pin the wiring so a
 future "cleanup" cannot silently break the ~15 importers that still pull these
 names from ``bench_kernels`` or import ``_spot_fwhm`` directly.
 
@@ -53,12 +53,12 @@ class TestReexportIdentity:
 
 
 class TestSpotFwhmAlias:
-    """The calibration modules keep a private alias to the sunk fn."""
+    """model_in_loop_shaping keeps its private name pointing at the sunk fn."""
 
     def test_alias_is_canonical(self):
-        from ao_shaping.optimizer.wfless import bench_geometry_common as calibration
+        from ao_shaping.optimizer.wfless import model_in_loop_shaping as mil
 
-        assert calibration._spot_fwhm is frame_analysis.spot_fwhm
+        assert mil._spot_fwhm is frame_analysis.spot_fwhm
 
 
 class TestSmokeBehaviour:

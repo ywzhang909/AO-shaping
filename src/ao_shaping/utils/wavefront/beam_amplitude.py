@@ -12,12 +12,12 @@ camera/SLM duck-typed code. It is pure numpy, so it now has a leaf home here;
 last module-scope ``optimizer -> tools`` edge).
 
 .. note::
-   ``optimizer/wfless/bench_geometry_common.py`` carries a near-duplicate of
-   this generator (``_pupil_amplitude``) that takes
-   an explicit ``semi_axis_model_px`` **int-clamped** to ``region // 2``. It is
+   ``optimizer/wfless/model_in_loop_shaping.py`` carries two near-duplicates of
+   this generator (``_pupil_amplitude`` and the ``amplitude`` closure) that take
+   an explicit ``semi_axis_model_px`` **int-clamped** to ``region // 2``. They are
    NOT byte-identical to ``gaussian_grid`` for an odd ``region`` (the aperture
    radius here is the float ``region / 2.0``, so the mask boundary differs).
-   Consolidating both onto one general form is a behaviour-sensitive change
+   Consolidating all three onto one general form is a behaviour-sensitive change
    tracked under R-51 (#67), not this sink.
 """
 

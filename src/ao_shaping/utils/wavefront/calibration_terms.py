@@ -21,8 +21,9 @@ adaptive optics on dynamic samples with self-calibration") 的思路: 物理预�
 保留。这是本实现与论文的一处**已知差异**, 记在这里以免被当成 bug。
 
 论文**没有**信任域, 也**没有**逐轮验收 —— 本仓库的「宁可中止也不提交错误
-相位」原则与那一条直接冲突, 所以护栏不在本模块; 逐轮信任域 + 接受判据随
-MIL 执行链一并移除, 本模块只提供**参数化 + clamp**。
+相位」原则与那一条直接冲突, 所以护栏不在本模块, 而在
+:mod:`ao_shaping.optimizer.wfless.slm_model_in_loop` (逐轮信任域 + 接受
+判据)。本模块只提供**参数化 + clamp**。
 
 术语: 本模块的中文叙述遵守 ``docs/terminology_glossary.md`` (瞳面 / 指令相位 /
 对比择优 / 验证集 …)。
@@ -474,8 +475,8 @@ def apply_pupil_affine(
 
     ⚠️ ``grid`` 缩放总相位网格时会**连带缩放待估像差**, 于是 ``grid`` 与
     Zernike 系数存在近似简并 (把系数乘 g 与把 grid 乘 g 的效果部分抵消)。
-    论文的模型有同样的结构; 本仓库曾用**逐轮信任域**限制 ``grid`` 的移动速度
-    (随 MIL 执行链一并移除), 并且 ``grid`` 默认关闭。
+    论文的模型有同样的结构; 本仓库用**逐轮信任域**限制 ``grid`` 的移动速度
+    (见 :mod:`ao_shaping.optimizer.wfless.slm_model_in_loop`), 并且默认关闭。
 
     Args:
         command: 指令相位张量 ``(R, R)`` (raw 未包裹弧度)。

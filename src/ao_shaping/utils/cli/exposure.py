@@ -15,7 +15,7 @@ different things** depending on which declaration you landed on:
   and work at a fraction of it.
 
 Same spelling, different semantics, and the ambiguity had hardware consequences:
-``runners/slm/session_calibration.py`` forwards its ``--exposure-time-ms``
+``runners/slm/model_in_loop_session.py`` forwards its ``--exposure-time-ms``
 straight into ``PanelLocateParams.exposure_ms``, so the runner's "clamp to the
 device minimum" and the probe's "probe the ceiling" were the same run. On
 2026-10-19 a 0.1 ms request there put the preflight flat reference on the noise

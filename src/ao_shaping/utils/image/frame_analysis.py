@@ -9,7 +9,7 @@ This module is **pure numpy/scipy**: it takes already-materialised 2D frames and
 returns arrays or scalars. It constructs no devices and knows nothing about the
 SLM/DM/WFS hardware layers. ``despike_frame`` and ``prepare_frame`` are imported
 from :mod:`~ao_shaping.utils.image.beam_metrics` (the single source for those two);
-``spot_fwhm`` was previously a private helper of the removed MIL shaping module.
+``spot_fwhm`` was previously the private ``model_in_loop_shaping._spot_fwhm``.
 """
 
 from __future__ import annotations

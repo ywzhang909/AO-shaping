@@ -78,8 +78,8 @@ POLYGON_SHAPE_CHOICES: tuple[str, ...] = tuple(
 #: Shapes accepted by ``differentiable_shaping.create_target_mask`` (its
 #: parameter mapping only covers these). Subset view of
 #: :data:`TARGET_SHAPE_CHOICES`; also the end-to-end supported set of the
-#: differentiable shaping path (non-square targets are scored through that
-#: factory).
+#: model-in-loop chain (``slm_model_in_loop`` scores non-square targets through
+#: that factory).
 DIFFERENTIABLE_SHAPE_CHOICES: tuple[str, ...] = tuple(
     s
     for s in TARGET_SHAPE_CHOICES

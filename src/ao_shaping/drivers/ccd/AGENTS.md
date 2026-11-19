@@ -8,11 +8,8 @@
 ccd/
 ├── base.py              # BaseCamera 抽象基类
 ├── common.py            # 通用工具
-├── hdr_capture.py       # HDR 阶梯采集与融合
-├── saturation.py        # 满量程与饱和保护工具
 ├── daheng/              # 大恒相机 (GigE)
 │   ├── driver.py
-│   ├── auto_exposure.py  # 大恒自动曝光工具方法
 │   ├── constants.py     # 大恒驱动常量
 │   ├── _bit_depth.py    # 位深 → PixelFormat 映射与回读归一化 (零导入叶子)
 │   ├── discovery.py     # 大恒在线检查统一枚举漏斗 (SDK 引导 + 三态归一, 零导入叶子)
@@ -22,9 +19,9 @@ ccd/
 │   └── __init__.py
 ├── miicam/              # MiiCam SDK
 │   ├── driver.py
-│   ├── bit_depth.py      # 位深与像素格式初始化
 │   ├── _sdk_setup.py
 │   └── __init__.py
+├── dark_frames.py       # 按序列号分目录的暗帧配置库 (manifest 唯一索引, 曝光取设备回读真值)
 ├── pixel_size.py        # 像元尺寸按型号解析 (零导入叶子, 型号配置 → 已知型号表 → 报错)
 └── __init__.py          # 包入口 (MIICamera, DahengCamera, FFmpegCamera 等)
 ```
@@ -40,6 +37,25 @@ ccd/
 | `DahengCamera` | `daheng/driver.py` | 大恒相机管理器 |
 | `FFmpegCamera` | `ffmpeg/driver.py` | FFmpeg 相机 |
 | `ImageFolderCamera` | `ffmpeg/driver.py` | 图片文件夹相机 |
+
+### 暗帧配置库 (`dark_frames.py` + `BaseCamera` 入口)
+
+按序列号存档的多曝光暗帧配置, 供扣暗/噪声底诊断复用 (2026-11-19)。目录布局
+`<CCD_CONFIG_DIR>/ccd/<serial>/darks/{manifest.json, dark-exp-<expo>ms.npz}`:
+manifest (`ao_shaping.ccd.dark_frames/v1`) 是**唯一索引**(不 glob 阵列), 曝光存**设备回读真值**;
+`.npz` 含 `mean`(必有) 与 `std`(可选) float32 阵列。目录经 `paths.device_config_dir("ccd")` 同源解析,
+配置数据属运行时资产, 默认不入库 (`.npz`/`data/*` 被 gitignore)。
+
+| 入口 | 语义 |
+|------|------|
+| `BaseCamera.serial_number` | 序列号 (读 `open()` 写入的 `_sn`), 未知为 `None`; 所有按序列号存档数据以此为键 |
+| `BaseCamera.load_dark_frames(rel_tol=0.02)` | 按序列号载入暗帧集; 无序列号抛 `CameraError`, 从未采集返回**空集** (可 `bool()` 判断), 格式错误报错 |
+| `BaseCamera.get_dark_frame(exposure_ms, rel_tol=0.02, allow_nearest=False)` | 按当前曝光取暗帧; **默认严格同曝光匹配**, 不隐式跨曝光套用; 无序列号/无匹配返回 `None` |
+| `dark_frames.save_dark_capture(...)` | 采集侧写库 (CLI `tools/ccd/capture_darks.py` 调用) |
+| `dark_frames.load_dark_frame(..., allow_nearest=True)` | 显式退到最近曝光档, 调用方自担跨曝光偏置风险 |
+
+`DarkFrame.subtract(frame, clip=False)` 做 `frame - mean` (float32), 形状不一致报错 —— 换过 ROI 的暗帧不能跨 ROI 复用。
+离线锁定: `tests/ao_shaping/drivers/ccd/test_camera_dark_frames.py`。
 
 ## 相机类型注册表 (common.py)
 

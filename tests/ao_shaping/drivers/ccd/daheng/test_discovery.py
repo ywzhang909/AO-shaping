@@ -170,15 +170,8 @@ class TestInjectSdkPath:
     def test_missing_env_falls_back_to_bundled_libs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """无环境变量时回落到仓库 ``libs``。
-
-        ``libs/gxipy`` 是厂商 SDK 绑定, 被 ``.gitignore`` 的 ``gxipy*`` 排除
-        —— 它只存在于开发机, 全新 checkout (CI 容器) 上没有, 此时回落分支
-        无从存在, 跳过而不是钉死一个仓库并不保证的事实。
-        """
+        """无环境变量时回落到仓库 ``libs`` (本仓库确含 ``libs/gxipy``)。"""
         monkeypatch.delenv("AO_SHAPING_SDK_PATH", raising=False)
-        if not (discovery._LIBS_DIR / "gxipy" / "__init__.py").is_file():
-            pytest.skip("bundled gxipy binding is gitignored; absent on fresh checkouts")
         assert discovery._inject_sdk_path() is True
         assert str(discovery._LIBS_DIR) in sys.path
 

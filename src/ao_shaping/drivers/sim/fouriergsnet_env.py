@@ -46,9 +46,8 @@ SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅�
   ``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的物理预测模型采用,
   两边逐位可比 —— 这是 model-in-the-loop 拟合结果可直接与注入真值比较的前提。
 * 下游主要消费者:
-  - (已随 MIL 链移除) 原 ``optimizer/wfless/model_in_loop_shaping.py`` — 仅仿真, 用
-    ``BeamParams(native=True)`` 让面板网格就是模型网格, 环路内不引入任何重采样;
-    选项本身保留, 仓库内已无活跃消费者;
+  - ``optimizer/wfless/model_in_loop_shaping.py`` — 仅仿真, 用 ``BeamParams(native=True)``
+    让面板网格就是模型网格, 环路内不引入任何重采样;
   - ``scripts/slm/fouriergsnet_sim_train.py`` — 场景矩阵离线训练 (该脚本依赖的独立 CLI
     ``fouriergsnet_optimize.py`` 已于 f19dced 从仓库根删除, 脚本目前不可运行);
   - 物理回归测试 ``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py`` 与湍流测试
@@ -98,7 +97,7 @@ class BeamParams:
     各向异性面板)。置 ``True`` 时, 显示的模型全息图以**原生像元节距**铺在
     ``region × region`` 的小方形孔径上, 使模型的 FFT 正向与本环境的
     ``render_intensity`` FFT 逐位一致 —— 这正是闭环能真正整形出方形的原因。
-    原消费者（已移除的 MIL 仿真链）见归档材料; 该选项本身保留。
+    消费方见 ``optimizer/wfless/model_in_loop_shaping.py``。
     """
 
     region: int = 512

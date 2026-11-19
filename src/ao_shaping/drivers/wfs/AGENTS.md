@@ -106,7 +106,7 @@ DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py
 字段落盘** —— `save_history` 写 CSV (整份字典以字符串形式出现在 `_statics` 列), 而
 `save_history_hdf5` 直接**跳过**非标量列。⇒ 改名不打断任何**读取**路径, 但历史工件里的文本拼写会
 与新版不一致。是否统一属契约决定, 未单方面改动。
-⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:995/1023`（2026-11-16 复核 eff0b354 #205 第 102 批重钉 839/889→955/983；第 106 批 `3edd0a06` 再 +40 后 955/983→995/1023）的 `z0[1:]`: 那里的
+⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
 `z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按
 0 基 Noll 去索引驱动读数 (拿 defocus=`[3]`), 就会在硬件上取到另一个模式。
