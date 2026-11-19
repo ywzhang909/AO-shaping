@@ -13,6 +13,7 @@ AO-shaping/
 │   │   ├── runners/             # Runner scripts package
 │   │   │   ├── __init__.py          # 惰性 re-export (_LAZY_RUNNERS / R-27, PEP-562)
 │   │   │   ├── runner_common.py     # 共享辅助 (resolve_dm / patch_sim_*_shaping)
+│   │   │   ├── voltage_io.py        # 电压取整/落盘/PIB 调试绘图 (自 runner_common 外提, #205)
 │   │   │   ├── matrix_runner.py     # dm-matrix + hadamard-matrix (DM 响应矩阵标定)
 │   │   │   ├── zernike_search_runner.py  # ga-zernike
 │   │   │   ├── nlight_dm/           # DM 家族 runners
