@@ -1187,79 +1187,6 @@ def _fit_model(
     return np.concatenate(blocks)
 
 
-
-def _fitpr_residual_stats(best, depth_max, fill, fit_fill_factor, gamma, leakage, period, u, y):
-# Residual statistics and stderr bootstrap lifted verbatim
-    model_r1 = np.nan_to_num(
-        discrete_order_efficiencies(u, depth_max, gamma, period, leakage, fill)[1],
-        nan=0.0,
-    )
-    residual = model_r1 - y
-    rms = float(np.sqrt(np.mean(residual**2)))
-    mad = float(np.median(np.abs(residual)))
-    outliers = tuple(
-        int(i) for i in np.nonzero(np.abs(residual) > max(3.0 * mad, 0.02))[0]
-    )
-
-    stderr = {
-        "depth_max_rad": float("nan"),
-        "gamma": float("nan"),
-        "leakage": float("nan"),
-        "fill_factor": float("nan"),
-    }
-    try:
-        jac = np.asarray(best.jac, dtype=np.float64)
-        dof = max(1, jac.shape[0] - jac.shape[1])
-        cov = np.linalg.pinv(jac.T @ jac) * (2.0 * float(best.cost) / dof)
-        diag = np.sqrt(np.clip(np.diag(cov), 0.0, None))
-        stderr = {
-            "depth_max_rad": float(diag[0]),
-            "gamma": float(diag[1]),
-            "leakage": float(diag[2]),
-            "fill_factor": float(diag[3]) if fit_fill_factor else float("nan"),
-        }
-    except Exception as exc:  # 协方差只是附加信息
-        logger.debug("拟合协方差计算失败: {}", exc)
-    return model_r1, outliers, rms, stderr
-
-
-
-
-def _fitpr_prepare_inputs(cmd, command_max, gate, y, y0):
-# Keep-mask and command normalization validation lifted verbatim
-    keep = np.isfinite(cmd) & np.isfinite(y)
-    if y0 is not None:
-        keep &= np.isfinite(y0)
-    if gate is not None and gate.violations:
-        for index in gate.violations:
-            if 0 <= index < keep.size:
-                keep[index] = False
-        # 门禁一旦触发, 整轮扫描就不可信了 —— 那些"因为零级被熄灭而跳过宽度
-        # 评估"的点同样不可信 (它们的宽度读数是噪声底上的读数, 而噪声底正是
-        # 光路变糊的产物)。把它们留下, 拟合会靠这几个点凑出一个**看着正常其实
-        # 荒唐**的深度 (数字孪生实测: 剔除 17/21 个点后, 拟合靠剩下 4 个被跳过
-        # 的点给出 1.9775π) —— 那正是这个门禁要消灭的东西。
-        for index in gate.skipped_indices:
-            if 0 <= index < keep.size:
-                keep[index] = False
-    cmd, y = cmd[keep], y[keep]
-    if y0 is not None:
-        y0 = y0[keep]
-    if cmd.size < 3:
-        excluded = (
-            len(gate.violations) + len(gate.skipped_indices) if gate is not None else 0
-        )
-        detail = f" (其中 {excluded} 个被光斑宽度门禁剔除)" if excluded else ""
-        raise ValueError(
-            f"有效扫描点不足 3 个 (得到 {cmd.size}){detail}, 无法拟合"
-        )
-    if float(command_max) <= 0.0:
-        raise ValueError(f"command_max 必须为正, 得到 {command_max}")
-    u = np.clip(cmd / float(command_max), 0.0, 1.0)
-    return cmd, u, y, y0
-
-
-
 def fit_phase_response(
     commands: Sequence[float],
     eta_plus_total: Sequence[float],
@@ -1303,7 +1230,35 @@ def fit_phase_response(
         raise ValueError(
             f"eta_zero 与 eta_plus_total 长度不一致: {y0.shape} vs {y.shape}"
         )
-    cmd, u, y, y0 = _fitpr_prepare_inputs(cmd, command_max, gate, y, y0)
+    keep = np.isfinite(cmd) & np.isfinite(y)
+    if y0 is not None:
+        keep &= np.isfinite(y0)
+    if gate is not None and gate.violations:
+        for index in gate.violations:
+            if 0 <= index < keep.size:
+                keep[index] = False
+        # 门禁一旦触发, 整轮扫描就不可信了 —— 那些"因为零级被熄灭而跳过宽度
+        # 评估"的点同样不可信 (它们的宽度读数是噪声底上的读数, 而噪声底正是
+        # 光路变糊的产物)。把它们留下, 拟合会靠这几个点凑出一个**看着正常其实
+        # 荒唐**的深度 (数字孪生实测: 剔除 17/21 个点后, 拟合靠剩下 4 个被跳过
+        # 的点给出 1.9775π) —— 那正是这个门禁要消灭的东西。
+        for index in gate.skipped_indices:
+            if 0 <= index < keep.size:
+                keep[index] = False
+    cmd, y = cmd[keep], y[keep]
+    if y0 is not None:
+        y0 = y0[keep]
+    if cmd.size < 3:
+        excluded = (
+            len(gate.violations) + len(gate.skipped_indices) if gate is not None else 0
+        )
+        detail = f" (其中 {excluded} 个被光斑宽度门禁剔除)" if excluded else ""
+        raise ValueError(
+            f"有效扫描点不足 3 个 (得到 {cmd.size}){detail}, 无法拟合"
+        )
+    if float(command_max) <= 0.0:
+        raise ValueError(f"command_max 必须为正, 得到 {command_max}")
+    u = np.clip(cmd / float(command_max), 0.0, 1.0)
     period = int(period_px)
 
     best = None
@@ -1357,7 +1312,36 @@ def fit_phase_response(
     else:
         depth_max, gamma, leakage = (float(v) for v in best.x)
         fill = 1.0
-    model_r1, outliers, rms, stderr = _fitpr_residual_stats(best, depth_max, fill, fit_fill_factor, gamma, leakage, period, u, y)
+    model_r1 = np.nan_to_num(
+        discrete_order_efficiencies(u, depth_max, gamma, period, leakage, fill)[1],
+        nan=0.0,
+    )
+    residual = model_r1 - y
+    rms = float(np.sqrt(np.mean(residual**2)))
+    mad = float(np.median(np.abs(residual)))
+    outliers = tuple(
+        int(i) for i in np.nonzero(np.abs(residual) > max(3.0 * mad, 0.02))[0]
+    )
+
+    stderr = {
+        "depth_max_rad": float("nan"),
+        "gamma": float("nan"),
+        "leakage": float("nan"),
+        "fill_factor": float("nan"),
+    }
+    try:
+        jac = np.asarray(best.jac, dtype=np.float64)
+        dof = max(1, jac.shape[0] - jac.shape[1])
+        cov = np.linalg.pinv(jac.T @ jac) * (2.0 * float(best.cost) / dof)
+        diag = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+        stderr = {
+            "depth_max_rad": float(diag[0]),
+            "gamma": float(diag[1]),
+            "leakage": float(diag[2]),
+            "fill_factor": float(diag[3]) if fit_fill_factor else float("nan"),
+        }
+    except Exception as exc:  # 协方差只是附加信息
+        logger.debug("拟合协方差计算失败: {}", exc)
 
     return PhaseResponseFit(
         depth_max_rad=depth_max,

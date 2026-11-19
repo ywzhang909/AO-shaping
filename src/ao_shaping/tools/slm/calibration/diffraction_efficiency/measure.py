@@ -62,10 +62,6 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.tools.kernels.bench_kernels import fresnel_panel, measure_spot
-from ao_shaping.tools.slm.calibration.diffraction_efficiency.calibration_access import (
-    _k_scale,
-    _load_calibration,
-)
 from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
     BlazeSpec,
     PhaseResponseFit,
@@ -106,6 +102,9 @@ DEFAULT_FOCUS_FWHM_MAX_PX: float = 40.0
 
 #: 零级峰值占满量程的比例上限 (超过即过曝, 效率会被严重低估)。
 SATURATION_WARN_FRACTION: float = 0.8
+
+#: 光路标定里必须存在的键 (缺一即拒绝继续)。
+REQUIRED_CALIBRATION_KEYS: tuple[str, ...] = ("center", "Kx", "Ky")
 
 
 class FocusRefusedError(RuntimeError):
@@ -263,6 +262,35 @@ class MeasurementResult:
 # ---------------------------------------------------------------------------
 
 
+def _load_calibration(path: Path) -> dict[str, Any]:
+    """读取光路标定 ``.npz``, 校验必需键。
+
+    Args:
+        path: 标定文件路径。
+
+    Returns:
+        ``{键: 数组}``。
+
+    Raises:
+        RuntimeError: 文件不存在或缺少 ``center``/``Kx``/``Ky``。
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise RuntimeError(
+            f"光路标定文件不存在: {path}。"
+            "请先运行 `python -m ao_shaping.tools.slm.calibration` 生成光路标定 (.npz)。"
+        )
+    with np.load(path, allow_pickle=True) as data:
+        calib: dict[str, Any] = {key: np.asarray(data[key]) for key in data.files}
+    missing = [key for key in REQUIRED_CALIBRATION_KEYS if key not in calib]
+    if missing:
+        raise RuntimeError(
+            f"光路标定 {path} 缺少必需键 {missing} (需要 center/Kx/Ky)。"
+            "请先运行 `python -m ao_shaping.tools.slm.calibration` 重新生成光路标定。"
+        )
+    return calib
+
+
 def _calib_center(calib: dict[str, Any]) -> tuple[float, float]:
     """从标定里取零级中心 ``(cy, cx)`` (CCD 像素)。
 
@@ -272,6 +300,15 @@ def _calib_center(calib: dict[str, Any]) -> tuple[float, float]:
     if center.size < 2:
         raise RuntimeError(f"光路标定的 center 形状异常: {calib['center']!r}")
     return float(center[0]), float(center[1])
+
+
+def _k_scale(calib: dict[str, Any], axis: str) -> float:
+    """取该光栅方向的放大系数 (CCD 像素 / 面板像元)。"""
+    key = "Ky" if str(axis).strip().lower() == "y" else "Kx"
+    value = float(np.asarray(calib[key], dtype=np.float64).ravel()[0])
+    if value <= 0.0:
+        raise RuntimeError(f"光路标定的 {key} 非正 ({value}), 几何标定无效")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -754,9 +791,124 @@ def _run_measurement_session(
     )
 
 
+def run_measurement(config: MeasurementConfig) -> MeasurementResult:
+    """跑完一整条实验扫描: 读光路标定 → 前置检查 → 扫描 → 拟合 → 诊断。
 
-def _measure_build_meta(axis, calib, calib_center, config, defocus_focal_mm, detector_full_scale, device_two_pi_gray, drift_px, focus_info, gate, max_gray, max_residual, mode, out_dir, panel_shape, points, predicted_separation, pupil_center, pupil_radius, scan_hi, scan_lo, slm, use_defocus, zero_cx, zero_cy):
-# Meta dict assembly lifted verbatim
+    Args:
+        config: 扫描配置。
+
+    Returns:
+        :class:`MeasurementResult`。
+
+    Raises:
+        RuntimeError: 光路标定缺失/不完整, 零级漂移超限且
+            ``strict_geometry`` 为真, 或画面无有效信号。
+    """
+    mode = str(config.mode).strip().lower()
+    axis = str(config.axis).strip().lower()
+
+    # --- 光路标定 (前置条件) -------------------------------------------
+    # ``--focus-only`` 只做焦面扫描, 不用 Kx/Ky (那是"±1 级落在哪"的问题),
+    # 所以它**不**该被缺失的标定挡住 —— 否则"先判在焦"这一步在刚重新标定
+    # 之前根本跑不了, 而恰恰那时最需要确认焦面。
+    if not calibration_is_required(config):
+        logger.warning(
+            "--focus-only: 跳过光路标定前置条件 (焦面扫描不需要 Kx/Ky): {}",
+            config.calibration_path,
+        )
+        calib: dict[str, Any] = {}
+        calib_center = (float("nan"), float("nan"))
+        k_scale = float("nan")
+        predicted_separation = float("nan")
+    else:
+        calib = _load_calibration(config.calibration_path)
+        calib_center = _calib_center(calib)
+        k_scale = _k_scale(calib, axis)
+        predicted_separation = k_scale / float(config.period_px)
+        logger.info(
+            "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
+            config.calibration_path,
+            float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
+            float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
+            calib_center[0],
+            calib_center[1],
+            predicted_separation,
+        )
+
+    out_dir = Path(config.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frames_dir = out_dir / "frames"
+
+    # 设备驱动在函数内惰性导入: 本模块被 import 时绝不能碰 SDK。
+
+    (
+        defocus_focal_mm,
+        detector_full_scale,
+        device_two_pi_gray,
+        drift_px,
+        focus_info,
+        max_gray,
+        panel_shape,
+        points,
+        pupil_center,
+        pupil_radius,
+        scan_hi,
+        scan_lo,
+        slm,
+        use_defocus,
+        zero_cx,
+        zero_cy,
+    ) = _run_measurement_session(
+        axis=axis,
+        calib_center=calib_center,
+        config=config,
+        frames_dir=frames_dir,
+        mode=mode,
+        out_dir=out_dir,
+        predicted_separation=predicted_separation,
+    )
+
+    # --- 拟合与诊断 -------------------------------------------------------
+    command_max = float(scan_hi) if mode == "gray" else 2.0 * math.pi
+    # 光斑宽度门禁: 相对**在焦参照值**的倍数。参照值默认取扫描里命令最小
+    # 那一点 (平相位) 的零级 FWHM —— 也就是这条光路在本次运行开始时的光斑
+    # 宽度; 也允许传入一条已知在焦的光路量出来的绝对参照值 (跨次运行可比)。
+    # 越限的点 = 光斑在扫描过程中变糊, 它的相位深度读数被截断失真 ⇒ 从
+    # 拟合里剔除, 判定标为不可信。
+    gate = evaluate_fwhm_gate(
+        points,
+        reference_fwhm_px=config.reference_fwhm_px,
+        gate_ratio=float(config.fwhm_gate_ratio),
+    )
+    logger.info(
+        "光斑宽度门禁: 参照 FWHM={:.1f}px 门限={:.1f}px ({}×) 越限 {}/{} 个点",
+        gate.reference_fwhm_px,
+        gate.limit_px,
+        gate.gate_ratio,
+        len(gate.violations),
+        gate.evaluated_points,
+    )
+    fit = fit_phase_response(
+        [point.command for point in points],
+        [point.eta_plus_total for point in points],
+        command_max=command_max,
+        period_px=int(config.period_px),
+        gate=gate,
+    )
+    diagnosis = diagnose(
+        points,
+        fit,
+        full_scale=detector_full_scale,
+        predicted_separation_px=predicted_separation,
+        gate=gate,
+    )
+    for note in diagnosis.get("notes", []):
+        logger.info("诊断: {}", note)
+
+    residuals = [
+        point.residual_px for point in points if point.residual_px is not None
+    ]
+    max_residual = float(max(residuals)) if residuals else float("nan")
     meta: dict[str, Any] = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "slm_number": int(config.slm_number),
@@ -810,152 +962,5 @@ def _measure_build_meta(axis, calib, calib_center, config, defocus_focal_mm, det
         "out_dir": str(out_dir),
         "save_frames": bool(config.save_frames),
     }
-    return meta
-
-
-
-
-def _measure_fit_diagnose(command_max, config, detector_full_scale, gate, points, predicted_separation):
-# Phase-response fit and diagnosis lifted verbatim
-    fit = fit_phase_response(
-        [point.command for point in points],
-        [point.eta_plus_total for point in points],
-        command_max=command_max,
-        period_px=int(config.period_px),
-        gate=gate,
-    )
-    diagnosis = diagnose(
-        points,
-        fit,
-        full_scale=detector_full_scale,
-        predicted_separation_px=predicted_separation,
-        gate=gate,
-    )
-    return diagnosis, fit
-
-
-
-
-def _measure_gate_log(config, points):
-# FWHM spot-width gate evaluation and log lifted verbatim
-    gate = evaluate_fwhm_gate(
-        points,
-        reference_fwhm_px=config.reference_fwhm_px,
-        gate_ratio=float(config.fwhm_gate_ratio),
-    )
-    logger.info(
-        "光斑宽度门禁: 参照 FWHM={:.1f}px 门限={:.1f}px ({}×) 越限 {}/{} 个点",
-        gate.reference_fwhm_px,
-        gate.limit_px,
-        gate.gate_ratio,
-        len(gate.violations),
-        gate.evaluated_points,
-    )
-    return gate
-
-
-
-
-def _measure_calibration_precondition(axis, config):
-# Calibration precondition branch lifted verbatim
-    if not calibration_is_required(config):
-        logger.warning(
-            "--focus-only: 跳过光路标定前置条件 (焦面扫描不需要 Kx/Ky): {}",
-            config.calibration_path,
-        )
-        calib: dict[str, Any] = {}
-        calib_center = (float("nan"), float("nan"))
-        k_scale = float("nan")
-        predicted_separation = float("nan")
-    else:
-        calib = _load_calibration(config.calibration_path)
-        calib_center = _calib_center(calib)
-        k_scale = _k_scale(calib, axis)
-        predicted_separation = k_scale / float(config.period_px)
-        logger.info(
-            "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
-            config.calibration_path,
-            float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
-            float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
-            calib_center[0],
-            calib_center[1],
-            predicted_separation,
-        )
-    return calib, calib_center, predicted_separation
-
-
-
-def run_measurement(config: MeasurementConfig) -> MeasurementResult:
-    """跑完一整条实验扫描: 读光路标定 → 前置检查 → 扫描 → 拟合 → 诊断。
-
-    Args:
-        config: 扫描配置。
-
-    Returns:
-        :class:`MeasurementResult`。
-
-    Raises:
-        RuntimeError: 光路标定缺失/不完整, 零级漂移超限且
-            ``strict_geometry`` 为真, 或画面无有效信号。
-    """
-    mode = str(config.mode).strip().lower()
-    axis = str(config.axis).strip().lower()
-
-    # --- 光路标定 (前置条件) -------------------------------------------
-    # ``--focus-only`` 只做焦面扫描, 不用 Kx/Ky (那是"±1 级落在哪"的问题),
-    # 所以它**不**该被缺失的标定挡住 —— 否则"先判在焦"这一步在刚重新标定
-    # 之前根本跑不了, 而恰恰那时最需要确认焦面。
-    calib, calib_center, predicted_separation = _measure_calibration_precondition(axis, config)
-
-    out_dir = Path(config.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    frames_dir = out_dir / "frames"
-
-    # 设备驱动在函数内惰性导入: 本模块被 import 时绝不能碰 SDK。
-
-    (
-        defocus_focal_mm,
-        detector_full_scale,
-        device_two_pi_gray,
-        drift_px,
-        focus_info,
-        max_gray,
-        panel_shape,
-        points,
-        pupil_center,
-        pupil_radius,
-        scan_hi,
-        scan_lo,
-        slm,
-        use_defocus,
-        zero_cx,
-        zero_cy,
-    ) = _run_measurement_session(
-        axis=axis,
-        calib_center=calib_center,
-        config=config,
-        frames_dir=frames_dir,
-        mode=mode,
-        out_dir=out_dir,
-        predicted_separation=predicted_separation,
-    )
-
-    # --- 拟合与诊断 -------------------------------------------------------
-    command_max = float(scan_hi) if mode == "gray" else 2.0 * math.pi
-    # 光斑宽度门禁: 相对**在焦参照值**的倍数。参照值默认取扫描里命令最小
-    # 那一点 (平相位) 的零级 FWHM —— 也就是这条光路在本次运行开始时的光斑
-    # 宽度; 也允许传入一条已知在焦的光路量出来的绝对参照值 (跨次运行可比)。
-    # 越限的点 = 光斑在扫描过程中变糊, 它的相位深度读数被截断失真 ⇒ 从
-    # 拟合里剔除, 判定标为不可信。
-    gate = _measure_gate_log(config, points)
-    diagnosis, fit = _measure_fit_diagnose(command_max, config, detector_full_scale, gate, points, predicted_separation)
-    for note in diagnosis.get("notes", []):
-        logger.info("诊断: {}", note)
-
-    residuals = [
-        point.residual_px for point in points if point.residual_px is not None
-    ]
-    max_residual = float(max(residuals)) if residuals else float("nan")
-    meta = _measure_build_meta(axis, calib, calib_center, config, defocus_focal_mm, detector_full_scale, device_two_pi_gray, drift_px, focus_info, gate, max_gray, max_residual, mode, out_dir, panel_shape, points, predicted_separation, pupil_center, pupil_radius, scan_hi, scan_lo, slm, use_defocus, zero_cx, zero_cy)
 
     return MeasurementResult(points=points, fit=fit, diagnosis=diagnosis, meta=meta)

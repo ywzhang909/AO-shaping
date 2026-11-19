@@ -56,7 +56,7 @@ the two terms cancel **identically**: with ``phase_blur_px == 0`` and
 ``lut_gamma == 1`` (both true of the calibrated twin) the propagated phase is
 ``phi_shape - A c + A c = phi_shape``, the gradient with respect to ``c`` is
 exactly zero, and the "refit" is a no-op.  That cancellation *is* the oscillation
-the hardware pipeline measured in the (now removed) MIL loop: a shape term and an
+the hardware pipeline measured in ``slm_model_in_loop``: a shape term and an
 aberration term sharing one basis can trade error back and forth.
 
 So ``phase_cmd`` -- the phase that produced the measured frame -- is an input,

@@ -40,7 +40,7 @@ camera's pixel pitch ``ccd_pixel_um``.  On the real bench the camera pixel is
 samples the model at camera coordinates must integrate over the camera pixel
 area instead of pretending the FFT sample *is* a camera pixel.  The hardware
 reports measured that integration to move the prediction by only 0.1-0.2%
-(``report/shape_trials/physical_forward_experience.md``),
+(``report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md``),
 so it is correctness, not the dominant error term.
 :attr:`Sim2fConfig.exact_fft_n` is the (expensive) length at which the two
 pitches would coincide.
@@ -529,7 +529,8 @@ class Sim2fConfig:
         The reference geometry sits at **2.10** -- the camera oversamples, so
         the model grid is the information limit, and this is the same regime the
         hardware reports validated (pixel integration moves the prediction by
-        only 0.1-0.2%: ``report/shape_trials/physical_forward_experience.md``).
+        only 0.1-0.2%: ``report/shape_trials/model_in_loop/
+        physical_forward_sampling_20261022_r2.md``).
         """
         return self.far_field_pitch_m / self.ccd_pitch_m
 

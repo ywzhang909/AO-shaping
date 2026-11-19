@@ -297,7 +297,7 @@ class ZernikeAmpConfig:
             ``propagation="asm"``. ``8e-6`` is the SLM pixel.
         distance: Propagation distance in metres. Only read when
             ``propagation="asm"``. ``0.1224`` is the derived bench focal length
-            (see ``report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md``).
+            (see ``report/slm/model_in_loop_bench_calibration.md``).
         asm_band_limit: Apply the Voelz & Roggemann cutoff when
             ``propagation="asm"``. Note the cutoff is the OUTPUT grid's Nyquist,
             so at ``dx=8 um``/``z=0.1224 m`` it is ~1.1e3 /m against pupil content
