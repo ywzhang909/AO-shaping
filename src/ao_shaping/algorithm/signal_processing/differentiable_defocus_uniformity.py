@@ -37,6 +37,10 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     sample_intensity,
     subpixel_offsets,
 )
+from ao_shaping.algorithm.signal_processing.differentiable_candidates import (
+    CandidateBatchMixin,
+    remove_piston_and_tilt,
+)
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
 from ao_shaping.utils.image.ranks import NDIM_SINGLE_CHANNEL
 
@@ -612,7 +616,7 @@ class CoordinateTransform:
             raise ValueError(verdict["verdict"])
 
 
-class DifferentiableUniformityOptimizer(IterativeOptimizer):
+class DifferentiableUniformityOptimizer(CandidateBatchMixin, IterativeOptimizer):
     """在**冻结**物理预测上做可微均匀度优化（类式 API：``update()`` 一步）。
 
     一步顺序（方案 §5）：合成总相位 → 前向 → 损失（模型或实测锚定）→ 反传 → Adam →
@@ -631,7 +635,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
                  phi_carrier: npt.NDArray[np.floating] | None = None, lr: float = 0.01,
                  step_rms_cap: float = 0.1, device: str | None = None,
                  spectral_mask: npt.NDArray[np.floating] | None = None,
-                 spectral_weight: float = 0.0) -> None:
+                 spectral_weight: float = 0.0, n_candidates: int = 1) -> None:
         torch = _torch()
         seed = np.asarray(seed_phase, dtype=np.float32)
         if seed.ndim != NDIM_SINGLE_CHANNEL or seed.shape[0] != seed.shape[1]:
@@ -646,6 +650,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._seed = torch.tensor(seed, dtype=torch.float32, device=self._device)
         self._delta = torch.zeros_like(self._seed, requires_grad=True)
         self._accepted = torch.zeros_like(self._seed)
+        self._setup_candidates(n_candidates, step_rms_cap)
         #: 锚点前向 ``predict(seed + accepted)`` 的缓存（no_grad、已 detach）。
         #: ``_accepted`` 只由 :meth:`accept` 写入，前向又是确定性纯函数，所以没有
         #: accept 的步骤重算会得到逐位相同的结果；:meth:`accept` 把它置回 ``None``。
@@ -656,7 +661,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         self._candidate_pred: npt.NDArray[np.float32] | None = None
         self._focus = None if phi_focus is None else torch.as_tensor(phi_focus, dtype=torch.float32, device=self._device)
         self._carrier = None if phi_carrier is None else torch.as_tensor(phi_carrier, dtype=torch.float32, device=self._device)
-        self._opt = torch.optim.Adam([self._delta], lr=lr)
+        self._opt = torch.optim.Adam(self._adam_params(), lr=lr)
         self._lr = float(lr)
         self._cap = float(step_rms_cap)
         if spectral_weight < 0:
@@ -722,21 +727,7 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
 
     def _remove_piston_and_tilt(self) -> None:
         """去 piston + 去整体倾斜（倾角按照明加权最小二乘拟合，两轴各一次）。"""
-        torch = _torch()
-        size = self._delta.shape[0]
-        grid = torch.arange(size, dtype=torch.float32, device=self._device)
-        with torch.no_grad():
-            weights = self._weights
-            self._delta.sub_((weights * self._delta).sum() / weights.sum().clamp_min(1e-12))
-            for axis in (0, 1):
-                dim = 1 if axis == 0 else 0
-                w_axis = weights.sum(dim=dim)
-                profile = (self._delta * weights).sum(dim=dim) / w_axis.clamp_min(1e-12)
-                centre = (w_axis * grid).sum() / w_axis.sum().clamp_min(1e-12)
-                centred = grid - centre
-                slope = ((w_axis * centred * profile).sum()
-                         / (w_axis * centred ** 2).sum().clamp_min(1e-12))
-                self._delta.sub_(slope * centred[:, None] if axis == 0 else slope * centred[None, :])
+        remove_piston_and_tilt(self._delta, self._weights)
 
     def _anchor_prediction(self) -> Any:
         """锚点前向 ``predict(seed + accepted)``（no_grad、detach），跨步缓存。
@@ -772,6 +763,8 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
         torch = _torch()
         if self._converged:
             return self.current_phase
+        if self._deltas is not None:
+            return self._update_candidates(measured_intensity)
         # 收敛时提前返回，缓存保留上一步的候选前向——此时 current_phase 没变，复用仍成立。
         self._candidate_pred = None
         self._opt.zero_grad(set_to_none=True)
@@ -854,6 +847,8 @@ class DifferentiableUniformityOptimizer(IterativeOptimizer):
 
     def accept(self) -> npt.NDArray[np.floating]:
         """把当前 delta 记为已接受（增量限制的参照随之推进）。"""
+        if self._deltas is not None:
+            return self._accept_candidates()
         torch = _torch()
         with torch.no_grad():
             self._accepted.copy_(self._delta)
