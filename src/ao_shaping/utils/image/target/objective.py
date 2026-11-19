@@ -523,6 +523,84 @@ class ObjectiveSpec:
 
 
 
+
+
+def _rawbase_shape_score(img, p, self):
+# Shape scoring branch lifted verbatim
+    stage = (
+        self._shape_batch_stage
+        or shape_stage_from_energy(self._shape_state["best_energy"])
+        if p.shape_schedule
+        else None
+    )
+    score, energy = shape_metric(
+        img,
+        self._reference_center,
+        self._reference_center,
+        p.shape,
+        p.size,
+        p.aspect_ratio,
+        w_uniformity=p.scoring.w_uniformity,
+        w_peak=p.scoring.w_peak,
+        w_displacement=p.scoring.w_displacement,
+        stage=stage,
+        log_uniformity=p.scoring.log_uniformity,
+        w_pearson=p.scoring.w_pearson,
+        w_coverage=p.scoring.w_coverage,
+    )
+    # Monotone: the schedule may only get stricter, never laxer.
+    self._shape_state["best_energy"] = max(
+        self._shape_state["best_energy"], energy
+    )
+    # Stage weights steer the gradient, while best-phase comparisons
+    # must use a fixed scale across every stage of the run.
+    tracking = score
+    if stage is not None:
+        tracking, _ = shape_metric(
+            img,
+            self._reference_center,
+            self._reference_center,
+            p.shape,
+            p.size,
+            p.aspect_ratio,
+            w_uniformity=p.scoring.w_uniformity,
+            w_peak=p.scoring.w_peak,
+            w_displacement=p.scoring.w_displacement,
+            log_uniformity=p.scoring.log_uniformity,
+            w_pearson=p.scoring.w_pearson,
+            w_coverage=p.scoring.w_coverage,
+        )
+    return energy, score, tracking
+
+
+
+
+def _rawbase_pib_rms_terms(img, p, self):
+# Pib-rms weighting branch lifted verbatim
+    w_pib = float(self._rms_pib_state["w_pib"])
+    w_rms = float(self._rms_pib_state["w_rms"])
+    w_ee = float(self._rms_pib_state["w_ee"])
+    pib_term, rms_term = rms_pib_terms(
+        img, self._reference_center, p.shape, p.size, p.aspect_ratio
+    )
+    frame = np.asarray(img, dtype=np.float64)
+    ee_term = float(
+        np.clip(
+            frame.sum() / max(self._init_energy, np.finfo(np.float64).eps),
+            0.0,
+            1.0,
+        )
+    )
+    j = w_pib * pib_term + w_rms * rms_term + w_ee * ee_term
+    self._terms = (
+        float(j),
+        float(pib_term),
+        float(rms_term),
+        float(ee_term),
+    )
+    return j, pib_term
+
+
 class ShapingObjective:
     """Objective selection, the ``m_*`` metric panel and the ROI energy guard.
 
@@ -797,27 +875,7 @@ class ShapingObjective:
             # window (or pumps it to a dark halo) is penalised even though
             # pib/rms are exposure-invariant ratios (energy-encircled constraint;
             # see AGENTS.md anti-pattern).
-            w_pib = float(self._rms_pib_state["w_pib"])
-            w_rms = float(self._rms_pib_state["w_rms"])
-            w_ee = float(self._rms_pib_state["w_ee"])
-            pib_term, rms_term = rms_pib_terms(
-                img, self._reference_center, p.shape, p.size, p.aspect_ratio
-            )
-            frame = np.asarray(img, dtype=np.float64)
-            ee_term = float(
-                np.clip(
-                    frame.sum() / max(self._init_energy, np.finfo(np.float64).eps),
-                    0.0,
-                    1.0,
-                )
-            )
-            j = w_pib * pib_term + w_rms * rms_term + w_ee * ee_term
-            self._terms = (
-                float(j),
-                float(pib_term),
-                float(rms_term),
-                float(ee_term),
-            )
+            j, pib_term = _rawbase_pib_rms_terms(img, p, self)
             return float(j), float(pib_term), float(j)
 
         if objective == "shape":
@@ -825,49 +883,7 @@ class ShapingObjective:
             # ``self._reference_center``), so environmental beam drift is not
             # penalised as if the coefficients had moved it (displacement weight
             # = 0 for the same reason: the energy term already captures drift).
-            stage = (
-                self._shape_batch_stage
-                or shape_stage_from_energy(self._shape_state["best_energy"])
-                if p.shape_schedule
-                else None
-            )
-            score, energy = shape_metric(
-                img,
-                self._reference_center,
-                self._reference_center,
-                p.shape,
-                p.size,
-                p.aspect_ratio,
-                w_uniformity=p.scoring.w_uniformity,
-                w_peak=p.scoring.w_peak,
-                w_displacement=p.scoring.w_displacement,
-                stage=stage,
-                log_uniformity=p.scoring.log_uniformity,
-                w_pearson=p.scoring.w_pearson,
-                w_coverage=p.scoring.w_coverage,
-            )
-            # Monotone: the schedule may only get stricter, never laxer.
-            self._shape_state["best_energy"] = max(
-                self._shape_state["best_energy"], energy
-            )
-            # Stage weights steer the gradient, while best-phase comparisons
-            # must use a fixed scale across every stage of the run.
-            tracking = score
-            if stage is not None:
-                tracking, _ = shape_metric(
-                    img,
-                    self._reference_center,
-                    self._reference_center,
-                    p.shape,
-                    p.size,
-                    p.aspect_ratio,
-                    w_uniformity=p.scoring.w_uniformity,
-                    w_peak=p.scoring.w_peak,
-                    w_displacement=p.scoring.w_displacement,
-                    log_uniformity=p.scoring.log_uniformity,
-                    w_pearson=p.scoring.w_pearson,
-                    w_coverage=p.scoring.w_coverage,
-                )
+            energy, score, tracking = _rawbase_shape_score(img, p, self)
             return float(score), float(energy), float(tracking)
 
         if objective == "rmse":

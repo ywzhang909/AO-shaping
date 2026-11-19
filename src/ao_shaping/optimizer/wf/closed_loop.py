@@ -31,6 +31,84 @@ from ao_shaping.algorithm.signal_processing.controller import (
 )
 
 
+
+
+def _closed_loop_control_iter(apply_func, callback, cfg, controller, converged, diverged, k, measure_func, rms0, self, u):
+# Control iteration loop lifted verbatim
+    for k in range(cfg.max_iter):
+        t_start = time.perf_counter()
+
+        # 1. Measure current slopes
+        s_meas, rms_meas = measure_func()
+
+        # 2. Feed RMS to controller (adaptive controllers use this)
+        controller.record_rms(rms_meas)
+
+        # 3. Delay compensation (using buffered history)
+        if cfg.delay_steps > 0 and len(self.delay_buffer) >= cfg.delay_steps:
+            a_delayed = self.delay_buffer[-cfg.delay_steps]
+            s_pred = self.D @ a_delayed
+            blend = 0.7
+            s_meas = blend * s_meas + (1 - blend) * s_pred
+
+        # 4. Compute control output
+        u = controller.compute(s_meas, k)
+
+        # 5. Apply control to hardware
+        apply_func(u)
+
+        # 6. Record state
+        self.a_history.append(u.copy())
+        self.rms_history.append(rms_meas)
+        self.s_history.append(s_meas.copy())
+        self.u_history.append(u.copy())
+        self.delay_buffer.append(u.copy())
+
+        # 7. Per-step callback
+        if callback:
+            callback(u, rms_meas, k)
+
+        # 8. Convergence check
+        if rms_meas < cfg.rms_target:
+            logger.info(f"Target reached @ iter {k}, RMS={rms_meas:.4f}λ")
+            converged = True
+            break
+
+        # 9. Stall detection
+        if k >= cfg.stall_window:
+            recent_vals = self.rms_history[-cfg.stall_window :]
+            rel_change = abs(recent_vals[-1] - recent_vals[0]) / (
+                recent_vals[0] + 1e-10
+            )
+            if rel_change < cfg.stall_tol:
+                logger.info(f"Stall detected @ iter {k}, RMS={rms_meas:.4f}λ")
+                converged = True
+                break
+
+        # 10. Divergence protection
+        if k > 5 and rms_meas > 1.5 * rms0:
+            logger.warning(
+                f"Divergence @ iter {k}, RMS={rms_meas:.4f}λ >> {rms0:.4f}λ"
+            )
+            diverged = True
+            break
+
+        # 11. Timing control
+        elapsed = time.perf_counter() - t_start
+        sleep_time = max(0, cfg.dt - elapsed)
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+
+        if k % 10 == 0:
+            g_str = (
+                f" g={controller.current_gain:.2f}"
+                if isinstance(controller, AdaptiveGainController)
+                else ""
+            )
+            logger.info(f"  iter {k:3d}: RMS={rms_meas:.4f}λ{g_str}")
+    return converged, diverged, k, u
+
+
 class AOClosedLoop:
     """Closed-loop control orchestrator.
 
@@ -161,77 +239,7 @@ class AOClosedLoop:
         u = np.zeros(self.n_modes)
         k = -1
 
-        for k in range(cfg.max_iter):
-            t_start = time.perf_counter()
-
-            # 1. Measure current slopes
-            s_meas, rms_meas = measure_func()
-
-            # 2. Feed RMS to controller (adaptive controllers use this)
-            controller.record_rms(rms_meas)
-
-            # 3. Delay compensation (using buffered history)
-            if cfg.delay_steps > 0 and len(self.delay_buffer) >= cfg.delay_steps:
-                a_delayed = self.delay_buffer[-cfg.delay_steps]
-                s_pred = self.D @ a_delayed
-                blend = 0.7
-                s_meas = blend * s_meas + (1 - blend) * s_pred
-
-            # 4. Compute control output
-            u = controller.compute(s_meas, k)
-
-            # 5. Apply control to hardware
-            apply_func(u)
-
-            # 6. Record state
-            self.a_history.append(u.copy())
-            self.rms_history.append(rms_meas)
-            self.s_history.append(s_meas.copy())
-            self.u_history.append(u.copy())
-            self.delay_buffer.append(u.copy())
-
-            # 7. Per-step callback
-            if callback:
-                callback(u, rms_meas, k)
-
-            # 8. Convergence check
-            if rms_meas < cfg.rms_target:
-                logger.info(f"Target reached @ iter {k}, RMS={rms_meas:.4f}λ")
-                converged = True
-                break
-
-            # 9. Stall detection
-            if k >= cfg.stall_window:
-                recent_vals = self.rms_history[-cfg.stall_window :]
-                rel_change = abs(recent_vals[-1] - recent_vals[0]) / (
-                    recent_vals[0] + 1e-10
-                )
-                if rel_change < cfg.stall_tol:
-                    logger.info(f"Stall detected @ iter {k}, RMS={rms_meas:.4f}λ")
-                    converged = True
-                    break
-
-            # 10. Divergence protection
-            if k > 5 and rms_meas > 1.5 * rms0:
-                logger.warning(
-                    f"Divergence @ iter {k}, RMS={rms_meas:.4f}λ >> {rms0:.4f}λ"
-                )
-                diverged = True
-                break
-
-            # 11. Timing control
-            elapsed = time.perf_counter() - t_start
-            sleep_time = max(0, cfg.dt - elapsed)
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-
-            if k % 10 == 0:
-                g_str = (
-                    f" g={controller.current_gain:.2f}"
-                    if isinstance(controller, AdaptiveGainController)
-                    else ""
-                )
-                logger.info(f"  iter {k:3d}: RMS={rms_meas:.4f}λ{g_str}")
+        converged, diverged, k, u = _closed_loop_control_iter(apply_func, callback, cfg, controller, converged, diverged, k, measure_func, rms0, self, u)
 
         # Result summary
         final_rms = self.rms_history[-1] if self.rms_history else rms0

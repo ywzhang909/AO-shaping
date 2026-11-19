@@ -192,6 +192,17 @@ cls = registry.get_class(reachable[0])
 
 ### 11.1 `print()` 替代 `loguru` — 82 处调用，跨 22 文件
 
+> ✅ **已收口 (2026-11-18 实测, F-5 切片 #2)**: 上表为 2026-10-01 快照, 所列库内调试
+> print 已在历次重构中全部转为 loguru。AST 全树复扫 `src/ao_shaping` 仅存 **30 处真实
+> print 调用**, 全部是 **CLI/机器协议 stdout**, 不得转 logger:
+> `device_mutex` 的探针协议行由其自身读取端按前缀解析 (`PROBE_NOTE_PREFIX`, 读取端
+> `tools/kernels/device_mutex.py:930`, loguru 走 stderr 会让读取端空转);
+> `parallel_fit` 输出机读 JSON 退出行; transfer CLI 流式 `Session complete:` 与逐 stage
+> 行被桌面 GUI 子进程解析; `python -m ao_shaping.tools.slm.shaping` 的 stdout 就是产物。
+> 守卫 `tests/ao_shaping/test_conventions.py::test_src_print_calls_stay_within_cli_contract_allowlist`
+> 以 (文件, 函数, 数量) 双向钉死该集合。**不要按本节原文"所有 print() 改为 logger"执行** ——
+> 那会静默打断上述协议。
+
 大量文件直接使用 `print()` 输出调试/状态信息，应改用 `loguru.logger`：
 
 | 文件 | 调用数 | 说明 |
@@ -325,7 +336,7 @@ cls = registry.get_class(reachable[0])
 | 8 | 基础设施缺失 | 4 项 | ⚠️ 未修复（非阻塞） |
 | 9 | 预存测试失败 | 5 | ✅ 1 个修复，4 个未修复（外部依赖） |
 | 10 | 架构建议 | 4 项 | ⚠️ 待评估 |
-| 11.1 | `print()` 替代 `loguru` | 22 | ⚠️ 未修复（新增发现） |
+| 11.1 | `print()` 替代 `loguru` | 22 | ✅ 库内已清零; 余 30 处为 CLI/stdout 协议, AST 守卫双向钉死 (2026-11-18) |
 | 11.2 | 宽泛 except | 13 | ⚠️ 未修复（新增发现） |
 | 11.3 | 配置项分散 | 19 | ⚠️ 未修复（新增发现） |
 | 11.4 | 大文件拆分 | ~22 | ⚠️ 未修复（新增发现） |

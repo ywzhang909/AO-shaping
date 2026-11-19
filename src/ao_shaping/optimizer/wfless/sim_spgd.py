@@ -499,7 +499,6 @@ def _spgd_zernike_init_state(PX, PY, R0, ao_sys, n_grid, nk, r_bucket):
 
     c = np.zeros(nk)
     disturb_c = np.zeros(nk)
-    phase = np.zeros((n_grid, n_grid))
     pos_pib, neg_pib = 0.0, 0.0
     flag = 0
     J = init_pib

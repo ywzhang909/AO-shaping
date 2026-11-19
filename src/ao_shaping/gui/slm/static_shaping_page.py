@@ -268,6 +268,8 @@ def _record_send_metadata(
         )
         logger.info("下发元数据已记录: {}", out_path)
     except Exception as e:
+        # policy: 元数据落盘失败类型不可枚举 (磁盘/编码/权限), 记录后放行 ——
+        # 下发本身已成功, 观测元数据不得反过来阻断实验。
         logger.warning("下发元数据落盘失败（不阻断下发）: {}", e)
 
 

@@ -813,6 +813,8 @@ class DahengCamera(BaseCamera):
                     try:
                         self.cam.ExposureAuto.set(constants.GxAutoEntry.OFF.value)
                     except Exception as disable_exc:
+                        # policy: 关不掉 SDK 自动曝光只是降级路径不完美, 真失败已由
+                        # 上方 SDK 调用抛出; 这里再抛会吞掉手动回路本身的错误。
                         logger.warning(
                             "[SDK auto-exposure] disable failed: {}", disable_exc
                         )

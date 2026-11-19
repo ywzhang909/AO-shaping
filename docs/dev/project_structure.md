@@ -13,6 +13,7 @@ AO-shaping/
 │   │   ├── runners/             # Runner scripts package
 │   │   │   ├── __init__.py          # 惰性 re-export (_LAZY_RUNNERS / R-27, PEP-562)
 │   │   │   ├── runner_common.py     # 共享辅助 (resolve_dm / patch_sim_*_shaping)
+│   │   │   ├── voltage_io.py        # 电压取整/落盘/PIB 调试绘图 (自 runner_common 外提, #205)
 │   │   │   ├── matrix_runner.py     # dm-matrix + hadamard-matrix (DM 响应矩阵标定)
 │   │   │   ├── zernike_search_runner.py  # ga-zernike
 │   │   │   ├── nlight_dm/           # DM 家族 runners
@@ -62,8 +63,8 @@ AO-shaping/
 │   │       ├── slm/              #   SLM UI (multi_slm_controller.py, slm_calibration_ui.py)
 │   │       ├── zernike/          #   Zernike UI (response matrix 校准/调试查看)
 │   │       └── ccd/              #   CCD 图像分析 UI (ccd_analyzer.py)
-│   ├── calculators/               # Cython extensions (standalone)
 │   └── optical_ui/                # [DEPRECATED] Empty package
+├── experiments/                   # Cython extensions (relocated from src/calculators)
 ├── tests/ao_shaping/              # Tests (mirrors src structure)
 ├── libs/                          # Third-party SDK binaries (gxipy, Drv_UDPST)
 └── scripts/                       # Utility scripts, grouped by what they process

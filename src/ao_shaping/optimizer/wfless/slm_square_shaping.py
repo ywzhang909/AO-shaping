@@ -1184,7 +1184,6 @@ def _session_arm_exposure(blaze_direction, blaze_period_px, cam, cam_size, cam_t
             period_px=blaze_period_px,
             direction=blaze_direction,
         )
-        center = blaze_choice.signal_xy
         logger.info("measured blaze: {}", blaze_choice)
     return blaze_choice, exposure_time_ms
 
@@ -1805,6 +1804,85 @@ def optimize_slm_square(
     )
 
 
+
+def _sq_heuristic_session(_dim, _evaluate_quality, _heuristic_bounds, _params, _record_vec, _score_column, algorithm, best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, cam, delta, display_ctx, epochs, last_best_epoch, last_eval, pop_size, random_seed, recorder, target_mean_brightness, target_side):
+# Tqdm heuristic search session lifted verbatim
+    with tqdm.tqdm(
+        total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
+    ) as hbar:
+
+        def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
+            nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
+            nonlocal best_c, best_img, last_best_epoch
+            if value > best_quality + 1e-6:
+                best_quality = float(value)
+                best_cost = last_eval["cost"]
+                best_cv = last_eval["cv"]
+                best_ee = last_eval["ee"]
+                best_ar = last_eval["ar"]
+                best_c = np.asarray(params, dtype=np.float64).copy()
+                best_img = last_eval["img"].copy()
+                last_best_epoch = index
+
+            row = {
+                "J": last_eval["cost"],
+                _score_column: float(value),
+                "cv": last_eval["cv"],
+                "ee": last_eval["ee"],
+                "ar": last_eval["ar"],
+                "pbr": last_eval["pbr"],
+                "side": target_side,
+                RECORD_COEFFS: _record_vec(
+                    np.asarray(params, dtype=np.float64)
+                ),
+                RECORD_IMAGE: last_eval["img"],
+                RECORD_DIFF: 0.0,
+                "lr": 0.0,
+                "delta": float(delta),
+                RECORD_EPOCH: index,
+                "exp_t": get_camera_exposure_ms(cam),
+                "max_brt": float(np.max(last_eval["img"])),
+                "mean_b": last_eval["mean"],
+                "target_mean_b": target_mean_brightness,
+                RECORD_GRAD: _record_vec(np.zeros_like(params)),
+                "optimizer": algorithm,
+            }
+            recorder.append(row)
+
+            if display_ctx is not None:
+                try:
+                    display_ctx.update(
+                        img=last_eval["img"],
+                        phase=last_eval["gray"],
+                        quality=float(value),
+                        cv=last_eval["cv"],
+                        ee=last_eval["ee"],
+                        epoch=index,
+                        total_epochs=epochs,
+                    )
+                # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
+                except Exception:
+                    pass
+
+            hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+            hbar.update(1)
+
+        result = run_heuristic_search(
+            algorithm,
+            _evaluate_quality,
+            dim=_dim,
+            iterations=epochs,
+            bounds=_heuristic_bounds,
+            x0=_params,
+            maximize=True,
+            seed=random_seed,
+            pop_size=pop_size,
+            on_evaluate=_on_evaluate,
+        )
+    return best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, last_best_epoch, result
+
+
+
 def _run_square_heuristic_stage(
     *,
     algorithm: object,
@@ -1888,78 +1966,7 @@ def _run_square_heuristic_stage(
         )
         return float(_q)
 
-    with tqdm.tqdm(
-        total=None, desc=f"slm_square {algorithm}", dynamic_ncols=True
-    ) as hbar:
-
-        def _on_evaluate(params: np.ndarray, value: float, index: int) -> None:
-            nonlocal best_quality, best_cost, best_cv, best_ee, best_ar
-            nonlocal best_c, best_img, last_best_epoch
-            if value > best_quality + 1e-6:
-                best_quality = float(value)
-                best_cost = last_eval["cost"]
-                best_cv = last_eval["cv"]
-                best_ee = last_eval["ee"]
-                best_ar = last_eval["ar"]
-                best_c = np.asarray(params, dtype=np.float64).copy()
-                best_img = last_eval["img"].copy()
-                last_best_epoch = index
-
-            row = {
-                "J": last_eval["cost"],
-                _score_column: float(value),
-                "cv": last_eval["cv"],
-                "ee": last_eval["ee"],
-                "ar": last_eval["ar"],
-                "pbr": last_eval["pbr"],
-                "side": target_side,
-                RECORD_COEFFS: _record_vec(
-                    np.asarray(params, dtype=np.float64)
-                ),
-                RECORD_IMAGE: last_eval["img"],
-                RECORD_DIFF: 0.0,
-                "lr": 0.0,
-                "delta": float(delta),
-                RECORD_EPOCH: index,
-                "exp_t": get_camera_exposure_ms(cam),
-                "max_brt": float(np.max(last_eval["img"])),
-                "mean_b": last_eval["mean"],
-                "target_mean_b": target_mean_brightness,
-                RECORD_GRAD: _record_vec(np.zeros_like(params)),
-                "optimizer": algorithm,
-            }
-            recorder.append(row)
-
-            if display_ctx is not None:
-                try:
-                    display_ctx.update(
-                        img=last_eval["img"],
-                        phase=last_eval["gray"],
-                        quality=float(value),
-                        cv=last_eval["cv"],
-                        ee=last_eval["ee"],
-                        epoch=index,
-                        total_epochs=epochs,
-                    )
-                # policy: a display refresh inside the heuristic callback must not abort a search that is already driving the SLM
-                except Exception:
-                    pass
-
-            hbar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
-            hbar.update(1)
-
-        result = run_heuristic_search(
-            algorithm,
-            _evaluate_quality,
-            dim=_dim,
-            iterations=epochs,
-            bounds=_heuristic_bounds,
-            x0=_params,
-            maximize=True,
-            seed=random_seed,
-            pop_size=pop_size,
-            on_evaluate=_on_evaluate,
-        )
+    best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, last_best_epoch, result = _sq_heuristic_session(_dim, _evaluate_quality, _heuristic_bounds, _params, _record_vec, _score_column, algorithm, best_ar, best_c, best_cost, best_cv, best_ee, best_img, best_quality, cam, delta, display_ctx, epochs, last_best_epoch, last_eval, pop_size, random_seed, recorder, target_mean_brightness, target_side)
 
     # Leave the best phase found on the SLM.
     slm.display_data(_params_to_gray(result.best_x))
@@ -2485,6 +2492,81 @@ def _sq_gradient_step(_adaptive_cfg, _apply_update, _base_w_aspect, _base_w_effi
 
 
 
+
+def _square_search_with(_adaptive_boost_active, _adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _dim, _gradient_history, _guard_enabled, _guard_ref_ee, _has_rotation, _max_history_len, _n_energy_gated, _param_scale, _params, _params_to_gray, _record_vec, _rot_delta, _score_column, best_ar, best_cv, best_ee, best_quality, cam, center, delta, display_ctx, epochs, exposure_time_ms, last_best_epoch, lr, max_roi_energy_loss, objective, optimizer, quality, recorder, rng, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity):
+# Brightness search device session lifted verbatim
+    with tqdm.tqdm(
+        total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
+    ) as bar:
+        for epoch in range(1, epochs + 1):
+            disturb_c, w_aspect, w_efficiency, w_uniformity = _sq_epoch_perturbation(_adaptive_boost_active, _adaptive_cfg, _cv_history, _dim, _has_rotation, _rot_delta, delta, epoch, epochs, rng, w_aspect, w_efficiency, w_uniformity)
+
+            # Positive / negative perturbation. The two measurements are the
+            # same procedure on +/- disturb_c, so they share one record.
+            neg, pos = _sq_measure_pair(_apply_update, _params, _params_to_gray, cam, center, disturb_c, objective, slm, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
+
+            # Auto-exposure adjustment if saturated
+            max_brightness = _sq_saturation_resample(cam, exposure_time_ms, neg, optimizer, pos, target_max_brightness)
+
+            # In-ROI energy guard: abandon the whole epoch if either
+            # perturbation has driven the in-box energy fraction below
+            # (1 - max_roi_energy_loss) of the armed reference. Skipping
+            # (rather than only penalising the score) is essential -- see the
+            # arming comment above.
+            _gate, _gated, _n_energy_gated = _sq_energy_gate(_guard_enabled, _guard_ref_ee, _n_energy_gated, delta, epoch, max_roi_energy_loss, neg, pos)
+            if _gated:
+                # Record honestly (unchanged coefficients, diff=0) and skip.
+                recorder.append(
+                    {
+                        "J": (pos["cost"] + neg["cost"]) / 2,
+                        _score_column: float("nan"),
+                        "cv": (pos["cv"] + neg["cv"]) / 2,
+                        "ee": (pos["ee"] + neg["ee"]) / 2,
+                        "ar": (pos["ar"] + neg["ar"]) / 2,
+                        "pbr": (pos["pbr"] + neg["pbr"]) / 2,
+                        "side": target_side,
+                        RECORD_DIFF: 0.0,
+                        "lr": optimizer.lr,
+                        "delta": delta,
+                        RECORD_EPOCH: epoch,
+                        RECORD_COEFFS: _record_vec(_params.copy()),
+                        RECORD_IMAGE: pos["img"],
+                        "exp_t": get_camera_exposure_ms(cam),
+                        "max_brt": max_brightness,
+                        "mean_b": (pos["mean"] + neg["mean"]) / 2,
+                        "target_mean_b": target_mean_brightness,
+                        RECORD_GRAD: _record_vec(np.zeros_like(disturb_c)),
+                        "gate": _gate,
+                    }
+                )
+                # Leave the panel on the accepted state, not on the rejected
+                # perturbation (see the end-of-epoch resync below).
+                slm.display_data(_params_to_gray(_params))
+                time.sleep(SLM_RESPONSE_TIME_S)
+                bar.update(1)
+                continue
+
+            # SPGD gradient update. The objective is the combined quality
+            # score (uniformity + energy + aspect), NOT -CV alone: optimising
+            # -CV alone lets the optimizer minimise CV by EMPTYING the target
+            # box (observed on hardware: EE collapsed to ~0.002).
+            J, _params, best_ar, best_cv, best_ee, best_quality, delta, diff, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, last_best_epoch, quality = _sq_gradient_step(_adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, _params, best_ar, best_cv, best_ee, best_quality, center, delta, disturb_c, epoch, last_best_epoch, lr, neg, objective, optimizer, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
+
+            _sq_log_epoch(J, _params_to_gray, _record_vec, _score_column, bar, cam, delta, diff, display_ctx, epoch, epochs, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
+
+            # Re-display the ACCEPTED state. Without this the last write of
+            # every epoch is `neg["c"]` (the rejected -delta perturbation), so
+            # the panel sits on a state 2*delta away in all 576 dimensions
+            # while the loop believes it is at `_params`. That desync is a
+            # plausible contributor to the 0-order collapse seen on hardware
+            # (peak 225 -> 17). It also makes the next epoch's baseline
+            # ambiguous, which matters once the energy guard is armed.
+            slm.display_data(_params_to_gray(_params))
+            time.sleep(SLM_RESPONSE_TIME_S)
+    return _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
+
+
+
 def _run_square_search_stage(
     *,
     _adaptive_boost_active: object,
@@ -2592,74 +2674,7 @@ def _run_square_search_stage(
     delta, optimizer = _sq_make_optimizer(_cv_history, _gradient_history, _opt_dim, _param_scale, cv, delta, ee, kwargs, lr, optimizer_type)
 
     # Main optimization loop
-    with tqdm.tqdm(
-        total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
-    ) as bar:
-        for epoch in range(1, epochs + 1):
-            disturb_c, w_aspect, w_efficiency, w_uniformity = _sq_epoch_perturbation(_adaptive_boost_active, _adaptive_cfg, _cv_history, _dim, _has_rotation, _rot_delta, delta, epoch, epochs, rng, w_aspect, w_efficiency, w_uniformity)
-
-            # Positive / negative perturbation. The two measurements are the
-            # same procedure on +/- disturb_c, so they share one record.
-            neg, pos = _sq_measure_pair(_apply_update, _params, _params_to_gray, cam, center, disturb_c, objective, slm, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
-
-            # Auto-exposure adjustment if saturated
-            max_brightness = _sq_saturation_resample(cam, exposure_time_ms, neg, optimizer, pos, target_max_brightness)
-
-            # In-ROI energy guard: abandon the whole epoch if either
-            # perturbation has driven the in-box energy fraction below
-            # (1 - max_roi_energy_loss) of the armed reference. Skipping
-            # (rather than only penalising the score) is essential -- see the
-            # arming comment above.
-            _gate, _gated, _n_energy_gated = _sq_energy_gate(_guard_enabled, _guard_ref_ee, _n_energy_gated, delta, epoch, max_roi_energy_loss, neg, pos)
-            if _gated:
-                # Record honestly (unchanged coefficients, diff=0) and skip.
-                recorder.append(
-                    {
-                        "J": (pos["cost"] + neg["cost"]) / 2,
-                        _score_column: float("nan"),
-                        "cv": (pos["cv"] + neg["cv"]) / 2,
-                        "ee": (pos["ee"] + neg["ee"]) / 2,
-                        "ar": (pos["ar"] + neg["ar"]) / 2,
-                        "pbr": (pos["pbr"] + neg["pbr"]) / 2,
-                        "side": target_side,
-                        RECORD_DIFF: 0.0,
-                        "lr": optimizer.lr,
-                        "delta": delta,
-                        RECORD_EPOCH: epoch,
-                        RECORD_COEFFS: _record_vec(_params.copy()),
-                        RECORD_IMAGE: pos["img"],
-                        "exp_t": get_camera_exposure_ms(cam),
-                        "max_brt": max_brightness,
-                        "mean_b": (pos["mean"] + neg["mean"]) / 2,
-                        "target_mean_b": target_mean_brightness,
-                        RECORD_GRAD: _record_vec(np.zeros_like(disturb_c)),
-                        "gate": _gate,
-                    }
-                )
-                # Leave the panel on the accepted state, not on the rejected
-                # perturbation (see the end-of-epoch resync below).
-                slm.display_data(_params_to_gray(_params))
-                time.sleep(SLM_RESPONSE_TIME_S)
-                bar.update(1)
-                continue
-
-            # SPGD gradient update. The objective is the combined quality
-            # score (uniformity + energy + aspect), NOT -CV alone: optimising
-            # -CV alone lets the optimizer minimise CV by EMPTYING the target
-            # box (observed on hardware: EE collapsed to ~0.002).
-            J, _params, best_ar, best_cv, best_ee, best_quality, delta, diff, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, last_best_epoch, quality = _sq_gradient_step(_adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _gradient_history, _max_history_len, _param_scale, _params, best_ar, best_cv, best_ee, best_quality, center, delta, disturb_c, epoch, last_best_epoch, lr, neg, objective, optimizer, pos, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
-
-            _sq_log_epoch(J, _params_to_gray, _record_vec, _score_column, bar, cam, delta, diff, display_ctx, epoch, epochs, eval_ar, eval_c, eval_cv, eval_ee, eval_img, eval_pbr, gradient, max_brightness, neg, optimizer, pos, quality, recorder, target_mean_brightness, target_side)
-
-            # Re-display the ACCEPTED state. Without this the last write of
-            # every epoch is `neg["c"]` (the rejected -delta perturbation), so
-            # the panel sits on a state 2*delta away in all 576 dimensions
-            # while the loop believes it is at `_params`. That desync is a
-            # plausible contributor to the 0-order collapse seen on hardware
-            # (peak 225 -> 17). It also makes the next epoch's baseline
-            # ambiguous, which matters once the energy guard is armed.
-            slm.display_data(_params_to_gray(_params))
-            time.sleep(SLM_RESPONSE_TIME_S)
+    _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch = _square_search_with(_adaptive_boost_active, _adaptive_cfg, _apply_update, _base_w_aspect, _base_w_efficiency, _base_w_uniformity, _cv_history, _delta_pinned, _dim, _gradient_history, _guard_enabled, _guard_ref_ee, _has_rotation, _max_history_len, _n_energy_gated, _param_scale, _params, _params_to_gray, _record_vec, _rot_delta, _score_column, best_ar, best_cv, best_ee, best_quality, cam, center, delta, display_ctx, epochs, exposure_time_ms, last_best_epoch, lr, max_roi_energy_loss, objective, optimizer, quality, recorder, rng, slm, target_max_brightness, target_mean_brightness, target_side, w_aspect, w_efficiency, w_pbr, w_uniformity)
     return False, _n_energy_gated, best_ar, best_cv, best_ee, best_quality, last_best_epoch
 
 

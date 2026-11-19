@@ -101,9 +101,9 @@
 |---|---|---|
 | [[functions/with-params]] | `with_params(arg_class, kw_name)` — dataclass→Click options | `utils/cli/params.py:244` |
 | [[functions/debug-mode]] | `get_debug_mode()` / `resolve_debug()` — DEBUG 判定 | `utils/io/cli_helpers.py:29` |
-| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:159` |
-| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:472` |
-| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1368` |
+| [[functions/path-dirs]] | `gen_date_dir()` / `make_date_dir()` / 时间戳 | `utils/io/file.py:160`（2026-11-18 复核重钉 159→160，与函数页 `path-dirs.md` 对齐） |
+| [[functions/recorder]] | `Recorder` 类 — 优化过程逐行记录 | `utils/io/file.py:473`（2026-11-18 复核重钉 472→473，与函数页 `recorder.md` 对齐） |
+| [[functions/debug-artifacts]] | `save_optimization_debug_artifacts()` / `save_recorder_debug_artifacts()` | `utils/io/file.py:1369`（2026-11-18 复核重钉 1368→1369，与函数页 `debug-artifacts.md` 对齐） |
 | [[functions/zernike-calc]] | `zernike_modes(n)` / `calc_n_zernike_terms(n)` | `utils/wavefront/zernike_calc.py:90` |
 | [[functions/spots]] | `centroid()` / `radius()` / `pib_ratio_mask()` | `utils/image/spots_calc.py:228` |
 | [[functions/matrix-utils]] | `compute_pinv()` / `compute_lstsq()` / `safe_pinv()` / `effective_cond()` | `utils/wavefront/matrix_utils.py:16` |

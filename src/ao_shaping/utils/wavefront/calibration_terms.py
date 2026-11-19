@@ -538,7 +538,6 @@ def apply_travel_scale(
     Returns:
         施加行程缩放后的指令相位, 与 ``command`` 同形。
     """
-    torch = _torch()
     side = int(command.shape[-1])
     flat = command.reshape(-1)
     coefficients = projector @ flat

@@ -351,6 +351,91 @@ def _resolve_debug_recorder(debug: Any, iterations: int) -> tuple[Any, bool]:
     return debug, False
 
 
+
+def _shaping_epoch_loop(_closure, base_lr, batched, debug_recorder, iterations, loss_history, lr_schedule, opt, optimizer, per_holder, phase, phase_callback, progress_callback, torch):
+# Per-iteration shaping loop lifted verbatim
+    for it in range(iterations):
+        t0 = time.perf_counter()
+        phase_before = phase.detach().clone() if debug_recorder is not None else None
+        if optimizer == "adam":
+            if lr_schedule is not None:
+                factor = _lr_schedule_factor(lr_schedule, it, iterations)
+                for group in opt.param_groups:
+                    group["lr"] = base_lr * factor
+            opt.zero_grad()
+            loss = _closure()
+            forward_s = time.perf_counter() - t0
+            if torch.isnan(loss):
+                logger.warning("NaN loss at iteration {}; stopping early", it)
+                break
+            opt.step()
+        else:  # lbfgs —— 闭包由优化器内部调用
+            loss = opt.step(_closure)
+            forward_s = time.perf_counter() - t0
+            if loss is None or torch.isnan(loss):
+                logger.warning(
+                    "L-BFGS returned NaN/None at iteration {}; stopping early", it
+                )
+                break
+        step_s = (time.perf_counter() - t0) - forward_s
+
+        per = per_holder["per"]
+        if per is not None:
+            per_d = per.detach()
+            best_idx = int(per_d.argmin().item())
+            # 上报/记录最优候选的损失, 不是 K 个损失之和 (后者只是反向用的)。
+            loss_val = float(per_d[best_idx].item())
+        else:
+            best_idx = 0
+            loss_val = float(loss.item())
+        # 记录在相位包裹之前: 包裹会把 (2π) 跳变写进 ‖phase_after-phase_before‖,
+        # 让这一步的更新范数读起来像一次猛烈跳变, 而不是 Adam 的真实步长。
+        # 张量在这里就转成 numpy: 记录器是纯 numpy 叶子模块, 且 CUDA 张量不能直接
+        # 交给 np.asarray。批量模式下记录器只跟踪当前最优候选 (2D)。
+        if debug_recorder is not None:
+
+            def _slice(t, _best: int = best_idx):
+                return t[_best] if batched else t
+
+            debug_recorder.record(
+                iteration=it,
+                loss=loss_val,
+                grad=(
+                    None
+                    if phase.grad is None
+                    else _slice(phase.grad.detach().float().cpu().numpy())
+                ),
+                phase_before=(
+                    None
+                    if phase_before is None
+                    else _slice(phase_before.detach().float().cpu().numpy())
+                ),
+                phase_after=_slice(phase.detach().float().cpu().numpy()),
+                forward_s=float(forward_s),
+                step_s=float(step_s),
+            )
+
+        # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
+        # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
+        # 最后才包裹。
+        if optimizer == "adam":
+            with torch.no_grad():
+                phase.data = phase.data % (2.0 * math.pi)
+
+        loss_history.append(loss_val)
+
+        if progress_callback is not None:
+            progress_callback(it, loss_val)
+
+        if phase_callback is not None:
+            phase_callback(phase.detach()[best_idx] if batched else phase.detach())
+
+        # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
+        # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
+        logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
+
+
+
 def _run_shaping_loop(
     torch: Any,
     phase: Any,
@@ -437,85 +522,7 @@ def _run_shaping_loop(
         logger.warning("lr_schedule={!r} 只对 Adam 生效, 优化器 {} 忽略该调度",
                        lr_schedule, optimizer)
 
-    for it in range(iterations):
-        t0 = time.perf_counter()
-        phase_before = phase.detach().clone() if debug_recorder is not None else None
-        if optimizer == "adam":
-            if lr_schedule is not None:
-                factor = _lr_schedule_factor(lr_schedule, it, iterations)
-                for group in opt.param_groups:
-                    group["lr"] = base_lr * factor
-            opt.zero_grad()
-            loss = _closure()
-            forward_s = time.perf_counter() - t0
-            if torch.isnan(loss):
-                logger.warning("NaN loss at iteration {}; stopping early", it)
-                break
-            opt.step()
-        else:  # lbfgs —— 闭包由优化器内部调用
-            loss = opt.step(_closure)
-            forward_s = time.perf_counter() - t0
-            if loss is None or torch.isnan(loss):
-                logger.warning(
-                    "L-BFGS returned NaN/None at iteration {}; stopping early", it
-                )
-                break
-        step_s = (time.perf_counter() - t0) - forward_s
-
-        per = per_holder["per"]
-        if per is not None:
-            per_d = per.detach()
-            best_idx = int(per_d.argmin().item())
-            # 上报/记录最优候选的损失, 不是 K 个损失之和 (后者只是反向用的)。
-            loss_val = float(per_d[best_idx].item())
-        else:
-            best_idx = 0
-            loss_val = float(loss.item())
-        # 记录在相位包裹之前: 包裹会把 (2π) 跳变写进 ‖phase_after-phase_before‖,
-        # 让这一步的更新范数读起来像一次猛烈跳变, 而不是 Adam 的真实步长。
-        # 张量在这里就转成 numpy: 记录器是纯 numpy 叶子模块, 且 CUDA 张量不能直接
-        # 交给 np.asarray。批量模式下记录器只跟踪当前最优候选 (2D)。
-        if debug_recorder is not None:
-
-            def _slice(t, _best: int = best_idx):
-                return t[_best] if batched else t
-
-            debug_recorder.record(
-                iteration=it,
-                loss=loss_val,
-                grad=(
-                    None
-                    if phase.grad is None
-                    else _slice(phase.grad.detach().float().cpu().numpy())
-                ),
-                phase_before=(
-                    None
-                    if phase_before is None
-                    else _slice(phase_before.detach().float().cpu().numpy())
-                ),
-                phase_after=_slice(phase.detach().float().cpu().numpy()),
-                forward_s=float(forward_s),
-                step_s=float(step_s),
-            )
-
-        # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
-        # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
-        # 最后才包裹。
-        if optimizer == "adam":
-            with torch.no_grad():
-                phase.data = phase.data % (2.0 * math.pi)
-
-        loss_history.append(loss_val)
-
-        if progress_callback is not None:
-            progress_callback(it, loss_val)
-
-        if phase_callback is not None:
-            phase_callback(phase.detach()[best_idx] if batched else phase.detach())
-
-        # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
-        # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
-        logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
+    _shaping_epoch_loop(_closure, base_lr, batched, debug_recorder, iterations, loss_history, lr_schedule, opt, optimizer, per_holder, phase, phase_callback, progress_callback, torch)
 
     if len(loss_history) >= iterations:
         converged = True
@@ -601,6 +608,61 @@ def _extract_shaping_result(
         iterations=len(loss_history),
         converged=converged,
     )
+
+
+
+def _tbs_prepare_candidates(device, grid_size, initial_phase, iterations, n_candidates, optimizer, propagation, seed, source_amplitude, target, torch):
+# Candidate normalization and phase batch setup lifted verbatim
+    H, W = _validate_shaping_inputs(
+        target, grid_size, propagation, optimizer, iterations
+    )
+
+    if n_candidates < 1:
+        raise ValueError(f"n_candidates must be >= 1, got {n_candidates}")
+    if n_candidates > 1 and optimizer != "adam":
+        # L-BFGS 的线搜索会把 K 个候选的梯度混在一起, 模型内并行对它无意义。
+        logger.warning(
+            "n_candidates={} 仅对 Adam 优化器生效; 优化器 {!r} 回退到单候选",
+            n_candidates,
+            optimizer,
+        )
+        n_candidates = 1
+
+    # -- 可复现性 ----------------------------------------------------
+    if seed is not None:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
+    # -- 设备 ---------------------------------------------------------
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = torch.device(device)
+    dtype = torch.float32
+
+    # -- 准备张量 ----------------------------------------------------
+    t_tensor, amp, phase_init = _shaping_tensors(
+        torch, target, source_amplitude, initial_phase, H, W, dev, dtype
+    )
+
+    if n_candidates == 1:
+        phase = torch.nn.Parameter(phase_init.clone())
+    else:
+        if initial_phase is None:
+            # 每候选独立小噪声起点: 模型内并行的价值就是多个不同起点的候选,
+            # 跑完取最优。
+            phase_batch = 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        else:
+            # 显式初相位 + 逐候选微扰: 保留用户起点, 同时保留候选多样性。
+            phase_batch = phase_init.unsqueeze(0) + 0.1 * torch.randn(
+                (n_candidates, H, W), device=dev, dtype=dtype
+            )
+        phase = torch.nn.Parameter(phase_batch)
+    return amp, device, phase, t_tensor
+
 
 
 def train_beam_shaping(
@@ -690,54 +752,7 @@ def train_beam_shaping(
     """
     torch = _torch()
 
-    H, W = _validate_shaping_inputs(
-        target, grid_size, propagation, optimizer, iterations
-    )
-
-    if n_candidates < 1:
-        raise ValueError(f"n_candidates must be >= 1, got {n_candidates}")
-    if n_candidates > 1 and optimizer != "adam":
-        # L-BFGS 的线搜索会把 K 个候选的梯度混在一起, 模型内并行对它无意义。
-        logger.warning(
-            "n_candidates={} 仅对 Adam 优化器生效; 优化器 {!r} 回退到单候选",
-            n_candidates,
-            optimizer,
-        )
-        n_candidates = 1
-
-    # -- 可复现性 ----------------------------------------------------
-    if seed is not None:
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
-    # -- 设备 ---------------------------------------------------------
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    dev = torch.device(device)
-    dtype = torch.float32
-
-    # -- 准备张量 ----------------------------------------------------
-    t_tensor, amp, phase_init = _shaping_tensors(
-        torch, target, source_amplitude, initial_phase, H, W, dev, dtype
-    )
-
-    if n_candidates == 1:
-        phase = torch.nn.Parameter(phase_init.clone())
-    else:
-        if initial_phase is None:
-            # 每候选独立小噪声起点: 模型内并行的价值就是多个不同起点的候选,
-            # 跑完取最优。
-            phase_batch = 0.1 * torch.randn(
-                (n_candidates, H, W), device=dev, dtype=dtype
-            )
-        else:
-            # 显式初相位 + 逐候选微扰: 保留用户起点, 同时保留候选多样性。
-            phase_batch = phase_init.unsqueeze(0) + 0.1 * torch.randn(
-                (n_candidates, H, W), device=dev, dtype=dtype
-            )
-        phase = torch.nn.Parameter(phase_batch)
+    amp, device, phase, t_tensor = _tbs_prepare_candidates(device, grid_size, initial_phase, iterations, n_candidates, optimizer, propagation, seed, source_amplitude, target, torch)
 
     # -- 物理预测模型 ----------------------------------------------------
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)

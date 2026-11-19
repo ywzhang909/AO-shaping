@@ -1402,26 +1402,28 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
 
 
 
-def run_session(
-    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
-    should_stop=None,
-):
-    """No subprocess chains; each completed/failed stage is journaled immediately.
 
-    ``on_stage(name, status)`` is an optional observer called whenever a stage
-    starts / completes / fails -- the same moment the journal line is written.
-    It exists so the GUI can show progress through *this* entry point instead of
-    re-implementing the stage sequence (a second orchestrator would drift).
-    A raising observer must not wreck the session, so its errors are swallowed
-    with a warning; the journal and the run itself stay authoritative.
+def _session_write_summary(accepted, config, direction, last_round, offline, out, rounds, stage, stopped_by_user, summary):
+# Session summary writeout lifted verbatim
+    if not offline:
+        summary_run = out / (f"anchored.round{last_round}" if last_round else "anchored")
+        stage("summary", lambda: summary.summarize(summary_run, out / "summary"))
+        if config.abba:
+            # The direction check reads B1/B2 and the minus probe; with the paired
+            # blocks switched off those captures do not exist.
+            stage(
+                "direction_check",
+                lambda: direction.analyze(summary_run, out / "direction"),
+            )
+    if config.acceptance_enabled:
+        logger.info(
+            "acceptance loop finished: rounds={} accepted={} stopped_by_user={}",
+            len(rounds),
+            accepted,
+            stopped_by_user,
+        )
+    print(f"Session complete: {out}", flush=True)
 
-    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
-    stage that opens the camera: the capture stage, the standalone light check,
-    the model and anchored blocks, and the exposure-response capture. Each of
-    those fires it **on every CCD read** (see
-    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
-    call site wraps it in the same best-effort guard. ``None`` (the CLI /
-    offline default) leaves the measured path byte-for-byte unchanged.
 
     ``should_stop`` is an optional no-arg callback consulted between acceptance
     retrain rounds. When it returns True (the GUI's Stop button), the loop halts
@@ -1501,6 +1503,41 @@ def run_session(
         write()
         _notify(on_stage, name, "complete")
         return result
+    return config, device, out, stage
+
+
+
+def run_session(
+    config: TransferSession, *, offline=False, on_stage=None, on_frame=None,
+    should_stop=None,
+):
+    """No subprocess chains; each completed/failed stage is journaled immediately.
+
+    ``on_stage(name, status)`` is an optional observer called whenever a stage
+    starts / completes / fails -- the same moment the journal line is written.
+    It exists so the GUI can show progress through *this* entry point instead of
+    re-implementing the stage sequence (a second orchestrator would drift).
+    A raising observer must not wreck the session, so its errors are swallowed
+    with a warning; the journal and the run itself stay authoritative.
+
+    ``on_frame(payload)`` is the live CCD observer, forwarded unchanged to every
+    stage that opens the camera: the capture stage, the standalone light check,
+    the model and anchored blocks, and the exposure-response capture. Each of
+    those fires it **on every CCD read** (see
+    :func:`~ao_shaping.tools.slm.transfer.live_frame.frame_payload`), and every
+    call site wraps it in the same best-effort guard. ``None`` (the CLI /
+    offline default) leaves the measured path byte-for-byte unchanged.
+
+    ``should_stop`` is an optional no-arg callback consulted between acceptance
+    retrain rounds. When it returns True (the GUI's Stop button), the loop halts
+    gracefully, keeps the best result so far, and does not error. Ignored unless
+    ``config.acceptance_enabled``.
+    """
+    config.validate()
+    if offline and config.dataset is None:
+        raise ValueError("--offline requires a recorded --dataset")
+    # 自动升档只对会采集的会话生效：录制数据集的网格由 manifest 决定，改了就与拟合对不上。
+    config, device, out, stage = _session_prepare_stage(config, offline, on_stage)
 
     from . import bootstrap, direction, fit, open_loop, optical_probe, summary, validate
 
@@ -1779,7 +1816,9 @@ def _add_session_commands(commands):
 
 
 
-def main():
+
+def _wf_build_parser():
+# Argparse subcommand parser assembly lifted verbatim
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     _add_session_commands(commands)
@@ -1835,6 +1874,12 @@ def main():
         help="ridge penalty; default is pretrain.DEFAULT_ALPHA",
     )
     pretrain.add_argument("--seed", type=int, default=102419)
+    return parser
+
+
+
+def main():
+    parser = _wf_build_parser()
     args = parser.parse_args()
 
     # The CLI owns its logging: the plan and every stage summary are program output that

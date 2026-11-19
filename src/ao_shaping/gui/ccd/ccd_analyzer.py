@@ -37,7 +37,6 @@ if "miicam" not in sys.modules:
 
 from io import BytesIO
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from loguru import logger
 from PIL import Image
@@ -577,43 +576,6 @@ def calculate_enclosing_ellipse(
     return ((cx, cy), (a, b), float(np.degrees(angle)))
 
 
-def draw_ellipse_on_image(
-    img: np.ndarray,
-    ellipse_params: tuple[tuple[float, float], tuple[float, float], float],
-) -> np.ndarray:
-    """Draw the enclosing ellipse on *img* and return the annotated RGB image."""
-    img_normalized = ((img - img.min()) / (img.max() - img.min() + 1e-8) * 255).astype(
-        np.uint8
-    )
-    h, w = img_normalized.shape
-    fig, ax = plt.subplots(1, 1, figsize=(w / 100, h / 100), dpi=100)
-    ax.imshow(img_normalized, cmap="gray")
-    center, axes, angle = ellipse_params
-    ellipse = mpatches.Ellipse(
-        center,
-        axes[0] * 2,
-        axes[1] * 2,
-        angle=angle,
-        fill=False,
-        edgecolor="red",
-        linewidth=2,
-    )
-    ax.add_patch(ellipse)
-    ax.plot(center[0], center[1], "r+", markersize=10, markeredgewidth=2)
-    ax.set_xlim(0, w)
-    ax.set_ylim(h, 0)
-    ax.axis("off")
-    plt.tight_layout(pad=0)
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
-    buf.seek(0)
-    result = plt.imread(buf)
-    plt.close(fig)
-    if result.ndim == 2:
-        result = np.stack([result] * 3, axis=-1)
-    return (result * 255).astype(np.uint8)
-
-
 def get_cross_sections(
     img: np.ndarray, center: tuple[float, float], width: int = 5
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -992,138 +954,14 @@ def main() -> None:
         st.divider()
 
         # Recover stale camera object
-        if (
-            st.session_state.camera is not None
-            and not st.session_state.camera_connected
-        ):
-            try:
-                if _camera_is_live(st.session_state.camera):
-                    st.session_state.camera_connected = True
-                    logger.info("Recovered existing camera connection")
-            # policy: a stale session_state handle degrades to "not connected" (assigned below) instead of breaking every later rerun
-            except Exception:
-                st.session_state.camera = None
-
-        # ── Connect / Disconnect ─────────────────────────────────────────────
-        if not st.session_state.camera_connected:
-            if st.button("Connect Camera", type="primary"):
-                try:
-                    cam = _create_camera(
-                        st.session_state.camera_type,
-                        st.session_state.camera_id,
-                        st.session_state.exposure_time_ms,
-                        capture_mode=st.session_state.get(
-                            "miicam_capture_mode", "wait"
-                        ),
-                    )
-                    cam.initialize()
-                    st.session_state.camera = cam
-                    st.session_state.camera_connected = True
-                    cam_min, cam_max = _get_camera_exposure_range(cam)
-                    st.session_state["ccd_exposure_range"] = (cam_min, cam_max)
-                    st.session_state.exposure_time_ms = max(
-                        cam_min, min(cam_max, st.session_state.exposure_time_ms)
-                    )
-                    st.session_state["ccd_exposure_lock_until"] = time.time() + 1.0
-                    # Start MJPEG streamer for low-latency live preview
-                    _start_mjpeg_streamer()
-                    st.success(f"{st.session_state.camera_type} camera connected")
-                # policy: connect failure is reported so the panel stays usable to retry; the driver's failure type varies by transport (USB, native library, permissions)
-                except Exception as exc:
-                    st.error(f"Connection failed: {exc}")
-        else:
-            if st.button("Disconnect Camera", type="secondary"):
-                try:
-                    _stop_capture_loop()
-                    _stop_mjpeg_streamer()
-                    _safe_close_camera(st.session_state.camera)
-                    st.session_state.camera = None
-                    st.session_state.camera_connected = False
-                    st.session_state.current_image = None
-                    st.session_state["ccd_frame_count"] = 0
-                    st.session_state["ccd_fps"] = 0.0
-                    st.session_state["ccd_fps_last_time"] = time.time()
-                    st.session_state["ccd_fps_last_count"] = 0
-                    st.info("Camera disconnected")
-                # policy: even when the driver refuses to close, stop the capture loop and streamer and drop every session_state reference -- otherwise the camera stays held and the UI shows a phantom connection
-                except Exception as exc:
-                    logger.error("Disconnect failed: {}", exc)
-                    _stop_capture_loop()
-                    _stop_mjpeg_streamer()
-                    st.session_state.camera = None
-                    st.session_state.camera_connected = False
-                    st.session_state["ccd_exposure_range"] = None
-                    st.error(f"Disconnect failed: {exc}")
+        _ccd_render_connection_controls()
 
     # ── Main area ────────────────────────────────────────────────────────────
     if st.session_state.camera_connected and st.session_state.camera is not None:
         st.subheader("Real-time Image")
 
         # Refresh controls
-        col_auto, col_manual, col_status = st.columns([1, 1, 2])
-
-        with col_auto:
-            st.session_state.auto_refresh = st.checkbox(
-                "Auto Refresh",
-                value=st.session_state.auto_refresh,
-                help="Automatically refresh image",
-            )
-
-        with col_manual:
-            manual_refresh = st.button(
-                "🔄 Refresh Image",
-                type="primary",
-                disabled=bool(st.session_state.get("ccd_manual_capture_pending")),
-            )
-
-        with col_status:
-            ci = st.session_state.current_image
-            fps = st.session_state.get("ccd_fps", 0.0)
-            if ci is not None:
-                capture_time = ci.get("capture_time", 0)
-                if capture_time > 0:
-                    from datetime import datetime
-
-                    ts = datetime.fromtimestamp(capture_time)
-                    st.success(
-                        f"✓ Live at {ts.strftime('%H:%M:%S.%f')[:-3]} ({fps:.1f} FPS)"
-                    )
-            else:
-                st.info("Click to capture")
-
-        # Show any error from the capture loop
-        last_err = st.session_state.get("ccd_last_error", "")
-        if last_err:
-            st.warning(f"Capture error: {last_err}")
-            st.session_state["ccd_last_error"] = ""
-
-        # ── Capture dispatch ─────────────────────────────────────────────────
-        loop_running = st.session_state.ccd_capture_loop_running
-
-        if manual_refresh:
-            # Single-shot capture on a background thread; the fragment below
-            # collects the frame so a slow SDK call cannot freeze the UI
-            _start_single_capture(st.session_state.camera)
-
-        if st.session_state.get("ccd_manual_capture_pending"):
-            _manual_capture_fragment()
-
-        elif st.session_state.auto_refresh and not loop_running:
-            # Start the background capture loop (r50 pattern)
-            _start_capture_loop(
-                st.session_state.camera,
-                params={
-                    "dt": st.session_state.update_interval,
-                    "n_sample": 1,
-                    "skip_first": False,
-                },
-            )
-            loop_running = True
-
-        elif not st.session_state.auto_refresh and loop_running:
-            # User unchecked auto-refresh → stop the loop
-            _stop_capture_loop()
-            loop_running = False
+        _ccd_render_realtime_panel()
 
         # ── Display results ─────────────────────────────────────────────────
         # 采集循环运行时挂载自动刷新 fragment; 循环停止后静态渲染最后一帧,

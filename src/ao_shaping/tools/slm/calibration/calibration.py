@@ -1595,6 +1595,133 @@ class ShiftCalibParams:
     ] = str(DEFAULT_OUTPUT)
 
 
+
+
+def _shift_quality_verdict(evaluate, flat, ok, original, params, report, slm, sx_star, sy_star):
+# Ratio quality verdict lifted verbatim
+    click.echo("\n" + "=" * 72)
+    click.echo(f"[VERIFY] shift=({sx_star:.0f},{sy_star:.0f}) vs (0,0)")
+    click.echo("=" * 72)
+    m_star = evaluate(int(round(sx_star)), int(round(sy_star)), params.n_avg_verify, "verify")
+    m_zero = evaluate(0, 0, params.n_avg_scan, "verify-zero")
+    if m_star is None or m_zero is None:
+        raise RuntimeError("校验测量失败")
+    ratio = m_star / m_zero if m_zero > 0 else 1.0
+    click.echo(f"[改善] ‖Δz_tilt‖ {m_zero:.4f}λ → {m_star:.4f}λ "
+               f"({100 * (1 - ratio):.1f}% 降低)")
+    report["verify"] = {"shift": [sx_star, sy_star], "added_norm": m_star,
+                        "zero_shift_added_norm": m_zero, "improvement_ratio": ratio}
+
+    quality_ok = m_star < m_zero and ratio < params.improve_ratio
+    report["quality_ok"] = bool(quality_ok)
+    click.echo(f"[GATE] 比值={ratio:.3f} (阈值 {params.improve_ratio}) → "
+               f"{'通过' if quality_ok else '不通过'}")
+
+    if quality_ok and not params.no_save:
+        slm.set_shift(int(round(sx_star)), int(round(sy_star)))
+        slm.save_config()
+        click.echo(f"[OK] config 已写入: shift_x={slm.shift_x}, shift_y={slm.shift_y}")
+        report["saved_shift"] = [slm.shift_x, slm.shift_y]
+        ok = True
+    elif quality_ok and params.no_save:
+        click.echo(f"[INFO] --no-save: 标定通过但未写入 config "
+                   f"(建议 shift=({sx_star:.0f},{sy_star:.0f}))")
+        report["saved_shift"] = None
+        # close() 会自动 save_config() → 必须先把 shift 还原, 否则 dry run 仍会改配置
+        if original is not None:
+            slm.set_shift(*original)
+            click.echo(f"[INFO] --no-save: 已还原 shift={original} (防 close() 自动保存)")
+        ok = True
+    else:
+        if original is not None:
+            slm.set_shift(*original)
+            slm.save_config()
+            click.echo(f"[WARN] 质量门控不通过 → 恢复原始 shift={original}")
+            report["saved_shift"] = list(original)
+
+    slm.display_data(flat, wait_time_s=0.5)
+    return ok
+
+
+
+
+def _shift_axis_refine(params, scan_axis, sx_star, sy_star):
+# Coarse to fine axis refinement lifted verbatim
+    coarse = list(range(-params.coarse_half, params.coarse_half + 1, params.coarse_step))
+
+    for it in range(1, params.iterations + 1):
+        click.echo("\n" + "=" * 72)
+        click.echo(f"[迭代 {it}/{params.iterations}]")
+        click.echo("=" * 72)
+
+        bx, bm, _ = scan_axis("x", clamp_shift(sy_star, params.shift_limit), coarse, f"it{it}-x-coarse")
+        if bx is None:
+            raise RuntimeError("X 粗扫无有效点")
+        fine_x = [bx + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
+        click.echo(f"[X 粗扫] 最优 sx={bx:.0f} (‖Δ‖={bm:.4f}) → 细扫 "
+                   f"{[round(v) for v in fine_x]}")
+        bx2, bm2, pts2 = scan_axis("x", clamp_shift(sy_star, params.shift_limit), fine_x,
+                                   f"it{it}-x-fine")
+        if bx2 is not None:
+            px = parabolic_min(sorted(pts2))
+            sx_star = float(clamp_shift(px if px is not None else bx2, params.shift_limit))
+            click.echo(f"[X] → sx*={sx_star:.1f} (‖Δ‖={bm2:.4f})")
+
+        by, bmy, _ = scan_axis("y", clamp_shift(sx_star, params.shift_limit), coarse, f"it{it}-y-coarse")
+        if by is None:
+            raise RuntimeError("Y 粗扫无有效点")
+        fine_y = [by + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
+        click.echo(f"[Y 粗扫] 最优 sy={by:.0f} (‖Δ‖={bmy:.4f}) → 细扫 "
+                   f"{[round(v) for v in fine_y]}")
+        by2, bmy2, ptsy2 = scan_axis("y", clamp_shift(sx_star, params.shift_limit), fine_y,
+                                     f"it{it}-y-fine")
+        if by2 is not None:
+            py = parabolic_min(sorted(ptsy2))
+            sy_star = float(clamp_shift(py if py is not None else by2, params.shift_limit))
+            click.echo(f"[Y] → sy*={sy_star:.1f} (‖Δ‖={bmy2:.4f})")
+    return sx_star, sy_star
+
+
+
+
+def _shift_eval_closures(base_tilt, params, phase_rad, report, slm, wfs):
+# Evaluate and scan_axis closures lifted verbatim
+    def evaluate(sx: int, sy: int, n_avg: int, tag: str) -> float | None:
+        slm.set_shift(clamp_shift(sx, params.shift_limit), clamp_shift(sy, params.shift_limit))
+        slm.display_phase(phase_rad, wait_time_s=0.5)
+        time.sleep(0.25)
+        zt, zd = measure_tilt_defocus(wfs, n_avg=n_avg)
+        if zt is None:
+            logger.warning("{} shift=({},{}) 无有效 zernike", tag, sx, sy)
+            return None
+        added = zt - base_tilt
+        norm = float(np.linalg.norm(added))
+        report["evals"].append({
+            "tag": tag, "sx": int(sx), "sy": int(sy),
+            "tip": float(zt[0]), "tilt": float(zt[1]),
+            "added_tip": float(added[0]), "added_tilt": float(added[1]),
+            "added_norm": norm, "defocus": zd,
+        })
+        click.echo(f"[EVAL] {tag:14s} shift=({sx:5d},{sy:5d}) "
+                   f"Δtip={added[0]:+.4f} Δtilt={added[1]:+.4f} "
+                   f"‖Δ‖={norm:.4f} defocus={zd:+.4f}")
+        return norm
+
+    def scan_axis(axis: str, other: int, values, tag: str):
+        best_v, best_m, pts = None, np.inf, []
+        for v in values:
+            sx = int(v) if axis == "x" else other
+            sy = int(v) if axis == "y" else other
+            m = evaluate(sx, sy, params.n_avg_scan, tag)
+            if m is None:
+                continue
+            pts.append((float(v), m))
+            if m < best_m:
+                best_m, best_v = m, float(v)
+        return best_v, best_m, pts
+    return evaluate, scan_axis
+
+
 @click.command()
 @with_params(ShiftCalibParams, kw_name="params")
 def main_shift_calib(params: ShiftCalibParams) -> int:
@@ -1670,115 +1797,12 @@ def main_shift_calib(params: ShiftCalibParams) -> int:
         click.echo(f"[INFO] defocus R={params.zernike_radius:.0f}px A={params.defocus_a}rad, "
                    f"range=[{phase_rad.min():.1f},{phase_rad.max():.1f}] rad")
 
-        def evaluate(sx: int, sy: int, n_avg: int, tag: str) -> float | None:
-            slm.set_shift(clamp_shift(sx, params.shift_limit), clamp_shift(sy, params.shift_limit))
-            slm.display_phase(phase_rad, wait_time_s=0.5)
-            time.sleep(0.25)
-            zt, zd = measure_tilt_defocus(wfs, n_avg=n_avg)
-            if zt is None:
-                logger.warning("{} shift=({},{}) 无有效 zernike", tag, sx, sy)
-                return None
-            added = zt - base_tilt
-            norm = float(np.linalg.norm(added))
-            report["evals"].append({
-                "tag": tag, "sx": int(sx), "sy": int(sy),
-                "tip": float(zt[0]), "tilt": float(zt[1]),
-                "added_tip": float(added[0]), "added_tilt": float(added[1]),
-                "added_norm": norm, "defocus": zd,
-            })
-            click.echo(f"[EVAL] {tag:14s} shift=({sx:5d},{sy:5d}) "
-                       f"Δtip={added[0]:+.4f} Δtilt={added[1]:+.4f} "
-                       f"‖Δ‖={norm:.4f} defocus={zd:+.4f}")
-            return norm
+        evaluate, scan_axis = _shift_eval_closures(base_tilt, params, phase_rad, report, slm, wfs)
 
-        def scan_axis(axis: str, other: int, values, tag: str):
-            best_v, best_m, pts = None, np.inf, []
-            for v in values:
-                sx = int(v) if axis == "x" else other
-                sy = int(v) if axis == "y" else other
-                m = evaluate(sx, sy, params.n_avg_scan, tag)
-                if m is None:
-                    continue
-                pts.append((float(v), m))
-                if m < best_m:
-                    best_m, best_v = m, float(v)
-            return best_v, best_m, pts
-
-        coarse = list(range(-params.coarse_half, params.coarse_half + 1, params.coarse_step))
-
-        for it in range(1, params.iterations + 1):
-            click.echo("\n" + "=" * 72)
-            click.echo(f"[迭代 {it}/{params.iterations}]")
-            click.echo("=" * 72)
-
-            bx, bm, _ = scan_axis("x", clamp_shift(sy_star, params.shift_limit), coarse, f"it{it}-x-coarse")
-            if bx is None:
-                raise RuntimeError("X 粗扫无有效点")
-            fine_x = [bx + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
-            click.echo(f"[X 粗扫] 最优 sx={bx:.0f} (‖Δ‖={bm:.4f}) → 细扫 "
-                       f"{[round(v) for v in fine_x]}")
-            bx2, bm2, pts2 = scan_axis("x", clamp_shift(sy_star, params.shift_limit), fine_x,
-                                       f"it{it}-x-fine")
-            if bx2 is not None:
-                px = parabolic_min(sorted(pts2))
-                sx_star = float(clamp_shift(px if px is not None else bx2, params.shift_limit))
-                click.echo(f"[X] → sx*={sx_star:.1f} (‖Δ‖={bm2:.4f})")
-
-            by, bmy, _ = scan_axis("y", clamp_shift(sx_star, params.shift_limit), coarse, f"it{it}-y-coarse")
-            if by is None:
-                raise RuntimeError("Y 粗扫无有效点")
-            fine_y = [by + d for d in np.linspace(-params.fine_half, params.fine_half, 5)]
-            click.echo(f"[Y 粗扫] 最优 sy={by:.0f} (‖Δ‖={bmy:.4f}) → 细扫 "
-                       f"{[round(v) for v in fine_y]}")
-            by2, bmy2, ptsy2 = scan_axis("y", clamp_shift(sx_star, params.shift_limit), fine_y,
-                                         f"it{it}-y-fine")
-            if by2 is not None:
-                py = parabolic_min(sorted(ptsy2))
-                sy_star = float(clamp_shift(py if py is not None else by2, params.shift_limit))
-                click.echo(f"[Y] → sy*={sy_star:.1f} (‖Δ‖={bmy2:.4f})")
+        sx_star, sy_star = _shift_axis_refine(params, scan_axis, sx_star, sy_star)
 
         # 校验: 标定 shift vs (0,0)
-        click.echo("\n" + "=" * 72)
-        click.echo(f"[VERIFY] shift=({sx_star:.0f},{sy_star:.0f}) vs (0,0)")
-        click.echo("=" * 72)
-        m_star = evaluate(int(round(sx_star)), int(round(sy_star)), params.n_avg_verify, "verify")
-        m_zero = evaluate(0, 0, params.n_avg_scan, "verify-zero")
-        if m_star is None or m_zero is None:
-            raise RuntimeError("校验测量失败")
-        ratio = m_star / m_zero if m_zero > 0 else 1.0
-        click.echo(f"[改善] ‖Δz_tilt‖ {m_zero:.4f}λ → {m_star:.4f}λ "
-                   f"({100 * (1 - ratio):.1f}% 降低)")
-        report["verify"] = {"shift": [sx_star, sy_star], "added_norm": m_star,
-                            "zero_shift_added_norm": m_zero, "improvement_ratio": ratio}
-
-        quality_ok = m_star < m_zero and ratio < params.improve_ratio
-        report["quality_ok"] = bool(quality_ok)
-        click.echo(f"[GATE] 比值={ratio:.3f} (阈值 {params.improve_ratio}) → "
-                   f"{'通过' if quality_ok else '不通过'}")
-
-        if quality_ok and not params.no_save:
-            slm.set_shift(int(round(sx_star)), int(round(sy_star)))
-            slm.save_config()
-            click.echo(f"[OK] config 已写入: shift_x={slm.shift_x}, shift_y={slm.shift_y}")
-            report["saved_shift"] = [slm.shift_x, slm.shift_y]
-            ok = True
-        elif quality_ok and params.no_save:
-            click.echo(f"[INFO] --no-save: 标定通过但未写入 config "
-                       f"(建议 shift=({sx_star:.0f},{sy_star:.0f}))")
-            report["saved_shift"] = None
-            # close() 会自动 save_config() → 必须先把 shift 还原, 否则 dry run 仍会改配置
-            if original is not None:
-                slm.set_shift(*original)
-                click.echo(f"[INFO] --no-save: 已还原 shift={original} (防 close() 自动保存)")
-            ok = True
-        else:
-            if original is not None:
-                slm.set_shift(*original)
-                slm.save_config()
-                click.echo(f"[WARN] 质量门控不通过 → 恢复原始 shift={original}")
-                report["saved_shift"] = list(original)
-
-        slm.display_data(flat, wait_time_s=0.5)
+        ok = _shift_quality_verdict(evaluate, flat, ok, original, params, report, slm, sx_star, sy_star)
 
     except Exception as e:  # 保留宽泛捕获: 设备 API 是多态实现 (实验系统/仿真/mock), 抛出的类型不可枚举
         logger.exception("标定失败")
@@ -1817,6 +1841,112 @@ def _write_report(output: str, report: dict) -> None:
 # =====================================================================
 # 几何标定: 装配 -> 光束位置 -> K/旋转 -> 验证
 # =====================================================================
+
+
+def _align_report_finalize(last_center_full, period, report, self, window_center, window_size):
+# Alignment success report assembly lifted verbatim
+    report["ok"] = True
+    report["period"] = period
+    report["center_full"] = last_center_full
+    report["window_center"] = window_center
+    report["window_size"] = window_size
+    self._finalize_align(report, ok=True)
+    logger.info(
+        "align 完成: 周期={:.0f}px 0级全幅=({:.0f},{:.0f}) "
+        "窗口 中心=({:.0f},{:.0f}) 尺寸={:.0f}x{:.0f}px",
+        period,
+        last_center_full[0],
+        last_center_full[1],
+        window_center[0],
+        window_center[1],
+        window_size[0],
+        window_size[1],
+    )
+
+
+
+
+def _align_fov_probe(H, W, c0, cands, f0, margin, min_window_side, period, report, self):
+# FOV-fitting probe loop lifted verbatim
+    half_x = half_y = 0.0
+    for P in cands:
+        self._show(self._blaze(P, "x", self.panel_res))
+        s_x = self._moments(
+            np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+            exclude=(c0, 3.0 * f0),
+        )
+        self._show(self._blaze(P, "y", self.panel_res))
+        s_y = self._moments(
+            np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
+            exclude=(c0, 3.0 * f0),
+        )
+        half_x = max(abs(s_x[1] - c0[1]), 0.0)
+        half_y = max(abs(s_y[0] - c0[0]), 0.0)
+        sx = max(2.0 * (half_x + margin), float(min_window_side))
+        sy = max(2.0 * (half_y + margin), float(min_window_side))
+        in_fov = {
+            "0级": (
+                margin <= c0[0] < H - margin and margin <= c0[1] < W - margin
+            ),
+            "+1级x": (
+                margin <= s_x[0] < H - margin
+                and margin <= s_x[1] < W - margin
+            ),
+            "+1级y": (
+                margin <= s_y[0] < H - margin
+                and margin <= s_y[1] < W - margin
+            ),
+        }
+        fits = sx <= W - 1 and sy <= H - 1
+        report["rounds"].append(
+            dict(
+                stage="B",
+                period=float(P),
+                spots={"0级": c0, "+1级x": s_x, "+1级y": s_y},
+                window_size=(sx, sy),
+                in_fov=in_fov,
+            )
+        )
+        logger.info(
+            "align 阶段B P={:2d}px: +1级x=({:.0f},{:.0f}) +1级y=({:.0f},{:.0f}) "
+            "窗口={:.0f}x{:.0f} {}",
+            P,
+            s_x[0],
+            s_x[1],
+            s_y[0],
+            s_y[1],
+            sx,
+            sy,
+            "采用" if (all(in_fov.values()) and fits) else "跳过",
+        )
+        if all(in_fov.values()) and fits:
+            period = float(P)
+            break
+    return half_x, half_y, period
+
+
+
+
+def _align_candidate_setup(blaze_period, period_candidates, self):
+# Candidate periods and restore closure lifted verbatim
+    default_cands: tuple[int, ...] = (16, 24, 32, 48, 64, 96)
+    if period_candidates is not None:
+        cands = tuple(int(p) for p in period_candidates)
+    elif int(round(blaze_period)) in default_cands:
+        cands = default_cands
+    else:
+        cands = (int(round(blaze_period)),) + default_cands
+
+    report: dict = {"rounds": [], "ok": False, "period": None, "reason": "unknown"}
+
+    def restore_full() -> None:
+        try:
+            self.ccd.reset_window((0, 0), (0, 0))
+        except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
+            logger.warning("恢复全幅窗口失败")
+    return cands, report, restore_full
+
+
 class SLMCCDCalibrator:
     """SLM+CCD 几何标定工具. 硬件无关: 传入 slm/ccd 与 acquire 回调.
 
@@ -1968,21 +2098,7 @@ class SLMCCDCalibrator:
          offset由 reset_window 从(center,size)确定性推导.)
         返回装配报告 dict(ok, reason, period, rounds, ...).
         """
-        default_cands: tuple[int, ...] = (16, 24, 32, 48, 64, 96)
-        if period_candidates is not None:
-            cands = tuple(int(p) for p in period_candidates)
-        elif int(round(blaze_period)) in default_cands:
-            cands = default_cands
-        else:
-            cands = (int(round(blaze_period)),) + default_cands
-
-        report: dict = {"rounds": [], "ok": False, "period": None, "reason": "unknown"}
-
-        def restore_full() -> None:
-            try:
-                self.ccd.reset_window((0, 0), (0, 0))
-            except Exception:  # 保留宽泛捕获: 本处契约是任何失败都不应向上抛出, 具体类型不可枚举
-                logger.warning("恢复全幅窗口失败")
+        cands, report, restore_full = _align_candidate_setup(blaze_period, period_candidates, self)
 
         try:
             # ---------- 阶段A: 全幅检测 ----------
@@ -2003,60 +2119,7 @@ class SLMCCDCalibrator:
 
             # ---------- 阶段B: 周期选择 ----------
             period: float = 0.0
-            half_x = half_y = 0.0
-            for P in cands:
-                self._show(self._blaze(P, "x", self.panel_res))
-                s_x = self._moments(
-                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
-                    exclude=(c0, 3.0 * f0),
-                )
-                self._show(self._blaze(P, "y", self.panel_res))
-                s_y = self._moments(
-                    np.asarray(self.ccd.get_numpy_image(CAMERA_SAMPLES), np.float64),
-                    exclude=(c0, 3.0 * f0),
-                )
-                half_x = max(abs(s_x[1] - c0[1]), 0.0)
-                half_y = max(abs(s_y[0] - c0[0]), 0.0)
-                sx = max(2.0 * (half_x + margin), float(min_window_side))
-                sy = max(2.0 * (half_y + margin), float(min_window_side))
-                in_fov = {
-                    "0级": (
-                        margin <= c0[0] < H - margin and margin <= c0[1] < W - margin
-                    ),
-                    "+1级x": (
-                        margin <= s_x[0] < H - margin
-                        and margin <= s_x[1] < W - margin
-                    ),
-                    "+1级y": (
-                        margin <= s_y[0] < H - margin
-                        and margin <= s_y[1] < W - margin
-                    ),
-                }
-                fits = sx <= W - 1 and sy <= H - 1
-                report["rounds"].append(
-                    dict(
-                        stage="B",
-                        period=float(P),
-                        spots={"0级": c0, "+1级x": s_x, "+1级y": s_y},
-                        window_size=(sx, sy),
-                        in_fov=in_fov,
-                    )
-                )
-                logger.info(
-                    "align 阶段B P={:2d}px: +1级x=({:.0f},{:.0f}) +1级y=({:.0f},{:.0f}) "
-                    "窗口={:.0f}x{:.0f} {}",
-                    P,
-                    s_x[0],
-                    s_x[1],
-                    s_y[0],
-                    s_y[1],
-                    sx,
-                    sy,
-                    "采用" if (all(in_fov.values()) and fits) else "跳过",
-                )
-                if all(in_fov.values()) and fits:
-                    period = float(P)
-                    break
+            half_x, half_y, period = _align_fov_probe(H, W, c0, cands, f0, margin, min_window_side, period, report, self)
             if period == 0.0:
                 report["reason"] = "no_period"
                 logger.warning(
@@ -2132,23 +2195,7 @@ class SLMCCDCalibrator:
                 return report
 
             # ---------- 阶段D: 收尾 (成功, 保留窗口) ----------
-            report["ok"] = True
-            report["period"] = period
-            report["center_full"] = last_center_full
-            report["window_center"] = window_center
-            report["window_size"] = window_size
-            self._finalize_align(report, ok=True)
-            logger.info(
-                "align 完成: 周期={:.0f}px 0级全幅=({:.0f},{:.0f}) "
-                "窗口 中心=({:.0f},{:.0f}) 尺寸={:.0f}x{:.0f}px",
-                period,
-                last_center_full[0],
-                last_center_full[1],
-                window_center[0],
-                window_center[1],
-                window_size[0],
-                window_size[1],
-            )
+            _align_report_finalize(last_center_full, period, report, self, window_center, window_size)
             return report
         except RuntimeError as e:
             report["reason"] = "no_spot"

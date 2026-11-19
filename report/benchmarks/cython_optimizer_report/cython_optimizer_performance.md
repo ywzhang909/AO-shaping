@@ -4,10 +4,10 @@
 > **生成脚本**: [`scripts/dm/generate_cython_optimizer_report.py`](../../../scripts/dm/generate_cython_optimizer_report.py)
 > **复现命令**: `python scripts/dm/generate_cython_optimizer_report.py`
 > **运行环境**: 离线
-> **说明**: 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成
+> **说明**: 读 experiments/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成
 <!-- provenance:end -->
 
-**本轮结论**：Cython 计算扩展（`src/calculators/`）与 Numba 路径的对照基准显示，Numba 在四个热点函数上仍为最快（sharpness 2.3e-5 s、center_of_brightness 8.2e-6 s），CuPy 因小数组传输开销持续落后 1–3 个数量级。该结果支持将 Cython 扩展定位为可选加速路径而非默认后端；两张 speedup 图为该结论的图形化证据。
+**本轮结论**：Cython 计算扩展（`experiments/calculators/`）与 Numba 路径的对照基准显示，Numba 在四个热点函数上仍为最快（sharpness 2.3e-5 s、center_of_brightness 8.2e-6 s），CuPy 因小数组传输开销持续落后 1–3 个数量级。该结果支持将 Cython 扩展定位为可选加速路径而非默认后端；两张 speedup 图为该结论的图形化证据。
 
 | Function | NumPy (s) | Numba (s) | CuPy (s) |
 |----------|-----------|-----------|----------|

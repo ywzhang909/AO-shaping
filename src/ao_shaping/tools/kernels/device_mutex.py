@@ -1909,8 +1909,6 @@ def wait_until_idle(
     attempt = 0
     last_report_at = float("-inf")
     last_state = ""
-    last_reason = ""
-    detail_lines: list[str] = []
 
     def _run_probe() -> ProbeResult:
         if probe is not None:

@@ -669,8 +669,6 @@ def _prm_setup_state(excluded_piston, excluded_tip_tilt, magnitude_rad, n_max):
     dev_cols: list[np.ndarray] = []
     wf_records: list[WfsStateSnapshot] = []
 
-    # 子孔径掩膜 (供斜率空间闭环; 失败不影响模态空间)
-    mask = None
     return amp_waves, dev_cols, matrix, modes, variance, wf_records
 
 
@@ -1317,6 +1315,88 @@ def _zmr_pupil_guidance(wfs, wfs_params):
 
 
 
+
+
+def _zmr_run_calibration(debug_cb, debug_dir, device_info, norm, params, ph, slm, slm_params, ui_display, wfs, wfs_driver):
+# Magnitude modes and calibration run lifted verbatim
+    magnitudes = _compute_calibration_magnitudes(
+        norm["magnitude"], params.n_magnitudes
+    )
+
+    # === 7. 标定循环 ===
+    mode_ids = _mode_ids(
+        norm["n_max"], params.excluded_piston, params.excluded_tip_tilt
+    )
+    results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
+    # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
+    # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
+    last_cal: tuple[float, np.ndarray, str] | None = None
+
+    def _display_cb(i: int, n: int, resp: np.ndarray, var: np.ndarray) -> None:
+        """适配 ZernikeCalibrationDisplay.update 的进度回调 (失败不中断标定)."""
+        if ui_display is None:
+            return
+        try:
+            ui_display.update(
+                mode_index=i - 1,
+                mode_name=f"mode{i}",
+                response_col=resp,
+                variance_col=var,
+                current_cycle=0,
+                total_cycles=norm["n_cycles"],
+                mean_variance=float(np.mean(var)),
+            )
+        # policy: ui_display.update is an observer, not part of the calibration path
+        except Exception as e:
+            logger.debug("ui_display.update 失败: {}", e)
+
+    last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
+
+    # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
+    #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
+    #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
+    #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
+    #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
+    _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
+
+    # === 9. 打印结果摘要 ===
+    _print_calibration_summary(results, params.output_path, debug_dir)
+
+
+
+
+def _zmr_setup_norm(ctx, params, wfs_driver):
+# Debug dir and display normalization lifted verbatim
+    norm = _normalize_run_options(
+        n_max=params.n_max,
+        magnitude=params.magnitude,
+        n_averages=params.n_averages,
+        n_cycles=params.n_cycles,
+        wait_time=params.wait_time,
+        output_path=params.output_path,
+        mla_index=wfs_driver.mla_index,
+        auto_exposure=wfs_driver.auto_exposure,
+        exp_time=wfs_driver.exp_time,
+        excluded_piston=params.excluded_piston,
+        excluded_tip_tilt=params.excluded_tip_tilt,
+        cancel_tile=params.cancel_tile,
+        debug=params.debug,
+        ctx=ctx,
+    )
+
+    # === 2. 设置调试回调 ===
+    debug_cb, debug_dir = _setup_debug_callback(params.output_path, norm["debug"])
+
+    # === 3. 条件创建显示 ===
+    ui_display = None
+    if params.display:
+        ui_display = ZernikeCalibrationDisplay(
+            n_wfs_terms=norm["n_wfs_terms"],
+            n_slm_terms=norm["n_slm_terms"],
+        )
+    return debug_cb, debug_dir, norm, ui_display
+
+
 @click.command("zernike-matrix")
 @click.pass_context
 @with_params(ZernikeMatrixParams, kw_name="params")
@@ -1365,33 +1445,7 @@ def run(
         [ ] --n-magnitudes N: 各幅度结果应线性 (系数 / 幅度 ≈ 常数)
     """
     # === 1. 归一化选项 ===
-    norm = _normalize_run_options(
-        n_max=params.n_max,
-        magnitude=params.magnitude,
-        n_averages=params.n_averages,
-        n_cycles=params.n_cycles,
-        wait_time=params.wait_time,
-        output_path=params.output_path,
-        mla_index=wfs_driver.mla_index,
-        auto_exposure=wfs_driver.auto_exposure,
-        exp_time=wfs_driver.exp_time,
-        excluded_piston=params.excluded_piston,
-        excluded_tip_tilt=params.excluded_tip_tilt,
-        cancel_tile=params.cancel_tile,
-        debug=params.debug,
-        ctx=ctx,
-    )
-
-    # === 2. 设置调试回调 ===
-    debug_cb, debug_dir = _setup_debug_callback(params.output_path, norm["debug"])
-
-    # === 3. 条件创建显示 ===
-    ui_display = None
-    if params.display:
-        ui_display = ZernikeCalibrationDisplay(
-            n_wfs_terms=norm["n_wfs_terms"],
-            n_slm_terms=norm["n_slm_terms"],
-        )
+    debug_cb, debug_dir, norm, ui_display = _zmr_setup_norm(ctx, params, wfs_driver)
 
     try:
         # 2026-09-16 重写: 原 ZernikeSLM 链路在实验出现原生崩溃 (0xC0000005/0xC000041C),
@@ -1440,48 +1494,7 @@ def run(
         _zmr_prepare_dither_reference(norm, params, slm, wfs, wfs_driver)
 
         # === 6. 计算标定幅度列表 (单位: **弧度**) ===
-        magnitudes = _compute_calibration_magnitudes(
-            norm["magnitude"], params.n_magnitudes
-        )
-
-        # === 7. 标定循环 ===
-        mode_ids = _mode_ids(
-            norm["n_max"], params.excluded_piston, params.excluded_tip_tilt
-        )
-        results: list[tuple[float | None, ZernikeResponseMatrixResult]] = []
-        # 跟踪最后一次标定, 供步骤 8 的离线矫正测试 (用最后矩阵; 测试会恢复 WFS
-        # 内部参考, 若放在循环内会破坏后续标定的自定义参考基准)
-        last_cal: tuple[float, np.ndarray, str] | None = None
-
-        def _display_cb(i: int, n: int, resp: np.ndarray, var: np.ndarray) -> None:
-            """适配 ZernikeCalibrationDisplay.update 的进度回调 (失败不中断标定)."""
-            if ui_display is None:
-                return
-            try:
-                ui_display.update(
-                    mode_index=i - 1,
-                    mode_name=f"mode{i}",
-                    response_col=resp,
-                    variance_col=var,
-                    current_cycle=0,
-                    total_cycles=norm["n_cycles"],
-                    mean_variance=float(np.mean(var)),
-                )
-            # policy: ui_display.update is an observer, not part of the calibration path
-            except Exception as e:
-                logger.debug("ui_display.update 失败: {}", e)
-
-        last_cal = _zmr_calibration_sweep(_display_cb, debug_cb, device_info, last_cal, magnitudes, mode_ids, norm, params, ph, results, slm, slm_params, wfs, wfs_driver)
-
-        # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
-        #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
-        #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
-        #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
-        #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
-        _zmr_finalize_calibration(device_info, last_cal, mode_ids, norm, params, ph, slm, wfs)
-
-        # === 9. 打印结果摘要 ===
-        _print_calibration_summary(results, params.output_path, debug_dir)
+        _zmr_run_calibration(debug_cb, debug_dir, device_info, norm, params, ph, slm, slm_params, ui_display, wfs, wfs_driver)
     finally:
         for dev in (wfs, slm):
             try:
@@ -1812,99 +1825,10 @@ def _clr_build_controller(loop_cfg, params, result, wfs, zslm):
     return _apply, loop, measure_func
 
 
-@click.command("closed-loop")
-@click.pass_context
-@with_params(ClosedLoopParams, kw_name="params")
-def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
-    """基于响应矩阵的闭环波前优化
 
-    载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
-    使用指定控制律进行闭环优化, 保存优化结果。
-    """
-    import json
-    from pathlib import Path
 
-    import matplotlib
-    import numpy as np
-
-    matplotlib.use("Agg")
-    from datetime import datetime
-
-    import matplotlib.pyplot as plt
-
-    from ao_shaping.drivers.slm import ZernikeSLM
-    from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
-    from ao_shaping.optimizer.wf.zernike_response_matrix import (
-        load_zernike_response_matrix,
-    )
-    from ao_shaping.utils.io.cli_helpers import get_timestamp_str
-
-    # 加载响应矩阵
-    click.echo(f"加载响应矩阵: {params.load_file}")
-    result = load_zernike_response_matrix(params.load_file)
-    click.echo(f"  矩阵形状: {result.matrix.shape}")
-    click.echo(
-        f"  n_max={result.n_max}, excluded_piston={result.excluded_piston}, excluded_tip_tilt={result.excluded_tip_tilt}"
-    )
-
-    # 提取硬件配置
-    device_cfg = HardwareConfig()
-    if result.device_config is not None:
-        device_cfg = HardwareConfig.from_dict(result.device_config)
-        click.echo(
-            f"已恢复硬件配置: SLM#{device_cfg.slm_number}, WL={device_cfg.wavelength}nm, "
-            f"shift=({device_cfg.shift_x},{device_cfg.shift_y}), "
-            f"MLA={device_cfg.mla_index}, exp={device_cfg.exposure_time}ms"
-        )
-    else:
-        click.echo("警告: 响应矩阵中未找到硬件配置, 将使用默认参数")
-        click.echo("建议重新标定以保存完整硬件参数, 或手动指定设备参数")
-
-    # 构建控制配置
-    n_modes = result.n_slm_terms
-    Q_diag = np.ones(n_modes)
-    loop_cfg = LoopConfig(
-        n_modes=n_modes,
-        dt=params.dt,
-        Kp=params.kp if params.kp is not None else 0.5,
-        Ki=params.ki if params.ki is not None else 0.3,
-        Kd=params.kd if params.kd is not None else 0.05,
-        leak=params.leak if params.leak is not None else 0.97,
-        Q_diag=Q_diag,
-        R_scalar=0.1,
-        delay_steps=params.delay_steps,
-        rms_target=params.rms_target,
-        max_iter=params.max_iter,
-        cancel_tile=params.cancel_tile,
-    )
-    if params.gain is not None:
-        loop_cfg.gain_schedule = [(0, params.max_iter, params.gain, loop_cfg.leak)]
-
-    click.echo("\n闭环配置:")
-    click.echo(f"  控制律: {params.control_law}, DT={params.dt}s")
-    click.echo(f"  目标RMS: {params.rms_target}λ, 最大迭代: {params.max_iter}")
-
-    # 解析控制律枚举
-    law_map = {
-        "pid": ControlLaw.PID,
-        "leaky": ControlLaw.LEAKY_INTEGRATOR,
-        "qg": ControlLaw.QUADRATIC_GAUSSIAN,
-        "lqg": ControlLaw.LQG,
-        "mpc": ControlLaw.PREDICTIVE,
-        "adaptive": ControlLaw.ADAPTIVE_GAIN,
-    }
-    law = law_map[params.control_law]
-
-    # 设置输出路径
-    load_path = Path(params.load_file)
-    output_path = params.output_path
-    if output_path is None:
-        output_path = str(
-            load_path.parent / f"closed_loop_{load_path.stem}_{get_timestamp_str()}"
-        )
-
-    # 初始化硬件
-    ui_display = None
+def _cl_execute_session(ZernikeSLM, datetime, device_cfg, json, law, loop_cfg, n_modes, output_path, params, plt, result, ui_display):
+# Device session orchestration lifted verbatim
     try:
         click.echo("\n初始化SLM...")
         with ZernikeSLM(
@@ -1969,6 +1893,106 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     finally:
         if ui_display is not None:
             ui_display.close()
+
+
+
+
+def _cl_build_configuration(params, result):
+# Loop configuration assembly lifted verbatim
+    device_cfg = HardwareConfig()
+    if result.device_config is not None:
+        device_cfg = HardwareConfig.from_dict(result.device_config)
+        click.echo(
+            f"已恢复硬件配置: SLM#{device_cfg.slm_number}, WL={device_cfg.wavelength}nm, "
+            f"shift=({device_cfg.shift_x},{device_cfg.shift_y}), "
+            f"MLA={device_cfg.mla_index}, exp={device_cfg.exposure_time}ms"
+        )
+    else:
+        click.echo("警告: 响应矩阵中未找到硬件配置, 将使用默认参数")
+        click.echo("建议重新标定以保存完整硬件参数, 或手动指定设备参数")
+
+    # 构建控制配置
+    n_modes = result.n_slm_terms
+    Q_diag = np.ones(n_modes)
+    loop_cfg = LoopConfig(
+        n_modes=n_modes,
+        dt=params.dt,
+        Kp=params.kp if params.kp is not None else 0.5,
+        Ki=params.ki if params.ki is not None else 0.3,
+        Kd=params.kd if params.kd is not None else 0.05,
+        leak=params.leak if params.leak is not None else 0.97,
+        Q_diag=Q_diag,
+        R_scalar=0.1,
+        delay_steps=params.delay_steps,
+        rms_target=params.rms_target,
+        max_iter=params.max_iter,
+        cancel_tile=params.cancel_tile,
+    )
+    if params.gain is not None:
+        loop_cfg.gain_schedule = [(0, params.max_iter, params.gain, loop_cfg.leak)]
+
+    click.echo("\n闭环配置:")
+    click.echo(f"  控制律: {params.control_law}, DT={params.dt}s")
+    click.echo(f"  目标RMS: {params.rms_target}λ, 最大迭代: {params.max_iter}")
+
+    # 解析控制律枚举
+    law_map = {
+        "pid": ControlLaw.PID,
+        "leaky": ControlLaw.LEAKY_INTEGRATOR,
+        "qg": ControlLaw.QUADRATIC_GAUSSIAN,
+        "lqg": ControlLaw.LQG,
+        "mpc": ControlLaw.PREDICTIVE,
+        "adaptive": ControlLaw.ADAPTIVE_GAIN,
+    }
+    law = law_map[params.control_law]
+
+    # 设置输出路径
+    load_path = Path(params.load_file)
+    output_path = params.output_path
+    if output_path is None:
+        output_path = str(
+            load_path.parent / f"closed_loop_{load_path.stem}_{get_timestamp_str()}"
+        )
+
+    # 初始化硬件
+    ui_display = None
+    return device_cfg, law, loop_cfg, n_modes, output_path, ui_display
+
+
+@click.command("closed-loop")
+@click.pass_context
+@with_params(ClosedLoopParams, kw_name="params")
+def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
+    """基于响应矩阵的闭环波前优化
+
+    载入已保存的Zernike响应矩阵 (.h5), 恢复硬件参数,
+    使用指定控制律进行闭环优化, 保存优化结果。
+    """
+    import json
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from datetime import datetime
+
+    import matplotlib.pyplot as plt
+
+    from ao_shaping.drivers.slm import ZernikeSLM
+    from ao_shaping.optimizer.wf.zernike_response_matrix import (
+        load_zernike_response_matrix,
+    )
+
+    # 加载响应矩阵
+    click.echo(f"加载响应矩阵: {params.load_file}")
+    result = load_zernike_response_matrix(params.load_file)
+    click.echo(f"  矩阵形状: {result.matrix.shape}")
+    click.echo(
+        f"  n_max={result.n_max}, excluded_piston={result.excluded_piston}, excluded_tip_tilt={result.excluded_tip_tilt}"
+    )
+
+    # 提取硬件配置
+    device_cfg, law, loop_cfg, n_modes, output_path, ui_display = _cl_build_configuration(params, result)
+    _cl_execute_session(ZernikeSLM, datetime, device_cfg, json, law, loop_cfg, n_modes, output_path, params, plt, result, ui_display)
 
 
 if __name__ == "__main__":

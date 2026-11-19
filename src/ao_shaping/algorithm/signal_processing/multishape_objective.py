@@ -335,22 +335,6 @@ def fft_max_side_px(grid_size: float, slope_px: float, *,
     return max(0.0, 2.0 * room)
 
 
-def min_calibrated_grid_px(half_extent_px: float, slope_px: float, *,
-                           margin_px: float = FFT_WINDOW_MARGIN_PX,
-                           offset_px: float = 0.0) -> float:
-    """:func:`_fft_reach_px` 的反向：要够到 ``half_extent_px``，网格至少要多大（连续值）。
-
-    返回值没有取到合法档（见 :func:`capture_grid_ladder`），只用于「至少 N」这类文案；
-    真正要下发给采集的网格请用 :func:`required_capture_grid`。够不着（斜率非正）时
-    返回 ``inf``。
-    """
-    reach = float(half_extent_px) + float(margin_px) + float(offset_px)
-    slope = abs(float(slope_px))
-    if not math.isfinite(reach) or reach <= 0 or slope <= 0:
-        return 0.0
-    return 2.0 * PANEL_PITCH_PX * reach / slope
-
-
 def carrier_offset_px(period: float, slope_px: float) -> float:
     """载波周期 ``period``（panel px）给出的位移（px），即 ``slope / period``。
 

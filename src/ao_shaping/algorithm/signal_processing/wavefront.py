@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from scipy.sparse import dia_matrix
-from numpy.linalg import svd, lstsq
+from numpy.linalg import lstsq
 
 from scipy.sparse import coo_matrix
 
@@ -116,45 +116,3 @@ def slope_to_rhs(sx, sy):
     # 保证均值 0（Neumann 可解条件）
     rho -= rho.mean()
     return rho
-
-# ---------------- SVD 求解 L·φ = ρ ----------------
-def poisson_svd(L, rho, rcond=1e-12):
-    """
-    L  : (K,K) 稀疏矩阵，K=N*N
-    rho: (K,)  右端项
-    返回: φ (K,)  最小范数解（已去掉 piston）
-    """
-    # 把稀疏矩阵稠密化才能直接 SVD（小规模够用；超大矩阵再换稀疏 SVD）
-    L_dense = L.toarray()
-    U, s, Vt = svd(L_dense, full_matrices=False)
-    # 截断零空间
-    mask = s > rcond*s.max()
-    inv_s = np.zeros_like(s)
-    inv_s[mask] = 1.0 / s[mask]
-    # 最小范数解: φ = V^T @ S^+ @ U^T @ rho
-    phi = Vt.T @ (inv_s * (U.T @ rho))
-    return phi
-
-# ---------------- 主接口 ----------------
-def reconstruct_poisson_svd(sx, sy, remove_tilt=True):
-    """
-    sx, sy: (N,N) 子孔径斜率
-    返回: wavefront (N,N), rms
-    """
-    N = sx.shape[0]
-    L = laplacian_2d(N, boundary='neumann')
-    rho = slope_to_rhs(sx, sy)
-    phi_vec = poisson_svd(L, rho)
-    phi = phi_vec.reshape(N, N)
-
-    if remove_tilt:
-        # 去掉 piston+tilt（同 zernike 前 3 项）
-        x = np.linspace(-1, 1, N)
-        X, Y = np.meshgrid(x, x)
-        basis = [np.ones_like(X), X, Y]
-        coeff = [np.sum(phi*b)/np.sum(b*b) for b in basis]
-        for c, b in zip(coeff, basis, strict=True):
-            phi -= c*b
-
-    rms = float(np.std(phi))
-    return phi, rms

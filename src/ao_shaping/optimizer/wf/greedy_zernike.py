@@ -352,6 +352,67 @@ def _run_heuristic_arm(
     )
 
 
+
+def _greedy_final_poll(calc_wavefront, current_c, current_rms, early_stop_threshold, epochs, evaluate_coefficients, n_directions, n_zernike, perturb_mask, perturbation_scale, recorder, slm):
+# Final wavefront poll and early-stop note lifted verbatim
+    logger.info(
+        f"Phase 2: Greedy local search with {n_directions} "
+        f"directions per iteration, max epochs={epochs}"
+    )
+
+    _run_greedy_epochs(
+        epochs=epochs,
+        n_directions=n_directions,
+        n_zernike=n_zernike,
+        perturbation_scale=perturbation_scale,
+        perturb_mask=perturb_mask,
+        early_stop_threshold=early_stop_threshold,
+        start_coeffs=current_c,
+        start_rms=current_rms,
+        patience=50,  # Stop if no improvement for 50 epochs
+        evaluate_coefficients=evaluate_coefficients,
+        calc_wavefront=calc_wavefront,
+        recorder=recorder,
+    )
+
+    # Restore best coefficients on exit
+    best_c, _ = recorder.get_best_target('_c')
+    if best_c is not None:
+        slm.send_zernike(best_c)
+        logger.info(
+            f"Greedy optimization complete. Restored best coefficients, "
+            f"RMS: {recorder.get_best_target('rms')}"
+        )
+
+
+
+
+def _greedy_setup(algorithm, epochs, n_max):
+# Greedy mode setup lifted verbatim
+    epochs = int(epochs)
+    algorithm = str(algorithm).lower()
+    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
+        raise ValueError(
+            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
+        )
+
+    # Calculate number of Zernike terms
+    n_zernike = calc_n_zernike_terms(n_max)
+    zernike_modes = _zernike_indices(n_max)
+
+    # ``mark`` is the objective COLUMN Recorder reads (``get_best_iter`` argmin's
+    # it), not a label: the records below carry ``rms``. Passing the algorithm
+    # name made ``Recorder.append`` assert on the first record.
+    recorder = Recorder(mark="rms", mode="min")
+
+    # Create perturb mask (exclude piston/constant term)
+    perturb_mask = np.ones(n_zernike, dtype=np.float64)
+    if n_zernike > 0:
+        perturb_mask[0] = 0
+    return algorithm, epochs, n_zernike, perturb_mask, recorder, zernike_modes
+
+
+
 def optimizer_greedy(
     epochs: int,
     n_init: int = 10,
@@ -410,26 +471,7 @@ def optimizer_greedy(
     Returns:
         Recorder: Optimization history with RMS and coefficients.
     """
-    epochs = int(epochs)
-    algorithm = str(algorithm).lower()
-    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
-        raise ValueError(
-            f"algorithm must be one of {heuristic_algorithm_choices()}, got {algorithm!r}"
-        )
-
-    # Calculate number of Zernike terms
-    n_zernike = calc_n_zernike_terms(n_max)
-    zernike_modes = _zernike_indices(n_max)
-
-    # ``mark`` is the objective COLUMN Recorder reads (``get_best_iter`` argmin's
-    # it), not a label: the records below carry ``rms``. Passing the algorithm
-    # name made ``Recorder.append`` assert on the first record.
-    recorder = Recorder(mark="rms", mode="min")
-
-    # Create perturb mask (exclude piston/constant term)
-    perturb_mask = np.ones(n_zernike, dtype=np.float64)
-    if n_zernike > 0:
-        perturb_mask[0] = 0
+    algorithm, epochs, n_zernike, perturb_mask, recorder, zernike_modes = _greedy_setup(algorithm, epochs, n_max)
 
     with (
         ZernikeSLM(
@@ -487,33 +529,6 @@ def optimizer_greedy(
             return recorder
 
         # Phase 2: Greedy local search from best starting point
-        logger.info(
-            f"Phase 2: Greedy local search with {n_directions} "
-            f"directions per iteration, max epochs={epochs}"
-        )
-
-        _run_greedy_epochs(
-            epochs=epochs,
-            n_directions=n_directions,
-            n_zernike=n_zernike,
-            perturbation_scale=perturbation_scale,
-            perturb_mask=perturb_mask,
-            early_stop_threshold=early_stop_threshold,
-            start_coeffs=current_c,
-            start_rms=current_rms,
-            patience=50,  # Stop if no improvement for 50 epochs
-            evaluate_coefficients=evaluate_coefficients,
-            calc_wavefront=calc_wavefront,
-            recorder=recorder,
-        )
-
-        # Restore best coefficients on exit
-        best_c, _ = recorder.get_best_target('_c')
-        if best_c is not None:
-            slm.send_zernike(best_c)
-            logger.info(
-                f"Greedy optimization complete. Restored best coefficients, "
-                f"RMS: {recorder.get_best_target('rms')}"
-            )
+        _greedy_final_poll(calc_wavefront, current_c, current_rms, early_stop_threshold, epochs, evaluate_coefficients, n_directions, n_zernike, perturb_mask, perturbation_scale, recorder, slm)
 
         return recorder

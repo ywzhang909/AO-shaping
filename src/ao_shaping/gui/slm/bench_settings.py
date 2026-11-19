@@ -93,6 +93,7 @@ __all__ = [
     "DEFAULT_CAMERA_PIXEL_UM",
     "GEOMETRY_SOURCE_OPTIONS",
     "KNOWN_CAMERA_PIXEL_UM",
+    "MAX_SLMS",
     "MIL_TARGET_SIDE_MIN_PX",
     "MIN_TARGET_SIDE_PX",
     "PUPIL_CENTER_FALLBACK",
@@ -109,6 +110,8 @@ __all__ = [
     "bench_window_side",
     "measure_illuminated_radius",
     "build_calibration_params",
+    "connected_slm_handles",
+    "connected_slm_numbers",
     "current_exposure_ms",
     "detected_state",
     "effective_state",
@@ -1764,12 +1767,8 @@ def render_bench_settings() -> None:
     sync_manual_states("")
     _render_experiment_block()
 
-    for slm_num in (1, 2):
+    for slm_num in connected_slm_numbers():
         prefix = f"slm{slm_num}"
-        if not (
-            st.session_state.get(f"{prefix}_connected") and st.session_state.get(prefix)
-        ):
-            continue
         flush_pending(prefix)
         sync_manual_states(prefix)
         _render_slm_block(prefix, slm_num)

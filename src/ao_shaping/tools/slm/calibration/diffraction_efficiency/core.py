@@ -440,6 +440,37 @@ def _decore_note_single_sided(frame_peak, hi, lo, notes, predicted_separation_px
     return side_a, side_b
 
 
+
+def _pick_anchor_block(anchor, frame_peak, notes, predicted_separation_px, projections, rest, sep):
+# Anchor side correction block lifted verbatim
+    if predicted_separation_px:
+        lo, hi = 0.5 * sep, 2.0 * sep
+    else:
+        lo, hi = 0.0, math.inf
+
+    side_a, side_b = _decore_pick_side_peaks(hi, lo, projections)
+    side_a, side_b = _decore_note_single_sided(frame_peak, hi, lo, notes, predicted_separation_px, rest, side_a, side_b)
+
+    if side_a is not None and side_b is not None:
+        # 只有两侧都"显著"时才允许改写零级中心 —— 否则低相位端 (只有零级
+        # 可见, 旁斑是弱噪声) 会被两个弱光斑拖走, 零级能量直接测错。
+        both_strong = (
+            side_a[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
+            and side_b[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
+        )
+        mid_y = 0.5 * (side_a[0] + side_b[0])
+        mid_x = 0.5 * (side_a[1] + side_b[1])
+        offset = math.hypot(mid_y - anchor[0], mid_x - anchor[1])
+        if both_strong and offset > 0.3 * sep:
+            notes.append(
+                f"一级衍射中点偏离锚点 {offset:.1f}px (>0.3×间距 {sep:.1f}px), "
+                "零级中心改用中点"
+            )
+            anchor = (mid_y, mid_x, 0.0)
+    return anchor, side_a, side_b
+
+
+
 def _pick_orders(
     peaks: list[tuple[float, float, float]],
     frame_peak: float,
@@ -574,30 +605,7 @@ def _pick_orders(
     # 窗口下界 (0.5×sep) 把旁瓣环挡在外面, 上界 (2×sep) 留出几何标定的
     # 不确定度余量。窗口内一个都没有 → 这一点的 r1 就是 0 (深度太浅, 一级
     # 衍射确实不可见), 这是**正确**的读数, 不是失败。
-    if predicted_separation_px:
-        lo, hi = 0.5 * sep, 2.0 * sep
-    else:
-        lo, hi = 0.0, math.inf
-
-    side_a, side_b = _decore_pick_side_peaks(hi, lo, projections)
-    side_a, side_b = _decore_note_single_sided(frame_peak, hi, lo, notes, predicted_separation_px, rest, side_a, side_b)
-
-    if side_a is not None and side_b is not None:
-        # 只有两侧都"显著"时才允许改写零级中心 —— 否则低相位端 (只有零级
-        # 可见, 旁斑是弱噪声) 会被两个弱光斑拖走, 零级能量直接测错。
-        both_strong = (
-            side_a[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
-            and side_b[2] >= SIGNIFICANT_FRACTION * float(frame_peak)
-        )
-        mid_y = 0.5 * (side_a[0] + side_b[0])
-        mid_x = 0.5 * (side_a[1] + side_b[1])
-        offset = math.hypot(mid_y - anchor[0], mid_x - anchor[1])
-        if both_strong and offset > 0.3 * sep:
-            notes.append(
-                f"一级衍射中点偏离锚点 {offset:.1f}px (>0.3×间距 {sep:.1f}px), "
-                "零级中心改用中点"
-            )
-            anchor = (mid_y, mid_x, 0.0)
+    anchor, side_a, side_b = _pick_anchor_block(anchor, frame_peak, notes, predicted_separation_px, projections, rest, sep)
     return (anchor[0], anchor[1]), side_a, side_b, notes
 
 

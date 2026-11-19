@@ -531,7 +531,6 @@ def _rms_initial_state(_init_c, beta1, delta, lr, n_frames, n_zernike, optimizer
     else:
         optimizer = AdaMOD(dim=n_zernike, lr=lr, beta1=beta1, beta3=0.9995)
 
-    best_c = _init_c.copy()
     best_rms = rms
     stagnation_counter = 0
     rms_history = [rms]

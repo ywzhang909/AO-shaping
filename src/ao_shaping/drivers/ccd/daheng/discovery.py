@@ -152,11 +152,6 @@ def device_manager() -> Any | None:
         return None
 
 
-def is_online() -> bool:
-    """全局大恒在线检查: SDK 可导入 **且** 子网枚举到至少一台。"""
-    return enumerate_devices().online
-
-
 def summary_text(disc: DahengDiscovery | None = None) -> str:
     """一行中文结论, 用于界面 caption / CLI 日志。"""
     result = disc if disc is not None else enumerate_devices()

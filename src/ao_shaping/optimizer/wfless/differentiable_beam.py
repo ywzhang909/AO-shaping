@@ -308,6 +308,51 @@ def _run_hardware_phase(optimizer, recorder, epochs, lr, early_stop_patience, ea
     return best_loss, converged
 
 
+
+def _db_prepare_run(ccd, device, early_stop_delta, early_stop_patience, epochs, init_phase, log_every, lr, progress, seed, slm, source_amplitude, target_intensity):
+# Validation and optimizer-recorder setup lifted verbatim
+    epochs = int(epochs)
+    early_stop_patience = int(early_stop_patience)
+    early_stop_delta = abs(float(early_stop_delta))
+    log_every = int(log_every)
+    if not isinstance(progress, bool):
+        raise ValueError(f"progress must be a bool, got {type(progress).__name__}")
+
+    # Seed the RNG for reproducibility (mirrors optimize_pib). The Adam
+    # loop itself is deterministic; the RNG is kept for parity with the
+    # reference structure.
+    np.random.default_rng(seed)
+
+    optimizer = DifferentiableBeamOptimizer(
+        target_intensity=target_intensity,
+        source_amplitude=source_amplitude,
+        lr=lr,
+        init_phase=init_phase,
+        device=device,
+        seed=seed,
+    )
+
+    logger.info(
+        "Starting differentiable beam optimization: epochs={}, lr={}, device={}",
+        epochs,
+        lr,
+        optimizer.device,
+    )
+
+    recorder = Recorder(mark="loss", mode="min")
+    best_loss = float("inf")
+    best_phase: np.ndarray | None = None
+    steps_without_improvement = 0
+    converged = False
+
+    # Hardware-closed-loop mode: forward propagation goes through the real
+    # SLM -> CCD chain. When at least one device is provided, the missing
+    # one is auto-created (and auto-created devices are closed on exit).
+    hardware_mode = slm is not None or ccd is not None
+    return best_loss, best_phase, converged, early_stop_delta, early_stop_patience, epochs, hardware_mode, log_every, optimizer, recorder, steps_without_improvement
+
+
+
 def optimize_beam_shaping(
     target_intensity: np.ndarray,
     source_amplitude: np.ndarray | None = None,
@@ -397,44 +442,7 @@ def optimize_beam_shaping(
             installed.
     """
     # Upfront validation and normalization (mirrors optimize_pib).
-    epochs = int(epochs)
-    early_stop_patience = int(early_stop_patience)
-    early_stop_delta = abs(float(early_stop_delta))
-    log_every = int(log_every)
-    if not isinstance(progress, bool):
-        raise ValueError(f"progress must be a bool, got {type(progress).__name__}")
-
-    # Seed the RNG for reproducibility (mirrors optimize_pib). The Adam
-    # loop itself is deterministic; the RNG is kept for parity with the
-    # reference structure.
-    np.random.default_rng(seed)
-
-    optimizer = DifferentiableBeamOptimizer(
-        target_intensity=target_intensity,
-        source_amplitude=source_amplitude,
-        lr=lr,
-        init_phase=init_phase,
-        device=device,
-        seed=seed,
-    )
-
-    logger.info(
-        "Starting differentiable beam optimization: epochs={}, lr={}, device={}",
-        epochs,
-        lr,
-        optimizer.device,
-    )
-
-    recorder = Recorder(mark="loss", mode="min")
-    best_loss = float("inf")
-    best_phase: np.ndarray | None = None
-    steps_without_improvement = 0
-    converged = False
-
-    # Hardware-closed-loop mode: forward propagation goes through the real
-    # SLM -> CCD chain. When at least one device is provided, the missing
-    # one is auto-created (and auto-created devices are closed on exit).
-    hardware_mode = slm is not None or ccd is not None
+    best_loss, best_phase, converged, early_stop_delta, early_stop_patience, epochs, hardware_mode, log_every, optimizer, recorder, steps_without_improvement = _db_prepare_run(ccd, device, early_stop_delta, early_stop_patience, epochs, init_phase, log_every, lr, progress, seed, slm, source_amplitude, target_intensity)
 
     if not hardware_mode:
         # --- Simulation mode: the model's own far field is the forward pass.

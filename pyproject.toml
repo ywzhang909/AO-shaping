@@ -44,6 +44,34 @@ filterwarnings = [
     "ignore:Please import `map_coordinates` from the `scipy\\.ndimage` namespace:DeprecationWarning:aotools",
 ]
 
+# ---------------------------------------------------------------------------
+# Coverage (issue #178) -- deliberately OPT-IN: plain `pytest` never pays for
+# instrumentation; measure with `pytest --cov` (reads the sections below; the
+# container runner takes the same flag). No CI gate enforces a coverage floor
+# yet: the blocking gates remain ruff + pytest shards + the convention guards
+# (TODO.md §6, decision B of #132), so this is measurement infrastructure,
+# not a new hard gate.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src/ao_shaping"]
+branch = true
+# Host and container mount the tree at different roots; reports must embed
+# neither (Windows `spawn` workers also need the relative form to combine).
+relative_files = true
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
 [project]
 name = "ao_shaping"
 version = "0.1.0"
@@ -138,6 +166,7 @@ dev = [
     "ipywidgets>=8.1.8",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=6.0",
     "pytest-timeout>=2.3.1",
     "ruff>=0.15.12",
 ]

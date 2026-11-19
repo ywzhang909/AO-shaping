@@ -47,6 +47,72 @@ def schedule_lr_delta(rms):
         return 0.7, 0.7
 
 
+
+def _rms_dm_epoch_loop(_delta_override, _init_v, _lr_override, bar, calc_j, delta, dm, early_stop_threshold, epochs, lr, optimizer, recorder):
+# SPGD epoch loop lifted verbatim
+    for epoch in range(1, epochs + 1):
+        disturb_v = (
+            np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
+        )
+
+        disturb_v = disturb_v * delta
+        disturb_v[0] = 0
+
+        pos_vs = dm.send_voltages(_init_v + disturb_v)
+        pos_wf, pos_statics = calc_j()
+        pos_j = pos_statics["rms"]
+
+        ng_vs = dm.send_voltages(_init_v - disturb_v)
+        neg_wf, neg_statics = calc_j()
+        neg_j = neg_statics["rms"]
+
+        diff = pos_statics["rms"] - neg_statics["rms"]
+        # Single source of truth for the SPGD sign (optimizer/spgd.py):
+        # RMS is MINIMISED, and `optimizer.update()` is a descent step
+        # paired with `param - update`, so the gradient must be the
+        # ASCENT estimate. A hand-rolled `-diff * disturb_v` here made
+        # the loop ascend RMS (sign-audit + Oracle verified).
+        gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=False)
+
+        avg_j = (pos_j + neg_j) / 2
+        lr, delta = schedule_lr_delta(avg_j)
+        lr = _lr_override if _lr_override is not None else lr
+        delta = _delta_override if _delta_override is not None else delta
+        optimizer.lr = lr
+        update = optimizer.update(gradient)
+        max_iter_diff = getattr(dm, "max_iter_diff", float("inf"))
+        update = np.clip(update, -max_iter_diff + delta, max_iter_diff - delta)
+        _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
+
+        if dm.check_dm_unit_grad_safe(_to_update_v):
+            _init_v = _to_update_v
+        else:
+            logger.warning(
+                f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
+            )
+
+        log = {
+            "rms": avg_j,
+            RECORD_DIFF: diff,
+            "_gamma": optimizer.lr,
+            "delta": delta,
+            RECORD_EPOCH: epoch,
+            RECORD_VOLTAGES: _init_v,
+            "_pos_v": pos_vs,
+            "_neg_v": ng_vs,
+            "_wavefront": np.stack([pos_wf, neg_wf]),
+            "_statics": {"pos": pos_statics, "neg": neg_statics},
+        }
+        recorder.append(log)
+        bar.set_postfix(recorder.last_info_dict)
+        if avg_j < early_stop_threshold:
+            logger.info(f"Early stop at epoch {epoch} with rms={avg_j:.4f}")
+            break
+
+        bar.update(1)
+
+
+
 def optimizer_rms_dm(
     epochs,
     wfs_res: str = "768",
@@ -143,65 +209,6 @@ def optimizer_rms_dm(
             desc=f"{statics['rms']:.3f} iter {epochs}",
             dynamic_ncols=True,
         ) as bar:
-            for epoch in range(1, epochs + 1):
-                disturb_v = (
-                    np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
-                )
-
-                disturb_v = disturb_v * delta
-                disturb_v[0] = 0
-
-                pos_vs = dm.send_voltages(_init_v + disturb_v)
-                pos_wf, pos_statics = calc_j()
-                pos_j = pos_statics["rms"]
-
-                ng_vs = dm.send_voltages(_init_v - disturb_v)
-                neg_wf, neg_statics = calc_j()
-                neg_j = neg_statics["rms"]
-
-                diff = pos_statics["rms"] - neg_statics["rms"]
-                # Single source of truth for the SPGD sign (optimizer/spgd.py):
-                # RMS is MINIMISED, and `optimizer.update()` is a descent step
-                # paired with `param - update`, so the gradient must be the
-                # ASCENT estimate. A hand-rolled `-diff * disturb_v` here made
-                # the loop ascend RMS (sign-audit + Oracle verified).
-                gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=False)
-
-                avg_j = (pos_j + neg_j) / 2
-                lr, delta = schedule_lr_delta(avg_j)
-                lr = _lr_override if _lr_override is not None else lr
-                delta = _delta_override if _delta_override is not None else delta
-                optimizer.lr = lr
-                update = optimizer.update(gradient)
-                max_iter_diff = getattr(dm, "max_iter_diff", float("inf"))
-                update = np.clip(update, -max_iter_diff + delta, max_iter_diff - delta)
-                _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
-
-                if dm.check_dm_unit_grad_safe(_to_update_v):
-                    _init_v = _to_update_v
-                else:
-                    logger.warning(
-                        f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
-                    )
-
-                log = {
-                    "rms": avg_j,
-                    RECORD_DIFF: diff,
-                    "_gamma": optimizer.lr,
-                    "delta": delta,
-                    RECORD_EPOCH: epoch,
-                    RECORD_VOLTAGES: _init_v,
-                    "_pos_v": pos_vs,
-                    "_neg_v": ng_vs,
-                    "_wavefront": np.stack([pos_wf, neg_wf]),
-                    "_statics": {"pos": pos_statics, "neg": neg_statics},
-                }
-                recorder.append(log)
-                bar.set_postfix(recorder.last_info_dict)
-                if avg_j < early_stop_threshold:
-                    logger.info(f"Early stop at epoch {epoch} with rms={avg_j:.4f}")
-                    break
-
-                bar.update(1)
+            _rms_dm_epoch_loop(_delta_override, _init_v, _lr_override, bar, calc_j, delta, dm, early_stop_threshold, epochs, lr, optimizer, recorder)
 
     return recorder

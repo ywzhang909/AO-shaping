@@ -91,7 +91,7 @@ CI 按 `.github/workflows/pytest.yml` 的 `run_shard` 目标**显式收集**这�
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
-  🔴 **ruff 版本只有一把**：`ci.yml`、`ruff.yml` 与 `pyproject.toml` 的 dev 组下限必须
+  🔴 **ruff 版本只有一把**：`ci.yml` 与 `pyproject.toml` 的 dev 组下限必须
   同为一个**精确版**（现 `0.15.12`），由
   `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact` 钉住。
   此前两处不一致（`ci.yml==0.11.10` vs `ruff.yml>=0.15.12`）实测**不等价**：`PLC0415`
@@ -142,9 +142,17 @@ Consider adding: 类型检查门禁（mypy / pyright 未配置）。pytest 硬�
 ./run_pytest.sh -k "test_centroid"
 ./run_pytest.sh -m "not slow"
 
-# 带覆盖率（容器内）
+# 带覆盖率（容器内，issue #178 工具链：pytest-cov 已入 dev 组与测试镜像，
+# 测量口径读 pyproject 的 [tool.coverage.*]；镜像需含 pytest-cov，旧镜像先重建）
 ./run_pytest.sh -- --cov=ao_shaping
 ```
+
+覆盖率是**测量工具不是门禁**（§6 决策 B：blocking 门禁 = ruff + pytest 分片 +
+conventions 守卫）。类型注解覆盖率的单向棘轮另有两件：普查脚本
+`scripts/_common/type_annotation_census.py`（方法学钉在脚本 docstring，实测
+76.52%，最弱区 optimizer 52.6%）与基线 `type_annotation_baseline.json` +
+守卫 `tests/ao_shaping/scripts/test_type_annotation_ratchet.py`（下降 >0.2pp 即红；
+上移须显式 `--update-baseline` 并在提交信息写理由）。
 
 首次使用需先构建测试镜像（`run_pytest.sh` 只用现成镜像，不自己 build）：
 

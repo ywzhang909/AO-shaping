@@ -47,6 +47,19 @@ What each guard is for, and why a plain grep is not enough:
   ``_ensure_open`` paradigm). The AST guard below lives in *this* file because
   ``pyproject`` ``addopts --ignore`` prunes ``tests/ao_shaping/drivers/**`` from
   default discovery, so a guard placed there would run for nobody in CI.
+
+* **``print()`` in ``src/`` stays inside the CLI/stdout-contract allow-list.**
+  F-5 slice #2 (print -> loguru, issue #56 / docs/issues_report.md §11.1) is
+  closed by measurement: every *library* debug print is gone; the remaining
+  real call sites are deliberate stdout contracts -- ``device_mutex`` prints
+  probe protocol lines that its own reader parses (``PROBE_NOTE_PREFIX``,
+  device_mutex.py:930 -- loguru would route them to stderr and the reader
+  would idle), ``parallel_fit`` emits a machine-read JSON exit line, the
+  transfer CLI streams ``Session complete:`` for the desktop GUI's subprocess,
+  and ``python -m ao_shaping.tools.slm.shaping`` prints its rendered artifact.
+  The naive "convert every print" would silently break all of those; the
+  guard pins the set as (file, function, count) in both directions so a new
+  debug print fails CI instead of quietly joining the set.
 """
 
 from __future__ import annotations
@@ -928,18 +941,21 @@ def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
 #: bump and gets copied back in later.
 _RUFF_PIN_SITES = (
     ".github/workflows/ci.yml",
-    ".github/workflows/ruff.yml",
     "pyproject.toml",
 )
-_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml", ".github/workflows/ruff.yml")
+_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml",)
 
 
 def test_all_ruff_pins_agree_and_are_exact() -> None:
     """Every ruff pin names one exact, identical version.
 
-    Two workflows both run ``ruff check .`` as a hard gate, and they used to
-    install *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while ``ruff.yml``
-    asked for ``>=0.15.12``. That is not one gate but two non-equivalent ones.
+    The single ruff hard gate lives in ``ci.yml`` (the duplicate ``ruff.yml``
+    workflow was retired 2026-11-18 -- it ran the same ``ruff check .`` as
+    ``ci.yml``, same exact version, same triggers, twice per push/PR).
+    Historically two workflows both ran ``ruff check .`` as a hard gate and
+    installed *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while the
+    now-removed ``ruff.yml`` asked for ``>=0.15.12``. That is not one gate but
+    two non-equivalent ones.
     Measured on the project config: ``PLC0415`` yielded **0** findings under
     0.11.10 (it is a preview rule there, and ruff itself prints "Selection
     `PLC0415` has no effect because preview is not enabled") against **1476** under
@@ -952,7 +968,7 @@ def test_all_ruff_pins_agree_and_are_exact() -> None:
     ``>=`` is rejected for the gate itself: a floating bound lets a new ruff
     release flip a hard gate red with no code change between two pushes, which is
     the non-reproducibility that made the discrepancy above expensive to diagnose.
-    Bumping ruff is therefore a single-number change across three files, and this
+    Bumping ruff is therefore a single-number change across these files, and this
     test fails if any of them falls out of step.
     """
     pin_re = re.compile(
@@ -2209,7 +2225,7 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: capture continues (the exposure read-back fallback in the same commit already carries a
 #: `# policy:` judgement). Not narrowed for the same reason as above. 424 -> 425. Reason in
 #: TODO.md 8.9.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 425
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 438
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines
@@ -3266,12 +3282,12 @@ def test_relative_links_in_live_docs_point_at_tracked_paths() -> None:
 
 #: An invocation claim -- ``python <repo-relative>.py`` inside a module docstring or a live
 #: doc -- is an instruction, so a target missing from the git index is a command that cannot
-#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``src/calculators/gerchberg_
+#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``experiments/calculators/gerchberg_
 #: saxton.pyx`` (a tracked Cython module) matches as ``…/gerchberg_saxton.py`` and the guard
 #: reports a real file as a defect. Historical docs are skipped by the repo's own marker list:
 #: a dated record quoting a command that ran at the time is a record, not an instruction.
 _INVOCATION = re.compile(
-    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs)/[\w./-]+\.py)(?![\w.])"
+    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs|experiments)/[\w./-]+\.py)(?![\w.])"
 )
 #: Floor on resolved claims. Measured 533; guards that parse nothing pass vacuously (TODO 8.9
 #: items 32 and 34), so a grammar break has to be loud.
@@ -5127,3 +5143,75 @@ def test_agents_md_pointer_guard_is_not_vacuous() -> None:
     assert len(AGENT_REF_RE.findall(live)) >= 5, (
         f"only {len(AGENT_REF_RE.findall(live))} pointers parsed in AGENTS.md -- the "
         f"pattern stopped matching how the document spells its references")
+
+
+#: F-5 slice #2 (issue #56): every remaining ``print`` call in ``src/`` is a
+#: CLI or machine-protocol stdout contract, keyed (file relative to src/,
+#: innermost enclosing function) -> exact call count. Rationale per cluster is
+#: in the module docstring; drift in either direction is a CI failure.
+_PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
+    ("drivers/ccd/pixel_size.py", "_main"): 3,
+    ("tools/kernels/device_mutex.py", "_wait_idle_loop"): 9,
+    ("tools/kernels/device_mutex.py", "_resolve_probe_state"): 4,
+    ("tools/kernels/device_mutex.py", "_probe_main"): 2,
+    ("tools/slm/shaping/__main__.py", "main"): 1,
+    ("tools/slm/transfer/fit.py", "fit"): 3,
+    ("tools/slm/transfer/fit.py", "fit_adaptive"): 1,
+    ("tools/slm/transfer/parallel_fit.py", "main"): 1,
+    ("tools/slm/transfer/validate.py", "_hold_best_phase_or_flatten"): 1,
+    ("tools/slm/transfer/validate.py", "_run_validate_shapes"): 1,
+    ("tools/slm/transfer/validate.py", "_validate_block_loop"): 1,
+    ("tools/slm/transfer/workflow.py", "_run_reused_session"): 1,
+    ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
+    ("tools/slm/transfer/workflow.py", "stage"): 1,
+}
+
+
+def _src_print_call_sites() -> dict[tuple[str, str], int]:
+    """AST-only census of real ``print(...)`` calls, keyed to the innermost function."""
+    counts: dict[tuple[str, str], int] = {}
+    root = SRC / "ao_shaping"
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        innermost: dict[int, str] = {}
+        for node in ast.walk(tree):  # BFS: outer first, later (inner) wins
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for line in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+                    innermost[line] = node.name
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                key = (
+                    path.relative_to(root).as_posix(),
+                    innermost.get(node.lineno, "<module>"),
+                )
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def test_src_print_calls_stay_within_cli_contract_allowlist() -> None:
+    """Closing half of F-5 slice #2: no *new* print may join the contract set.
+
+    Both directions are pinned (the ``test_the_baseline_has_not_grown``
+    culture): a converted-away print must leave the allow-list, a debug print
+    must never enter it. Docstring ``>>> print`` examples and commented-out
+    prints are invisible to this AST scan by construction.
+    """
+    counts = _src_print_call_sites()
+    extra = sorted(k for k in counts if k not in _PRINT_CONTRACT_ALLOWLIST)
+    gone = sorted(k for k in _PRINT_CONTRACT_ALLOWLIST if k not in counts)
+    drift = sorted(
+        (k, counts[k], _PRINT_CONTRACT_ALLOWLIST[k])
+        for k in counts
+        if k in _PRINT_CONTRACT_ALLOWLIST and counts[k] != _PRINT_CONTRACT_ALLOWLIST[k]
+    )
+    assert not (extra or gone or drift), (
+        "print() contract set in src/ drifted (F-5 slice #2, issue #56):\n"
+        f"  new print call sites (convert to loguru, or justify + add): {extra}\n"
+        f"  contract sites that vanished (drop from allow-list):        {gone}\n"
+        f"  count drift (site, actual, pinned):                        {drift}"
+    )
+

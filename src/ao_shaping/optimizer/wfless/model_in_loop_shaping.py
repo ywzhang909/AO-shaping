@@ -1602,6 +1602,65 @@ def _cbg_finalize(best, model_to_panel, region):
     return 
 
 
+
+def _bench_scan_loop(best, camera_px_per_model_px, disc_candidates, far_field_size, fwhm_meas, model_to_panel, pupil, reference, region, waist_grid_candidates):
+# Geometry grid scan loop lifted verbatim
+    for semi_axis in disc_candidates:
+        semi_axis = int(min(int(semi_axis), region // 2))
+        grid = pupil(semi_axis)
+        if grid is None:
+            continue
+        opt = ZernikeCoefficientOptimizer(
+            n_orders=1,
+            region=region,
+            dtype="float64",
+            device="cpu",
+            far_field_size=far_field_size,
+        )
+        zeros = np.zeros(opt.n_coefficients)
+        for waist_grid in waist_grid_candidates:
+            model = opt.forward_intensity(
+                zeros, grid, _pupil_amplitude(region, waist_grid, semi_axis)
+            )
+            window = _model_window(model, reference.shape, camera_px_per_model_px)
+            if window.shape != reference.shape:
+                # Real frames are 250x248, not square, so the window is resampled
+                # per axis rather than through the square-only _resize_grid.
+                window = np.asarray(
+                    zoom(
+                        window,
+                        (
+                            reference.shape[0] / window.shape[0],
+                            reference.shape[1] / window.shape[1],
+                        ),
+                        order=1,
+                    ),
+                    dtype=np.float64,
+                )
+                if window.shape != reference.shape:
+                    continue
+            a = window / (window.max() + 1e-30)
+            b = reference / (reference.max() + 1e-30)
+            corr = float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
+            if not np.isfinite(corr):
+                continue
+            disc_px = int(round(semi_axis * model_to_panel))
+            geo = BenchGeometry(
+                panel_disc_radius=disc_px,
+                region=region,
+                beam_waist_panel_px=float(waist_grid * model_to_panel),
+                far_field_size=far_field_size,
+                camera_px_per_model_px=float(camera_px_per_model_px),
+                spot_fwhm_camera_px=fwhm_meas,
+                spot_fwhm_model_px=float(_spot_fwhm(model)),
+                correlation=corr,
+            )
+            if best is None or geo.correlation > best[1].correlation:
+                best = (corr, geo)
+    return best
+
+
+
 def calibrate_bench_geometry(
     records: Sequence[CalibrationRecord],
     *,
@@ -1711,58 +1770,7 @@ def calibrate_bench_geometry(
         return None
 
     best, waist_grid_candidates = _cbg_scan_seeds(region)
-    for semi_axis in disc_candidates:
-        semi_axis = int(min(int(semi_axis), region // 2))
-        grid = pupil(semi_axis)
-        if grid is None:
-            continue
-        opt = ZernikeCoefficientOptimizer(
-            n_orders=1,
-            region=region,
-            dtype="float64",
-            device="cpu",
-            far_field_size=far_field_size,
-        )
-        zeros = np.zeros(opt.n_coefficients)
-        for waist_grid in waist_grid_candidates:
-            model = opt.forward_intensity(
-                zeros, grid, _pupil_amplitude(region, waist_grid, semi_axis)
-            )
-            window = _model_window(model, reference.shape, camera_px_per_model_px)
-            if window.shape != reference.shape:
-                # Real frames are 250x248, not square, so the window is resampled
-                # per axis rather than through the square-only _resize_grid.
-                window = np.asarray(
-                    zoom(
-                        window,
-                        (
-                            reference.shape[0] / window.shape[0],
-                            reference.shape[1] / window.shape[1],
-                        ),
-                        order=1,
-                    ),
-                    dtype=np.float64,
-                )
-                if window.shape != reference.shape:
-                    continue
-            a = window / (window.max() + 1e-30)
-            b = reference / (reference.max() + 1e-30)
-            corr = float(np.corrcoef(a.ravel(), b.ravel())[0, 1])
-            if not np.isfinite(corr):
-                continue
-            disc_px = int(round(semi_axis * model_to_panel))
-            geo = BenchGeometry(
-                panel_disc_radius=disc_px,
-                region=region,
-                beam_waist_panel_px=float(waist_grid * model_to_panel),
-                far_field_size=far_field_size,
-                camera_px_per_model_px=float(camera_px_per_model_px),
-                spot_fwhm_camera_px=fwhm_meas,
-                spot_fwhm_model_px=float(_spot_fwhm(model)),
-                correlation=corr,
-            )
-            if best is None or geo.correlation > best[1].correlation:
-                best = (corr, geo)
+    best = _bench_scan_loop(best, camera_px_per_model_px, disc_candidates, far_field_size, fwhm_meas, model_to_panel, pupil, reference, region, waist_grid_candidates)
 
     if best is None:
         raise ValueError(

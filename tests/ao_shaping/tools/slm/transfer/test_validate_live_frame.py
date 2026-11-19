@@ -314,12 +314,16 @@ def test_capture_emits_a_frame_from_its_single_read_funnel():
     from ao_shaping.tools.slm.transfer import capture as capture_mod
 
     source = inspect.getsource(capture_mod.capture)
-    assert "read = _cap_live_reader(" in source
+    # #205 第 131 批: 会话装配区 (含 read=工厂调用) 提为 _cap_session_setup,
+    # 归属者链 capture → _cap_session_setup → _cap_live_reader: 先钉委派边。
+    assert "_cap_session_setup(" in source
+    setup_source = inspect.getsource(capture_mod._cap_session_setup)
+    assert "read = _cap_live_reader(" in setup_source
     factory = inspect.getsource(capture_mod._cap_live_reader)
     body = _loop_body(factory, "def read():")
     assert _emits_payload(body), body
     # 标签必须在光路检查之前就位, 否则那些帧会带着上一段的标签上屏。
-    assert source.index("live_label") < source.index("_cap_verify_light(")
+    assert setup_source.index("live_label") < setup_source.index("_cap_verify_light(")
 
 
 def test_capture_read_funnel_threads_the_displayed_phase_grid():
@@ -336,15 +340,19 @@ def test_capture_read_funnel_threads_the_displayed_phase_grid():
     from ao_shaping.tools.slm.transfer import capture as capture_mod
 
     # #205 第 74 批: read 闭包搬进 _cap_live_reader 工厂, 细胞改为形参传入。
+    # #205 第 131 批: 会话装配区提为 _cap_session_setup, 探针环提为
+    # _cap_phase_loop; 归属者链 capture → {setup, loop} → 工厂, 逐边钉。
     source = inspect.getsource(capture_mod.capture)
-    assert "read = _cap_live_reader(" in source
+    assert "_cap_session_setup(" in source
+    setup_source = inspect.getsource(capture_mod._cap_session_setup)
+    assert "read = _cap_live_reader(" in setup_source
     factory = inspect.getsource(capture_mod._cap_live_reader)
     # (1) read() 闭包把相位细胞带进负载 (多行调用, 逐行搜)。
     read_body = _loop_body(factory, "def read():")
     read_text = "\n".join(read_body)
     assert "phase_grid=live_phase[0]" in read_text
-    # (2) 细胞在交给漏斗之前先在母函数就位, 并以形参进工厂作用域。
-    assert source.index("live_phase = [None]") < source.index("read = _cap_live_reader(")
+    # (2) 细胞在交给漏斗之前先在装配区就位, 并以形参进工厂作用域。
+    assert setup_source.index("live_phase = [None]") < setup_source.index("read = _cap_live_reader(")
     assert "live_phase" in inspect.signature(capture_mod._cap_live_reader).parameters
     # (3) 光路检查与每条探针在写 SLM 之后落值; 平场是第一份相位。
     assert "live_phase[0] = np.zeros" in source

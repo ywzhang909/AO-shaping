@@ -394,7 +394,8 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 
 各页面的用户手册与需求规格说明书见 [`docs/gui.md`](docs/gui.md) 的文档索引。
 其中 `multi_slm_controller.py` 是 Santec SLM-200 的 Streamlit 前端页面，支持最多
-两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场
+8 台 SLM（2026-11-19 `1d776314` 起从硬编码 2 台改为 N 台，`MAX_SLMS=8`）、相位图案
+生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场
 光束整形（GS+SPGD 与物理预测模型闭环）。完整操作手册与需求规格说明书见
 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md)
 与
@@ -408,8 +409,8 @@ AO-shaping/
 │   ├── ao_shaping/     # 主程序包: runners/ algorithm/ model/ drivers/
 │   │                   #   optimizer/ utils/ tools/ display/ gui/
 │   ├── ml/             # 机器学习独立包: gsnet/ phase/ hwdataset/ zernike/
-│   ├── calculators/    # Cython 扩展 (standalone)
 │   └── optical_ui/     # [DEPRECATED] Empty package
+├── experiments/        # Cython 扩展 (原 src/calculators, 不随包发布)
 ├── tests/ao_shaping/   # 测试（镜像 src 结构）
 ├── scripts/            # 实用脚本，按处理对象分组（含 generate_*_report.py）
 │                       # slm/ zernike_bench/ dm/ wfs/ = 设备域；ml/ rl/ oopao/ build/ = 数据与用途

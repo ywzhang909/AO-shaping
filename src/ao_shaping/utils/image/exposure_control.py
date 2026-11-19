@@ -399,6 +399,64 @@ def _ecc_final_bound(estimates, first_clipped, first_saturated, fit_ms, headroom
 
 
 
+
+def _exposure_logfit(fit_full_scale, fit_intercept, fit_ms, fit_ms_values, fit_peaks, fit_slope, saturation_fraction, top_peak_fraction):
+# Two-point log-domain fit lifted verbatim
+    if len(fit_peaks) >= 3 and top_peak_fraction >= _FIT_MIN_TOP_PEAK_FRACTION:
+        x = np.asarray(fit_ms_values, dtype=np.float64)
+        y = np.asarray(fit_peaks, dtype=np.float64)
+        x_mean = float(x.mean())
+        y_mean = float(y.mean())
+        sxx = float(np.sum((x - x_mean) ** 2))
+        sxy = float(np.sum((x - x_mean) * (y - y_mean)))
+        if sxx > 0.0:
+            slope = sxy / sxx
+            intercept = y_mean - slope * x_mean
+            if math.isfinite(slope) and slope > 0.0 and math.isfinite(intercept):
+                target = saturation_fraction * fit_full_scale
+                candidate = (target - intercept) / slope
+                if math.isfinite(candidate) and candidate > 0.0:
+                    fit_ms = candidate
+                    fit_slope = slope
+                    fit_intercept = intercept
+    return fit_intercept, fit_ms, fit_slope
+
+
+
+
+def _exposure_doubling_ladder(camera, estimate_exposures, estimates, first_clipped, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe, pairs, saturation_fraction):
+# Doubling ladder scan lifted verbatim
+    for ms, image in pairs:
+        full_scale = _frame_full_scale(image, camera)
+        peak = float(np.max(image))
+        peak_fraction = peak / full_scale
+        fractions.append(peak_fraction)
+        # A clipped frame is signal by definition; otherwise the peak has to
+        # clear the frame's own noise floor before it can be extrapolated.
+        carries = _carries_signal(image, peak, full_scale)
+        if carries:
+            estimates.append(ms * saturation_fraction / peak_fraction)
+            estimate_exposures.append(ms)
+        if peak_fraction < saturation_fraction:
+            last_safe = ms
+        elif first_saturated is None:
+            first_saturated = ms
+        if peak >= full_scale:
+            # Censored observation: the true peak is at least full scale.
+            if first_clipped is None:
+                first_clipped = ms
+        elif (
+            carries
+            and _FIT_MIN_PEAK_FRACTION <= peak_fraction < saturation_fraction
+        ):
+            if not fit_peaks:
+                fit_full_scale = full_scale
+            fit_ms_values.append(ms)
+            fit_peaks.append(peak)
+    return first_clipped, first_saturated, fit_full_scale, last_safe
+
+
+
 def estimate_exposure_ceiling_ms(
     ladder: Sequence[tuple[float, np.ndarray]],
     *,
@@ -521,33 +579,7 @@ def estimate_exposure_ceiling_ms(
 
     estimate_exposures, estimates, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe = _ecc_init_accumulators(pairs)
     first_clipped: float | None = None
-    for ms, image in pairs:
-        full_scale = _frame_full_scale(image, camera)
-        peak = float(np.max(image))
-        peak_fraction = peak / full_scale
-        fractions.append(peak_fraction)
-        # A clipped frame is signal by definition; otherwise the peak has to
-        # clear the frame's own noise floor before it can be extrapolated.
-        carries = _carries_signal(image, peak, full_scale)
-        if carries:
-            estimates.append(ms * saturation_fraction / peak_fraction)
-            estimate_exposures.append(ms)
-        if peak_fraction < saturation_fraction:
-            last_safe = ms
-        elif first_saturated is None:
-            first_saturated = ms
-        if peak >= full_scale:
-            # Censored observation: the true peak is at least full scale.
-            if first_clipped is None:
-                first_clipped = ms
-        elif (
-            carries
-            and _FIT_MIN_PEAK_FRACTION <= peak_fraction < saturation_fraction
-        ):
-            if not fit_peaks:
-                fit_full_scale = full_scale
-            fit_ms_values.append(ms)
-            fit_peaks.append(peak)
+    first_clipped, first_saturated, fit_full_scale, last_safe = _exposure_doubling_ladder(camera, estimate_exposures, estimates, first_clipped, first_saturated, fit_full_scale, fit_ms_values, fit_peaks, fractions, last_safe, pairs, saturation_fraction)
     fit_intercept, fit_ms, fit_slope = _ecc_reset_fit_triplet(estimates, last_safe)
     # Both guards are required: a two-point line has no residual to reject it,
     # and a ladder whose brightest rung is still dim fits its own pedestal
@@ -555,23 +587,7 @@ def estimate_exposure_ceiling_ms(
     top_peak_fraction = (
         max(fit_peaks) / fit_full_scale if fit_peaks and fit_full_scale > 0 else 0.0
     )
-    if len(fit_peaks) >= 3 and top_peak_fraction >= _FIT_MIN_TOP_PEAK_FRACTION:
-        x = np.asarray(fit_ms_values, dtype=np.float64)
-        y = np.asarray(fit_peaks, dtype=np.float64)
-        x_mean = float(x.mean())
-        y_mean = float(y.mean())
-        sxx = float(np.sum((x - x_mean) ** 2))
-        sxy = float(np.sum((x - x_mean) * (y - y_mean)))
-        if sxx > 0.0:
-            slope = sxy / sxx
-            intercept = y_mean - slope * x_mean
-            if math.isfinite(slope) and slope > 0.0 and math.isfinite(intercept):
-                target = saturation_fraction * fit_full_scale
-                candidate = (target - intercept) / slope
-                if math.isfinite(candidate) and candidate > 0.0:
-                    fit_ms = candidate
-                    fit_slope = slope
-                    fit_intercept = intercept
+    fit_intercept, fit_ms, fit_slope = _exposure_logfit(fit_full_scale, fit_intercept, fit_ms, fit_ms_values, fit_peaks, fit_slope, saturation_fraction, top_peak_fraction)
 
     bound_ms, ceiling_ms = _ecc_final_bound(estimates, first_clipped, first_saturated, fit_ms, headroom, saturation_fraction)
     return ExposureCeilingEstimate(
