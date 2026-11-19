@@ -1,6 +1,7 @@
 # #238 二值光栅破简并采集计划（2026-11-19）
 
-> 状态：**计划，未执行**。本文件只做实验设计；执行前须由用户在回复中明确批准设备占用。
+> 状态：**已在 16 px 周期执行（run1），并据实测修订分析口径**；见文末「执行状态与修订」。
+> 本文件保留实验设计；任何新一轮设备占用仍须由用户在回复中明确批准。
 > 关联：[当日记录](agent_notes_20261119.md) · [slm_lut §10](../slm/slm_lut.md) · GitHub #238。
 
 ## 1. 为什么需要这次采集
@@ -38,3 +39,56 @@
 
 - 采集完成后：写 `summary.json` 与分析结果到 run2_binary；更新当日记录与 #238 issue 评论；根据实测 g₂π 决定是否更新 `docs/slm/slm_lut.md` §10 与 `AGENTS.md` 指针。
 - 若驱动板假死或光路/曝光自检失败：只记录失败原因，不反复重试、不改判据；保持 issue OPEN。
+
+## 6. 执行状态与修订（2026-11-19 实测后追加）
+
+- **run1 已执行**：`data/debug/issue238_binary_phase_20261119/run1/`，对称二值光栅 **16 px** 周期、50% 占空、48 灰度点（粗步 32 + 864..1023 步 8）、**16 帧/点**（777 帧，Mono12，峰值 2048 无饱和，漂移 −0.56%，`error=null`，设备已干净释放）。此为设计第 3 节初版，尚未加周期维。
+- **§4「主拟合 = 绝对效率 e 域最小二乘」经实测证伪为误设定**：理想 full-curve e 拟合给 g₂π≈898、γ≈1.17、rms 0.11，与设备回读 993 及折叠结构矛盾。正确口径为 **γ-无关的折叠/地标估计**（η₁ 第二零点/极小对称轴），理想 e 拟合**降级为诊断量**，不得作为标定值。§4 主拟合一条以本节为准。
+- **run1 结论（合格版）**：折叠 g₂π≈**962.7**（帧 bootstrap CI [959,966]，仅帧噪声）；地标峰（φ=π）≈448；条件 γ≈0.906（系统范围 [0.884,0.920]）；±1 极小分裂 +1≈981 / −1≈952 → 系统包络 **≈[952,981]**，故报告 **g₂π≈964，±13 系统**。简并仅在地标模型内打破，非模型无关绝对标定。885/1023 仍被排除；blaze 幂律 CI[917,961] 与二值区间重叠，**不能宣称决定性排除**。
+- **新增瓶颈 = 周期，不是帧数**：16 px 下像素响应模糊使 e₀ 地板偏高、±1 极小分裂，系统 ±13 由此而来。**加大周期（32/48 px）是唯一有新增价值的上机增量**；采集脚本已支持 `--period-px`，无需改代码。
+
+### 6.1 32 px 尝试（run2_period32）— 采集中止，部分数据退化，需完整重跑
+
+- **采集中止**：`data/debug/issue238_binary_phase_20261119/run2_period32/`，对称二值光栅 **32 px** 周期、50% 占空、**20 帧/点**、计划 51 图案 / 969 帧；实际至 **725 帧（gray 0..928，36 个灰度层）**时 SLM 写入报 `SantecError: 写入相位数据到内存#41失败（错误码 -10032, USB其他错误）` 中止，耗时 529 s。finally 已执行：SLM 关闭 ok / 相机关闭 ok / 锁释放 ok，平场归零失败（同 USB 错误），`release.json.error` 已记录；无残留进程。
+- **曝光选点缺陷已修**：首轮直接正式序列在 `0000_flat_r00` 处 6 像素过曝（bracket 把 0.16 ms 选成「最亮不饱和」，贴 0.9 饱和度线、零裕度）。已把选点改为 `choose_exposure`：在「峰值 ≤ 0.7×满量程」的可用档里取最亮，留漂移裕度；配 4 项单测。修正后 32 px 运行到 USB 中止为止未再出现饱和。
+- **部分数据不可用于收紧**：诊断拟合 `fit_partial.json` 给出 +1/−1 顶点都被钉在 **928.0（数据边缘）**、折叠 **916 [916,928]**（较 run1 低 ≈46 灰度、边缘受限）——因缺 gray 936..1023（±1 各自极小值 ~951/981 与 2π 回归段），**明确退化**。故 32 px 结论不成立，**g₂π 仍以 run1（16 px 完整序列）为准 = 964 ±13**。
+- **后续（需健康设备会话）**：用 `--period-px 32 --frames-per-level 20` 重跑**完整**序列（覆盖至 1023），开跑前先验证 SLM 健康（fresh open + 状态/读写自检）；-10032 若复现按已知假死流程手动重启控制器，不反复重试。
+
+### 6.2 run3 周期扫描（32/48 px）— 采集脚本就绪，未采集
+
+- **脚本**：`scripts/experiments/run_issue238_period_sweep_20261119.py`（薄封装 `scripts/slm/issue238_gray_phase_probes.py --mode binary`）。
+  包一层的理由：探针脚本自带锁与等待，但**一个窗口里连跑 32/48 px 两个周期**需要
+  「串行 + 段间冷却 ≥200 s」（背对背 SLM open/close 会触发驱动板假死）；手敲两次会漏掉其中之一。
+  **注意（2026-11-19 修订）**：探针自带加锁，因此信封**不能**同时持锁——锁由每个子段自己
+  acquire/release，窗口只负责串行、冷却与逐段锁状态留证（首次错误的「窗口持锁」见 §6.3）。
+  信封实现见 `scripts/experiments/_window.py`。
+- **数据落盘**：`data/experiments/issue238_binary_phase_20261119/run3_period_sweep/period32/`、
+  `period48/`（**新根目录 `data/experiments/`**；run1/run2 留在 `data/debug/` 不动，报告与脚本按原路径引用）。
+- **默认参数**：`--frames-per-level 20`、`--periods-px 32 48`、`--cooldown-s 200`、`--wait-until-idle 600`；
+  曝光仍走探针的 `choose_exposure`（峰值 ≤0.7×满量程取最亮，已修零裕度缺陷）。
+- **dry-run**（不建目录、不碰设备）：
+  `.venv\Scripts\python.exe scripts/experiments/run_issue238_period_sweep_20261119.py --run-dir data/experiments/issue238_binary_phase_20261119/run3_period_sweep --exposure-bracket 0.02 0.04 0.08 0.16`
+- **状态**：⬜ **未采集**。前置 = 健康设备会话（fresh open + SLM 状态/读写自检通过）+ 用户授权；
+  32 px 每周期约 969 帧 / ≈10 min，两周期含冷却约 25 min。判读仍按 §4/§6.1 的折叠/地标口径，
+  脚本内**不含**任何拟合（采集与判读分离）。
+
+### 6.3 run3 首次尝试（失败于锁协议，未采一帧）
+
+- **窗口目录**：`data/experiments/issue238_binary_phase_20261119/run3_period_sweep/`，创建于
+  `2026-11-19T07:28:35Z`，整体 `EXIT=1`。**不可复用**（信封 `exist_ok=False`），重试须换新目录。
+- **失败点**：`segments/period32.log` — 子脚本 `scripts/slm/issue238_gray_phase_probes.py:629`
+  的 `acquire_device_lock` 总是尝试 `lock.acquire()`；`--wait-until-idle 0` 只表示「立即失败」，
+  **不是**仓库别处假定的「不等不锁」。而父窗口按设计已持同一把 `DeviceLock`，于是子段在
+  `0.4 s` 内报 `ERROR: bench device lock stayed busy; refusing to start`，`exit_code=2`、
+  `out_exists=false`。**没有打开 SLM/CCD，没有生成任何帧数据**。
+- **释放**：`released.json` `released_at=2026-11-19T07:29:04Z`、`lock_released=true`、`error=null`，
+  复查 `holder=None`。此次失败是参数/封装缺陷，不是设备故障，不构成 §6.1 的 USB `-10032` 复现。
+- **修复要求（已在 2026-11-19 实现并离线验证；无硬件回归见 §6.4）**：自带加锁的采集子脚本**不能**与「父窗口持锁」同时使用；
+  正确分工是——子段自己 acquire/release（父窗口转发真实等待时长），父窗口只负责串行与
+  段间 ≥200 s 冷却，并在每段结束回读锁状态留证。实现：`scripts/experiments/_window.py` 新增
+  `LOCK_MODE_WINDOW`/`LOCK_MODE_SEGMENT`、只读 `open_lock_probe()`/`lock_probe()`、逐段 `lock_after`。
+  离线证据：`pytest tests/ao_shaping/scripts/test_experiment_window_lock_mode.py
+  tests/ao_shaping/scripts/test_issue238_gray_phase_probes.py -q` → 27 passed；`ruff`、
+  `py_compile` 通过；dry-run exit 0 且不建目录、不导入设备模块。
+- **状态**：⬜ **未采集**（本次窗口只证明封装缺陷）。修复后的重试必须落**全新目录**，并重新
+  执行「等锁 → 采 → 核验锁空」。
