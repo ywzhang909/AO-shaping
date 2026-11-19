@@ -349,3 +349,53 @@ class TestVoltageIoExtraction:
             if isinstance(node, ast.ImportFrom) and "runner_common" in (node.module or "")
         ]
         assert not offending, offending
+
+
+class TestModelInLoopIoExtraction:
+    """#205: the model-in-loop savers live in ``model_in_loop_io``; re-exported here.
+
+    Same reasoning as :class:`TestVoltageIoExtraction` -- the extraction only
+    stays behaviour-neutral while both entry points resolve to the SAME object.
+    ``model_in_loop_io`` imports ``runner_common`` (for the params type) only
+    under ``TYPE_CHECKING``; a runtime import would make the re-export circular.
+    """
+
+    def test_runner_common_reexports_the_saver_objects(self) -> None:
+        from ao_shaping.runners import model_in_loop_io, runner_common
+
+        assert set(model_in_loop_io.__all__) == {
+            "ModelInLoopSaveResult",
+            "save_model_in_loop_config",
+            "save_model_in_loop_results",
+        }
+        mismatched = [
+            name
+            for name in model_in_loop_io.__all__
+            if getattr(runner_common, name) is not getattr(model_in_loop_io, name)
+        ]
+        assert not mismatched, mismatched
+
+    def test_runner_common_import_is_type_checking_only(self) -> None:
+        import ast
+        from pathlib import Path
+
+        from ao_shaping.runners import model_in_loop_io
+
+        tree = ast.parse(Path(model_in_loop_io.__file__).read_text(encoding="utf-8"))
+        guarding = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Name)
+            and node.test.id == "TYPE_CHECKING"
+        ]
+        assert guarding, "no TYPE_CHECKING block -- the cycle guard is gone"
+        inside = {id(child) for guard in guarding for child in ast.walk(guard)}
+        runtime_offenders = [
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and "runner_common" in (node.module or "")
+            and id(node) not in inside
+        ]
+        assert not runtime_offenders, runtime_offenders

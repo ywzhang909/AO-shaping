@@ -126,6 +126,7 @@ _SLM_ZERNIKE_PIB = "src/ao_shaping/optimizer/wfless/slm_zernike_pib.py"
 _ADAM = "src/ao_shaping/algorithm/gradient/adam.py"
 _RECORDING = "src/ao_shaping/tools/slm/transfer/recording.py"
 _RUNNER_COMMON = "src/ao_shaping/runners/runner_common.py"
+_MODEL_IN_LOOP_IO = "src/ao_shaping/runners/model_in_loop_io.py"
 _CALIBRATION = "src/ao_shaping/tools/slm/calibration/calibration.py"
 _DATASET = "src/ml/hwdataset/dataset.py"
 _AXIS_BEAM_RUNNER = "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py"
@@ -494,10 +495,10 @@ TARGETS = [
     (_RECORDING, "_rpg_draw_readout", 16, 1, 13),
     (_RECORDING, "_rpg_draw_trajectories", 24, 2, 20),
     (_RECORDING, "_rpg_draw_heading", 14, 2, 12),
-    (_RUNNER_COMMON, "save_model_in_loop_results", 152, 3, 136),
-    (_RUNNER_COMMON, "_smil_prepare_outputs", 16, 1, 13),
-    (_RUNNER_COMMON, "_smil_save_error_terms", 48, 3, 41),
-    (_RUNNER_COMMON, "_smil_save_artifacts", 40, 2, 34),
+    (_MODEL_IN_LOOP_IO, "save_model_in_loop_results", 152, 3, 136),
+    (_MODEL_IN_LOOP_IO, "_smil_prepare_outputs", 16, 1, 13),
+    (_MODEL_IN_LOOP_IO, "_smil_save_error_terms", 48, 3, 41),
+    (_MODEL_IN_LOOP_IO, "_smil_save_artifacts", 40, 2, 34),
     (_CALIBRATION, "align", 150, 3, 137),
     (_CALIBRATION, "_align_candidate_setup", 22, 3, 18),
     (_CALIBRATION, "_align_fov_probe", 63, 3, 57),

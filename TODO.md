@@ -5310,6 +5310,479 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 教训㉗: 棘轮行的 measured 必须取守卫口径 (`ast 装饰器无关的 def..end`), 手写估计 3 行超限当场红; 提交前先跑一次形状门禁再写行
 - 载体: GS 三测试族 (square_shaping/gs_runner/cython parity skip) + 形状门禁 + conventions **449+380 全绿**; 模块 441→481 (<800 不受管)
 
+**2026-11-16 · 022984a4 · 第 108 批: `capture` 272→237 行 + 四缝 (`tools/slm/transfer/capture.py`)**
+- 提取: `_cap_exposure_bounds` 14 (floor/ceiling/保护上限三回传) / `_cap_show_flat_phase` 9 / `_cap_commit_sample` 23 (`flat_frame_name` 经 _cap_spot_xy 回写透传) / `_cap_bad_status_note` 8
+- trust 放行: 函数体内 import (get_camera_exposure_range 等 3) + 兄弟 For 保证绑定 (attempt/clocks/frame/raw/setting, break 在所有 store 之后)
+- 源钉迁移: `test_capture_read_funnel_threads_the_displayed_phase_grid` (3) 项按归属者链重钉 `capture → _cap_show_flat_phase` (第 39/74 批同惯例), 平场落值性质原样保留
+- 叶差分: 24 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中
+- 教训㉗复发即防线: 棘轮 measured 两次凭手写估计翻车 (b107/b108), 已固化为「先跑形状门禁再写行」
+- 载体: transfer 逐文件域 **461 passed 3 skipped** (含 capture e2e mock 与 read 漏斗钉); conventions 72 passed
+- 门禁: 棘轮 273/7/237 + 4 helper 行; 模块 888→920 baseline 抬高 +32 (第 74 批已越 800 受管线)
+
+**2026-11-16 · e5b27b4f 之后 · 第 109 批: `_run_pib_session` 232→196 行 + 三缝 (`slm_zernike_pib.py`)**
+- 提取: `_pib_default_init_c` 13 / `_pib_make_optimizer` 26 (delta 形参通道, 同 b60 判定但这次显式透传后语义闭合) / `_pib_seed_best_state` 9 (best_* 四回传)
+- 叶差分: 38 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 棘轮 226/5/196 + 3 helper 行一次过 (㉗ 防线生效)
+- 锚点 +24 重钉: ABBA 2066→2090、`--max_peak` 2343-2353→2367-2377、`BaseException` 1813→1837 (三处)
+- 载体: pib 13 文件 + conventions **182+72 全绿**; wfless 逐文件域 (与 ci-fix 合并跑, 见下条)
+
+**2026-11-16 · 与第 109 批同窗 · ci-fix: gitub/master 合并欠账四处**
+- `a60a87ca` 只提交了调用点没提交本体: 补交 `algorithm/signal_processing/shaping_lr_schedule.py` (`LR_SCHEDULES` = cosine/step/warmup-cosine + `_lr_schedule_factor`, 按已入库调用点与两套测试语义重建), 否则 wfless/algorithm 五个测试文件收集即 `ModuleNotFoundError`
+- `differentiable_beam.set_lr` 文档串引用同样未入库的 `scripts/slm/sweep_differentiable_lr.py` ⇒ 改写为指向 `shaping_lr_schedule` 模块 (不虚构脚本)
+- `test_differentiable_shaping.py::test_none_schedule_reproduces_pre_change_trajectory` 用 1e-6 圆整逐位钉 ⇒ 跨 torch 构建 1 ULP 漂移 (实测 index 10 差 1e-6) 首跑即红; 按 #205 golden 容差惯例改 `pytest.approx(abs=5e-6)` (漂移 ×10)
+- 术语门禁: 上游新报告/脚本带入 4 文件 16 行口语词, `term_unify --apply` 归一, 复核 0/0
+
+**2026-11-16 · b00addab 之后 · 第 110 批: `optimize_spgd` 171→72 行 + 五缝 (`wfless/sim_spgd.py`)**
+- 提取: `_spgd_build_sim_system` 33 / `_spgd_turbulence_screen` 16 / `_spgd_bucket_and_state` 32 (22 回传, 全部为区域后实读) / `_spgd_record_baseline` 22 / `_spgd_pick_optimizer` 16; 主循环 `_spgd_run_loop` 本已是 helper
+- 生成器修复: `params0` 不含 `**kwargs` 捕获名 (fn.args.kwarg) ⇒ `kwargs` 报 not-in-pre; 三个 split 脚本已补 kwarg 并入
+- 叶差分: 19 同 / 消失 0 / 新增 5; ⑳ 审计 0 命中
+- 载体: `test_sim_spgd` + `test_spgd_convention` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0
+- 教训㉘: `ruff check . > /dev/null && echo ruff_ok` 把失败静默吞掉 (b109 推后 Ruff 红一次, 上游产物 F401 未拦住); 门禁复验一律**不打到 /dev/null**, 以 `RUFF_GREEN` 打显为过闸凭据
+- 门禁: 棘轮 83/2/72 + 5 helper 行; 模块 1051→1091 baseline 抬高 +40
+
+**2026-11-17 · 3926832d 之后 · 第 111 批: `_run_validate_session` 170→101 行 + `_make_tune_exposure` 工厂 (`transfer/validate.py`)**
+- 提取: 会话段内 `tune_exposure` 闭包 (797-866, 含内层 `read_exposure`) 逐字提为模块级工厂 `_make_tune_exposure` (11 参数 / 回传 `tune_exposure` 闭包本体), b74 `_cap_live_reader` 同法
+- 源钉重钉: `test_validate_live_frame.py` 曝光阶梯钉 `phase="exposure"` 原钉会话段, 闭包搬家后沿委托链改钉 `run → _run_validate_session → _make_tune_exposure` (先钉委派边 `_make_tune_exposure(` 存在, 再钉工厂体内发帧), 未弱化
+- 教训㉙: **形状门禁的 nesting 口径把嵌套 `def` 计入深度** (自算 maxnest 只数 If/For/While/With/Try 会低估); helper 行的 nest_max 一律以 guard 报错实测为准 (本批 `_make_tune_exposure` 1→2)
+- 载体: 形状门禁 394 passed (行 `_run_validate_session` 收紧 230/5/170→110/4/101, 新增 `_make_tune_exposure` 80/2/73) + transfer 五文件 457→全过 + `test_conventions` 72 passed; tools/slm 逐文件域 exit=0
+- 门禁: 棘轮 80/2/73 + 110/4/101; 模块 1423→1431 baseline 抬高 +8; ruff/term 绿
+
+**2026-11-17 · eb2f152f 之后 · ci-fix: 上游合并遗留的 4 个 CI 红测试 (drivers×2 / inventory / scripts 守卫)**
+- `test_frame_averaging[uint16-65535-daheng]`: 上游 2026-11-16 把大恒位深改为**公开 `bit_depth` 单一存储** (私有缓存删除), 测试仍设 `_bit_depth` ⇒ `_full_scale()` 走默认 8 bit 得 255; 测试跟契约补设 `cam.bit_depth` (驱动行为不动)
+- `test_missing_env_falls_back_to_bundled_libs`: `libs/gxipy` 被 `.gitignore` `gxipy*` 排除, 全新 checkout 无此绑定, 断言"仓库确含"不成立 ⇒ 缺绑定时 `pytest.skip` (语料缺失先例同法, 开发机路径仍真断言)
+- `test_inventory_rows_match_directories`: b00addab 重建的 `shaping_lr_schedule` 未登记 `module_inventory.md` signal_processing 行 ⇒ 补登记 (含重建来源 a60a87ca 注记)
+- `test_no_script_hardcodes_a_machine_absolute_path`: 上游新脚本 `absolute_fidelity_probe_20261116.py` 硬编码 `D:\Projects\TIFO\...` 两处 ⇒ docstring 改仓库根占位说明, `pythonpath_note` 改 `ROOT / 'libs'` 运行时推导 (守卫正则所求)
+- 教训㉚: **域绿 ≠ 分片绿** —— b109-b111 连推三个 tip 期间我只复跑 wfless/tools/slm/guards 域, drivers/root-guards/scripts 三个 CI 分片的失败 (全是上游合并携带) 一路跟到 tip; 推前至少要碰一碰**改动文件所在域 + 文档/脚本守卫 + drivers** 这三块, 或干脆全量 `scripts/build/run_pytest_ci.sh` 不带路径
+
+**2026-11-17 · 6bd66307 之后 · 第 112 批: `run_measurement` 173→74 行 + 四缝 (`calibration/diffraction_efficiency/measure.py`)**
+- 提取: `_measure_calibration_precondition` 26 (标定前置 if/else) / `_measure_gate_log` 16 (FWHM 门禁+日志) / `_measure_fit_diagnose` 17 (拟合+诊断) / `_measure_build_meta` 56 (meta 字典纯组装); 全程无 break/continue, 单调用底向上
+- **教训㉙更正**: 形状门禁的 nesting 口径是 **If/For/While/Try/With 控制流链** (`NESTING_NODES`, 定义见 guard 文件), **嵌套 def 不计** —— b111 的 `_make_tune_exposure` 报 2 实际是 `if fixed_exposure_ms` 内的 `for _ in range(3)` 构成 If→For 深度 2; 自算口径不要猜, 一律 `import` guard 模块调 `_measure(rel, name)` 取实测 (行 (90/1/74)+4 helper 均按此写, 一次过 459 passed)
+- 载体: `test_slm_diffraction_efficiency` + 形状门禁 459 passed; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮 5 行 (父收紧 200/1/173→90/1/74); 模块 964→996 baseline 抬高 +32; ruff/term 绿
+- 候选队列更新: `capture_response.capture` 162 **无行为载体** (tests 仅 CLI-argv 计数与 help 快照) → 按"硬件文件缺离线行为测试=只跟踪"约束移出本批评; `wfs_reference.main` 162 同型 (纯硬件 CLI) 亦移出
+
+**2026-11-17 · 5b9e384d 之后 · 第 113 批: `simulate_iterative_shaping` 160→69 行 + 两缝 (`wfless/model_in_loop_shaping.py`)**
+- 提取: `_mil_run_rounds` 75 行 (反复迭代整形主循环逐字提为模块级 helper, 回传 `phase`; 循环体全程无 break/continue/return, 单次底向上 lift) / `_mil_make_rearm` 24 行 (`rearm` 闭包提为工厂, 回传 `rearm`, 仅捕获 `config`/`region`)
+- **㉙ 口径复核**: 两缝的 `nret` 由 guard 实测 (`_measure`) 而非自算 —— 循环段仅 `phase` 在区域后被读 (1354 重绑 → return 处消费), `rounds` 全程就地 append 不重绑 ⇒ 不回传; 闭包段回传其自身名
+- 叶差分: 76 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 3406→3422 baseline 抬高 +16
+- 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **482 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮新增 3 行 (80/0/69 + 85/2/75 + 28/0/24); ruff/term 绿
+
+**2026-11-17 · 3ac9dc58 之后 · 第 114 批: `calibrate_zernike_response_matrix` 162→112 行 + 两缝 (`wf/zernike_response_matrix.py`)**
+- 提取: `_zrm_measure_mode` 46 (逐模式响应测量段, 循环内 574-616; **display 的 `if not continue_flag: break` 块留在循环内** —— 教训⑧, 缝边界切在 616) / `_zrm_inverses` 12 (pinv/lstsq 求逆段 640-648); 15 参数 3 回传 (`mean_resp`/`slot`/`var_resp` 均为区域后被读)
+- wiki 重钉: `save_zernike_response_matrix` 659→675 (lift +16 位移), md + 双 JSON 三处同步 (`test_wiki_source_citations_land_on_definitions` 一次红→重钉绿)
+- 附带修: `absolute_fidelity_probe_20261116.py:38` docstring 非 raw 内 `\l` SyntaxWarning ⇒ 反斜杠双写 (与 6bd66307 同文件的收尾打磨)
+- 载体: `test_zernike_response_matrix` + 形状门禁 **432 passed**; wf 逐文件域 exit=0; `test_conventions` 133 passed (含 diffraction 载体共跑)
+- 门禁: 棘轮收紧 178/4/162→125/3/112 + 新增 `_zrm_measure_mode` 52/1/46、`_zrm_inverses` 15/1/12; 模块 881→897 baseline 抬高 +16; ruff/term 绿
+
+**2026-11-17 · 8f2487b6 之后 · 第 115 批: `fit_phase_response` 181→124 行 + 两缝 (`calibration/diffraction_efficiency/core.py`)**
+- 提取: `_fitpr_prepare_inputs` 32 (keep-mask/门禁剔除/命令归一, 5 参数回传 cmd/u/y/y0) / `_fitpr_residual_stats` 33 (模型重算+残差+stderr 自举, 9 参数回传 model_r1/outliers/rms/stderr)
+- **教训㉛**: 深度种子扫描整 For (1268-1306) 本可提 (`continue`@1304 在被提环内随之搬家, 语义合法), 但生成器对**任何含 break/continue 的区域**一律拒 (保守规则, 无法区分归属) ⇒ 放弃该缝, 父 124 行仍在 150 阈值下, 达标即止; 若要吃下这类缝须给生成器加"区域=整环"豁免, 属工具扩展不是本批范围
+- 载体: `test_slm_diffraction_efficiency` + 形状门禁 **467 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮新增 3 行 (140/5/124 + 40/3/32 + 40/1/33); 模块 1546→1562 baseline 抬高 +16; ruff/term 绿
+
+**2026-11-17 · 7501371b 之后 · 第 116 批: `calibrate_bench_geometry_from_sweep` 186→130 行 + 四缝 (`wfless/model_in_loop_shaping.py`)**
+- 提取: `_milsg_require_groups` 20 (空 groups 的 SweepCalibrationError 抛出) / `_milsg_require_defocus` 10 (缺 defocus 抛出) / `_milsg_waist_verdict` 21 (waist 判定日志, 回传 `waist_model`) / `_milsg_log_geometry` 21 (标定汇总日志, 零回传); raise 块整体提走合法 (异常照常传播), 缝内全程无 break/continue
+- 叶差分: 78 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 3422→3454 baseline 抬高 +32
+- 载体: `test_model_in_loop_shaping` + `test_model_in_loop_sweep_diagnostics` + `test_slm_model_in_loop_step_sink` + 形状门禁 **491 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed (本批 lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 214/3/186→145/1/130 + 新增 4 helper 行 (均 guard `_measure` 实测); ruff/term 绿
+- 队列更新: 本模块同族 `calibrate_bench_geometry` 173 的缝含 break 环 (教训㉛ 同型), 剩余可提段 <30 行, 收益不足转 pin-only; `optimize_beam_shaping` 153 / `_run_spgd_epochs` 195 / `closed_loop_run` 154 (b76 后) 转入下批评估
+
+**2026-11-17 · 0acc8699 之后 · 第 117 批: `_run_spgd_epochs` 195→47 行 + 整环提取 (`wfless/pib.py`, 生成器 bound-break 豁免首战)**
+- 工具扩展 (㉛ 后续): 生成器加**绑定豁免** —— 区域内 break/continue 仅当**区域内没有包含它的完整 For/While** 才拒绝; 整环可整体提走 (break 随环走)。split117.py 起为新基线; 本批配套加**绑定后审** (helper 内每个 break/continue 必被 helper 内某 For/While 包含) 验证
+- 提取: `_spgd_epoch_loop` 152 (tqdm 逐轮环整体提走, 36 参数 6 回传 `_init_r/_init_v/best_objective/delta/last_best_epoch/r_bucket`, 其中 delta 为 ⑳ 型重绑参数)
+- wiki 重钉: `optimize_pib` 509→517/661→669 —— md 引文 + index.md + 双 JSON; JSON `"end": 661` 全库不唯一 ⇒ 以相邻 `"lineno": 509,\n   "end": 661` 对为锚替换
+- 载体: `test_pib_objective_columns` + `test_pib_objective_sign` + `test_spid_pib_path_characterization` + 形状门禁 **430 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 棘轮收紧 230/5/195→55/0/47 + 新增 `_spgd_epoch_loop` 170/5/152; 模块 1085→1093 baseline 抬高 +8; ruff/term 绿
+
+**2026-11-17 · db8820c8 之后 · 第 118 批: `_run_validate_blocks` 188→45 行 + 整环提取 (`transfer/validate.py`)**
+- 提取: `_validate_block_loop` 147 (逐块细化 for-block 环整体提走, 24 参数 3 回传 `best/champion/exposure`; 环体含 2 个内层环, 全程无 break/continue, 绑定后审通过 —— 与 b117 不同本批**无需豁免**, 常规路径)
+- 闭包参数照常入参 (`capture`/`save_summary`/`tune_exposure` 均为父级局部闭包, 沿 b111 工厂形态直接传引用)
+- 叶差分: 24 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 1431→1439 baseline 抬高 +8
+- 载体: `test_transfer_workflow` (validate.run fake e2e 驱动到 blocks 段) + 形状门禁 **464 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed (lift 未移动任何被引用行)
+- 门禁: 棘轮收紧 200/5/181→55/0/45 + 新增 `_validate_block_loop` 160/5/147; ruff/term 绿
+
+**2026-11-17 · e765c8cd 之后 · 第 119 批: `ModelInLoopConfig.__post_init__` 150→38 行 (`wfless/slm_model_in_loop.py`)**
+- 提取: `_validate_mil_scalars` 116 (参数/载波前置校验 113 行 raise 链整体提走, 1 参数 0 回传, 调用点 `_validate_mil_scalars(self)`; helper 落在**类外**模块级——类内方法提取的既定形态, 见 b109 教训)
+- 叶差分: 56 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 4172→4180 baseline 抬高 +8
+- 载体: `test_slm_model_in_loop` + `test_model_in_loop_shaping` + `loop_invariants` + 形状门禁 **626 passed**; wfless 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增 `__post_init__` 50/2/38 与 `_validate_mil_scalars` 128/2/116; ruff/term 绿
+- CI: ci118 (b117 db8820c8) 0 失败、ci119 (b118 e765c8cd) 0 失败
+
+**2026-11-17 · da535a8c 之后 · 第 120 批: `tabu_search.run_search` 152→82 行 (`algorithm/tabu/tabu_search.py`)**
+- 提取: `_evaluate_search_candidates` 74 (候选生成 `if` 分支 + 评估 `for` 环整体提走, 7 参数 4 回传 `best_candidate/evaluated/safe_rejects/tabu_hits`; 环内 break 由内层环绑定, bound 后审通过)
+- 缝选择教训 (新 ㉜): ①区域起点必须落在**语句边界**——从 `if` 体内(419)起会混缩进层, 须含 `if` 头(418); ②区内含 `return`(491 的"无有效候选"早退)生成器**拒收**, 缩短区域至 488 把早退块留在父级(父级剩余 82 行中含该早退, 不再二次切)
+- 叶差分: 8 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块行数不变 (baseline 无抬高)
+- 载体: `test_tabu_search` + 形状门禁 **431 passed**; algorithm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: 新增常量 `_TABU` + 行 `run_search` 95/1/82、`_evaluate_search_candidates` 88/2/74; ruff/term 绿
+- CI: ci120 已启动 (b119 da535a8c) 轮询中
+
+**2026-11-17 · a4403883 之后 · 第 121 批: `render_sidebar` 289→37 行 (`gui/zernike/zernike_response_matrix_ui.py`)**
+- 提取: 四个 section 助手 `_render_calibration_params_section` 83 / `_render_wfs_params_section` 92 / `_render_slm_params_section` 47 / `_render_device_connection_section` 46 (全部 st.* 控件块逐区提取; 前三者 0 参数 0 回传, 第四个 1 参数 `col1`——区内先 `col1, col2 = st.columns(2)` 重绑后使用, 传入值不被读取, 语义逐字节保持)
+- 叶差分: 22 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 1604→1636 baseline 抬高 +32
+- 载体: `test_zernike_response_matrix_ui` + 形状门禁 **442 passed**; `gui/zernike` 逐文件域 **22 passed**; `test_conventions` 72 passed
+- 环境限制: `gui` 全域 17 收集错误 = 容器无 `PySide6` (CI 有该依赖、master 全绿), 与本次改动无关
+- 门禁: `render_sidebar` 收紧 319/4/289→45/3/37 + 新增四条 section 行; ruff/term 绿
+
+**2026-11-17 · 498420dd 之后 · 第 122 批: `focus_probe.sweep_focus` 153→93 行 (`tools/slm/panel/focus_probe.py`)**
+- 提取: `_fp_sweep_diopter_branch` 39 (diopters 分支连同内层扫描环整体提走, 7 参数 0 回传, 环内 break 由内层环绑定) + `_fp_sweep_pick_and_verdict` 29 (尾段排名/线性度/遮挡裁决, 19 参数 6 回传 `best/best_diopter/linearity/gain/blocked_reason/path_blocked`)
+- 尾段只切到裁决行为止 (629-654)——函数末尾 `return FocusProbeResult(...)` 留在父级, 避开"区内含 return 拒收"(b120 教训 ㉜)
+- 叶差分: 16 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 991→1007 baseline 抬高 +16
+- 载体: `test_focus_probe` + 形状门禁 **456 passed**; tools/slm 逐文件域 exit=0; `test_conventions` 72 passed
+- 门禁: `sweep_focus` 收紧 176/5/153→105/1/93 + 新增两条 helper 行; ruff/term 绿
+
+**2026-11-17 · 453a97d3 之后 · 第 123 批: `_tab2_fragment` 279→141 行 (`gui/dm/micro_dm_ui.py`)**
+- 提取四个 GUI 区块: `_mdm_render_pattern_generation_section` 39 / `_mdm_render_io_section` 30 / `_mdm_render_hardware_ops_section` 38 / `_mdm_render_dynamic_voltage_section` 47 (参数仅 `vmin/vmax/fill_value` 等 session 值, 全 risk=0)
+- 叶差分: 29 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 1213→1245 baseline 抬高 +32
+- 载体: `test_micro_dm_threads` + 形状门禁 **439 passed**; `test_conventions` 72 passed
+- 门禁: `_tab2_fragment` 收紧 309/7/279→160/7/141 + 新增四条 section 行; ruff/term 绿
+
+**2026-11-17 · 592fd051 之后 · 第 124 批: `_tab1_fragment` 220→38 行 (`gui/dm/micro_dm_ui.py`)**
+- 提取三段: `_mdm_tab1_voltage_control_block` 148 (电压控制大容器, 1 参数 `channel`) / `_mdm_tab1_status_containers` 33 (状态容器) / `_mdm_tab1_channel_columns` 13 (通道列, 1 回传 `channel`)
+- 叶差分: 33 同 / 消失 0 / 新增 3; ⑳ 审计 0 命中; 模块 1245→1269 baseline 抬高 +24
+- 载体: `test_micro_dm_threads` + 形状门禁 **442 passed**; `test_conventions` 72 passed
+- 门禁: `_tab1_fragment` 收紧 250/7/220→50/2/38 + 新增三条 helper 行; ruff/term 绿
+
+**2026-11-17 · 81a5d6bf 之后 · 第 125 批: `render_sidebar` 224→78 行 (`gui/slm/slm_calibration_ui.py`)**
+- 提取四区: `_slm_cal_render_storage_and_method` 56 / `_slm_cal_render_roi_section` 42 / `_slm_cal_render_auto_exposure` 28 / `_slm_cal_render_device_connection` 36
+- ⚠️ 教训 (新 ㉝): **多区一次 lift 不得跨越"绑定在下区、使用在后区"的名字链**。首轮五区同提把 `col1/col2` 的绑定区(标定参数 `st.columns(2)`)一起提走, 后区调用点变 F821; 回滚后改为**分步 lift + 每步 ruff 复核**, 并**保留绑定区在父级**(ROI/自动曝光助手以 `col1/col2` 入参、回传各自重绑值, 与原文条件分支语义逐字节一致)
+- 叶差分: 12 同 / 消失 0 / 新增 4; ⑳ 审计 0 命中; 模块 849→881 baseline 抬高 +32
+- 载体: `test_slm_calibration_thread_boundary` + 形状门禁 **439 passed**; `test_conventions` 72 passed
+- 门禁: `render_sidebar` 收紧 254/4/224→90/2/78 + 新增四条 helper 行; ruff/term 绿
+
+**2026-11-17 · 4eb87127 之后 · 第 126 批: `optimizer_ga` 188→93 行 (`optimizer/wf/ga_zernike.py`)**
+- 提取 `_ga_run_evolution` 99 行 (14 参数 0 回传, 覆盖种群初始化 + 初评 + tqdm 进化环)
+- ⚠️ 教训 (新 ㉞): **lift 改变 def 行号 → 生成型 wiki 的 `source:` 引用会失效**, `test_conventions::test_wiki_source_citations_land_on_definitions` 会红。修法是补全生成管线 `build_call_graph.py → finalize_graph.py → gen_wiki_pages.py` (缺 `finalize_graph` 时 `gen_wiki_pages` 仍读旧 `call_graph_final.json`, 白忙一轮), 之后**只保留该页 diff、回滚其余页的时间戳漂移** (`gen_wiki_pages.py` 的 `DATE` 常量会把 `updated:` 打回 2026-10-13)
+- 叶差分: 7 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中
+- 载体: `test_ga_zernike` + 形状门禁 **451 passed**; wf 域 174 passed / 1 skipped (需 mock 设备); `test_conventions` 全绿
+- 门禁: `optimizer_ga` 收紧 206/6/188→104/2/93 + 新增 `_ga_run_evolution` 110/4/99; ruff/term 绿; 模块未入 modsize 基线 (413 行低于阈值)
+
+**2026-11-17 · 309772d7 之后 · 第 127 批: `_run_heuristic` 150→73 行 (`optimizer/wfless/slm_zernike_pib.py`)**
+- 提取 `_run_heuristic_with_progress` 81 行 (19 参数 1 回传 `result`, 覆盖 tqdm 会话 + `_on_evaluate` 回调闭包 + `run_heuristic_search` 调用)
+- ⚠️ 教训 (新 ㉟): **模块净位移会同时打红两类"文档行号锚点"守卫, 且修法不同** — `test_wiki_source_citations_land_on_definitions` 只看 `source:` 头 (b126 已解); 而 `test_live_doc_line_anchors_still_point_at_their_code` 解析**表格行内的 `file.py:NNNN` 引用**, 追加一句"重钉→`:新号`"**不生效** (解析器只认原引用), 必须把行内原引用数字直接改掉。本批同步重钉 `docs/slm/pre_run_characterization.md` (ABBA 探针 2075→2083) 与 `TODO.md` (`--max_peak` 块 2352-2362→2360-2370)
+- 叶差分: 39 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 2682→2690 (baseline 抬高 +8)
+- 载体: `test_slm_zernike_heuristic` + `_pib_loop` + `_pib_production_sim` + 形状门禁 **478 passed**
+- wfless 域: 聚合跑在 32% 处 OOM (exit 137, 6g/16g 同) — 逐文件跑 **55/55 文件全绿**, 唯一 rc=5 是 `test_slm_zernike_pib_online` 的 `AO_RUN_HARDWARE` 门; 聚合 OOM 属既有内存压力, 与本改动无关
+- 门禁: `_run_heuristic` 新增行 84/1/73 + `_run_heuristic_with_progress` 93/2/81; ruff/term 绿; `test_conventions` 72 passed
+
+**2026-11-17 · 2ebc3463 之后 · 第 128 批: `_run_combined_session` 188→77 行 (`optimizer/combined_optimizer.py`)**
+- 提取 `_comb_run_epochs` 115 行 (19 参数 3 回传 `delta/r_bucket/window`, 覆盖 epoch 准备 + `_saturate_epoch` 闭包 + tqdm 进化环)
+- ⚠️ 教训 (新 ㊱): **本地重跑 wiki 生成管线会"瘦身"整个图** — 容器缺 `PySide6`, `build_call_graph.py` 的 import 遍历丢模块, final nodes 215→177、edges 290→232; 若照单全收会**删改无关页面**。正确做法: 回滚全部生成产物, 只**手工把该页 `source:` 引用的 def 行号改成新值** (本批 `optimize-pib-combined.md` 421→429), 再全量跑 conventions 验证。生成管线只在 CI/依赖完整的机器上整跑
+- 叶差分: 8 同 / 消失 0 / 新增 1; ⑳ 审计 0 命中; 模块 408→520 (低于 modsize 阈值, 基线不变)
+- 载体: `test_combined_optimizer_voltage_reset` + `test_combined_dm_factory` + 形状门禁 **443 passed**; optimizer 顶层域 60 passed; `test_conventions` 72 passed
+- 门禁: `_run_combined_session` 收紧 217/7/188→85/3/77 + 新增 `_comb_run_epochs` 127/4/115; ruff/term 绿
+
+**2026-11-17 · 7c1b2a31 之后 · 第 129 批: `main` 262→124 行 (`gui/ccd/ccd_analyzer.py`)**
+- 提取 `_ccd_render_realtime_panel` 78 行 (实时控件 + 帧预览) 与 `_ccd_render_connection_controls` 68 行 (连接/断开), 均 0 参数 0 回传
+- ⚠️ 教训 (新 ㊲): **区域末尾必须落在最后一条语句的 end_lineno, 空白行会让生成器的 `pristine` 断言炸** (`AssertionError: ('pristine', '_ccd_render_realtime_panel')`); 本批 931:1007 → 931:1005 才通过。另: 侧栏相机设置段 (780:861) 因引用**条件导入**的 `MIICamManager` (不在模块级绑定) 被生成器拒收, 放弃该段
+- 叶差分: 26 同 / 消失 0 / 新增 2; ⑳ 审计 0 命中; 模块 1031→1047 (baseline 抬高 +16, 属 helper 签名/空行开销)
+- 载体: `test_ccd_analyzer_offline` + 形状门禁 **446 passed**; ccd 可导入用例 15 passed; `test_conventions` 72 passed
+- 环境: `tests/ao_shaping/gui/ccd` 4 个收集错误全是容器缺 `PySide6` (既有)
+- 门禁: `main` 收紧 295/4/265→136/4/124 + 新增两 helper 行 88/3/78、78/3/68; ruff/term 绿
+
+**2026-11-17 · af477e43 之后 · 第 130 批: `_run_session_rounds` 241→74 行 (`tools/slm/transfer/workflow.py`)**
+- 提取三区: `_wf_round_setup` 86 (10 参数 11 回传, 覆盖输出路径/suffix/options 组装) / `_wf_round_online_audit` 62 (11 参数 2 回传 `audit/suffix`, 在线标定审计各阶段) / `_wf_round_fit_quality` 31 (8 参数 3 回传 `accepted/measured_correlation/measured_relative_l2`, 拟合质量裁决)
+- ⚠️ 教训 (新 ㊳): **生成器 pristine 校验必须扫描 `body`/`orelse`/`finalbody`/handlers 四类语句表** — 旧校验只取 `host.body`, 而本批两区 (1191:1249/1254:1281) 位于 `if offline:` 的 `else:` 分支, `prs` 恒为空 → `AssertionError: ('pristine', ...)`; 重写阶段的 `find_run` 本就递归 `orelse`, 只有校验失配。改法是候选表遍历 + "从 A 开始的最大连续 run 且末条 end_lineno==B"
+- ⚠️ 教训 (新 ㊴): **lambda 默认参数与嵌套分支里的名字加载会被漏算** → 需按 helper 强制覆盖。首轮三区同提产生 8 个 F821 (`anchored_out` 作 `_wf_round_online_audit` 的入参; `zero/reference` 应作 `_wf_round_setup` 的回传; `measured_correlation/measured_relative_l2` 应作 `_wf_round_fit_quality` 的回传——它们只出现在 `stage(lambda ...=...)` 默认参数与 else 分支的 logger 调用中)。回滚后给生成器加 per-helper 覆盖重提, 全绿
+- 叶差分: 三区 verbatim=True (28/59/83 行); 新增名仅 3 个 helper; 模块级 import 无泄漏
+- 载体: `test_transfer_workflow` + 形状门禁 **494 passed**; transfer 域 15 个 `test_transfer_*` 文件 **133 passed**; `test_conventions` 72 passed / 1 skipped (容器 ruff 不在 PATH)
+- 环境: 工作树测试 runner 用 `/tmp/rp_205b.sh` (repo 自带 `run_pytest_ci.sh` 按脚本自身位置解析 REPO, 测不到 worktree)
+- 门禁: `_run_session_rounds` 收紧 280/4/241→85/4/74 + 三 helper 行 95/1/86、70/1/62、35/1/31; modsize baseline 抬高 +24 (workflow.py 1808→1832, helper 签名/docstring/空行开销); ruff/term 绿
+
+**2026-11-17 · bb8a049b 之后 · 第 131 批: `capture` 237→90 行 (`tools/slm/transfer/capture.py`)**
+- 提取三区: `_cap_session_setup` 34 (8 参数 8 回传, 相机实时读取与会话零点) / `_cap_phase_loop` 82 (20 参数 3 回传 `early_stopped/exposure/flat_frame_name`, 逐相位捕获环整体提走, 环内 break 随环走) / `_cap_post_capture` 42 (10 参数 0 回传, 捕获后读出与曝光记账)
+- ⚠️ 教训 (新 ㊵): **`_gb_stores` 不把函数体内延迟 `ImportFrom` 计为前置绑定** — 本模块驱动全为懒导入 (573-583), 区域内引用 `get_camera_exposure_ms` 等被误判"需入参但不在 pre"→ assert 炸; 加 Import/ImportFrom 分支后正常 (懒导入对象作参数传递语义不变)
+- ⚠️ 教训 (新 ㊶): **`a_st` 不能用"后续无条件 store"剪掉回传名, 若该 store 语句自身 load 了同名** (`x = helper(..., x)` 自再绑) — 首轮 `_cap_session_setup` 的 `exposure` 被 A 调用点再绑误剪 → 调用点 F821; 修为 `a_st |= stores - loads`
+- ⚠️ 教训 (㊴ 推广): trust 前置绑定**必须按 helper 分域** — 全局 `/tmp/split_trust.txt` 会让本不加载这些名的区域 (B) 把它们错提为参数, 调用点 NameError。改 analyse 签名 `trust=None`, 由重写循环按 helper 传入
+- ⚠️ 生成器 bug 修复: `returns==[]` 且区域无 return 时**仍追加裸 `return ` 行** (语义 no-op 但破坏逐字); 本批手工剥除后再验 verbatim。`_fp` 强制参数 (`early_stopped` 条件存储, ⑳ 型重绑) 照常生效
+- 叶差分: 三区 verbatim=True (31/79/40 行); 新增名仅 3 个 helper
+- 载体: `test_transfer_*` 15 文件 + 形状门禁 **578 passed**; `test_conventions` 72 passed / 1 skipped; ruff/term 绿; modsize baseline 抬高 +23 (capture.py 920→943)
+- ⚠️ **CI 记录更正**: 此前"ci126-130 全部 0 失败"为**误判** — 当时轮询日志里 Pytest 仍 in_progress, `grep -c failure` 自然为 0。复核最终日志: **ci123 起每个 run 的 Pytest 都有同一组 4 个失败**, 引入点是 rebase 带入的上游 `e597547e` (hw_forward_model_fidelity_ladder 脚本 + 测试), 与本序列 lift 无关。修复列为下一批 (b132)
+
+**2026-11-17 · ca63a67a 之后 · 第 132 批 (修复): 上游脚本债 —— CI Pytest 四连红清零**
+- 背景: 上游 `e597547e` (保真度阶梯脚本) 与 `831f8f8c` (fwdmodel GPU 车道, 经 b131 rebase 带入) 在 `tests/ao_shaping/scripts/` 引入 4 个持续失败 (ci123 起每个 run 同组), 与本序列 lift 无关
+- 修复 1 (`_fmt` 守卫 R-25): **五个**顶层 `def _fmt` 收口进 `scripts/_common` (第 5 个 `issue235_model_fill_diagnostic_20261117.py` 来自第二次 rebase 带入的 `063c6339`, 用 `fmt_fixed_or_text` **泛化旗标** `spec="g"`+`bool_labels` 收口而非加第 9 规范, 老用户字节不变; 守卫说明改 EIGHT) — ladder→`partial(fmt_general, missing_none="—", missing_nonfinite="nan")` (默认 spec, 调用点不带 spec 可达域电池 0 差异); analyze_model_hw_fidelity→**新增第 7 规范 `fmt_spec_or_text`** 直接别名 (float_only 旗标组合在 int×定点 spec 上不等价, 电池逼出来的); sweep→`partial(fmt_general, missing_none/missing_nonfinite="n/a")` (唯一差异=不可达 str 输入由抛异常改 str 透传, 更安全); 20261117 报告脚本→**新增第 8 规范 `fmt_g_or_dash`** (全 float+g+全 dash, 逐字节移植)
+- 修复 2 (`test_assert_no_drivers_passes_in_a_clean_process`): **进程内 `sys.modules` 守卫对 shard 顺序脆弱** — 同 shard 先跑的任何测试 import 过驱动就误报 (名字叫 clean process 却没有隔离)。改为真起子进程 (`PYTHONPATH` 继承) 验证"导入分析脚本不拖驱动"契约
+- 修复 3/4 (两个 `--dry-run` 端到端测试): 上游脚本的 dry-run 语义是"合成数据自检 (不碰真实数据)", 却硬依赖 `data/` (CI 无)。analyze_fwdmodel_fit: 检查点缺失时用新增 `synthetic_frozen_parameters()` (合成与拟合同一前向, 真值回收不依赖物理真实性; 首版 gain=25/sigma=2 残差降仅 25.6%<50% 门槛, 调 gain=250/sigma=1 后过); ladder: `run_dry_run` 加 `sec.synthetic_geometry(SYNTH_FRAME_SHAPE)` 回退 (k_mean=1.0+帧中心, 与合成帧摆放自洽; execute 路径不变)
+- 连带: rebase 带入的上游产物触发**术语门禁** (report md ×2 + provenance.py 共 7 处设备域口语命中) `--apply` 收口; 本批自写注释 1 处同类口语改写为"实验轮"; `fmt_g_or_dash` docstring 转义序列警告消除
+- 验证: `tests/ao_shaping/scripts/` 域 **3459 passed** (仅剩 2 个 PySide6 容器缺依赖失败, CI 镜像有该依赖, ci131 日志中该参数化从未出现在 FAILED 行); ruff 全仓绿; modsize exit=0; conventions 72 passed
+- 追加 (第二次 rebase 带入 `063c6339` 后再扫一遍上游债): issue235 中文报告**如实改判 `HANDWRITTEN`** (脚本只发射 summary.md/diagnostic.json, 中文正文与其尾节 `## 复现与产物` 无任何发射器 —— 给脚本塞死代码骗守卫才是 slop); 其 `summary.md` 注册项补齐缺失的 `command=` (取正文既定复现命令); 脚本加 ROOT/src/scripts sys.path bootstrap (file-form 导入守卫); `sync_report_provenance.py` 重同步头部
+- 教训 (新 ㊷): **`sys.modules` 类离线契约测试必须在独立解释器里跑** — pytest 同进程收集 N 个文件后, "本进程没 import 过 X" 的断言度量的是测试顺序而不是被测模块; 名字里带 clean process 的测试就该真起进程
+- 教训 (新 ㊸): **电池比对是收口 `_fmt` 族的硬前提** — 三处本地版与现有 6 规范的两两差异都藏在"不可达也要全等"的电池里 (int×spec / bool / np.float32 / 非数值); 无电池直接 alias 会静默改写报告单元格
+
+**2026-11-17 · 435a126c 之后 · 第 133 批: `validate.run` 212→149 行 (`tools/slm/transfer/validate.py`)**
+- 提取三区: `_validate_param_checks` 33 (1 参数 11 回传, 设备参数与 resume 校验 + 懒导入) / `_validate_runtime_imports` 21 (2 参数 9 回传, 运行时设备导入) / `_validate_recorder_setup` 21 (4 参数 5 回传, Recorder 装配与相机选项)
+- 懒导入回传形态 (b118 先例延伸): 区域内 `from X import Y` 绑定名若被后续区段使用, 按普通回传返回; `build_mod` 补模块 dunder (`__file__` 等) —— 区域里引用 `__file__` 曾被误判需入参 (helper 与父函数同文件, 语义恒等)
+- 叶差分: 三区 verbatim=True (30/18/18 行); 新增名仅 3 个 helper
+- 载体: `test_transfer_*` 15 文件 + 形状门禁 **581 passed**; `test_conventions` 72 passed / 1 skipped; ruff/term 绿; modsize baseline 抬高 +24 (validate.py 1439→1463)
+
+**2026-11-17 · bc3a2e62 之后 · 第 134 批: `_run_spgd_session` 196→44 行 + 整环提取 (`wfless/slm_zernike_pib.py`)**
+- 提取 `_spgd_epoch_loop` 156 行 (32 参数 3 回传 `_n_fold_gated/_n_noise_gated/_n_peak_gated`, 逐 epoch ABBA 采样 + fold/peak 门 + 梯度更新整环; 环内 2 处 continue 与 1 处 break 均被环自身绑定, b117 豁免路径)
+- `_n_fold_gated` 本是父函数入参且环内条件自增 (risk=1), 走 ⑳ 型强制参数 (`_fp`) 重绑传回
+- 叶差分: verbatim=True (153 行); ⚠️ 校验教训: **逐字校验的 dedent 必须复刻生成器规则** (`ln.strip() and ln.startswith(" "*strip)`) — 原文件有 0 缩进的裸 `)` 续行, 校验脚本条件写松会把该行剥空成假差异; 区域 base 缩进要**实测** (本区 16, 目测 8 是错的)
+- 载体: `test_slm_zernike_pib_loop` + `production_sim` + `heuristic` + 形状门禁 **491 passed**; **wfless 域逐文件 55/55 全绿** (聚合 OOM 既有, 逐文件口径同 b127); ruff/term 绿; modsize baseline 抬高 (slm_zernike_pib.py +34)
+
+**2026-11-17 · ab5ef9ed 之后 · 第 135 批: `_run_square_session` 225→103 行 (`wfless/slm_square_shaping.py`)**
+- 提取四区: `_square_param_setup` 36 (17 参数 4 回传) / `_square_init_metrics` 19 (25 参数 17 回传) / `_square_optimization_block` 66 (57 参数 9 回传, 守卫装配 + epoch 优化块) / `_square_finalize_logging` 16 (10 参数 0 回传)
+- 0 回传 helper 触发**生成器裸 `return ` 追加 bug** (b131 已见, 未修根): 按 ast 定位 helper 末节点精确剥离 (文件里原有 2 处合法早退裸 return, 不得按文本计数误删)
+- 叶差分: 四区 verbatim=True (33/16/63/14 行); 泄漏审计仅 4 helper 名
+- 载体: `test_slm_square_*` + 形状门禁 **519 passed**; **wfless 域逐文件 55/55 全绿**; ruff 全仓绿; term 0; modsize baseline 抬高 (slm_square_shaping.py)
+
+**2026-11-17 · 10b23adc 之后 · 第 136 批: `_render_sidebar` 183→28 行 (`gui/ccd/target_shape_helper.py`)**
+- 提取两区: `_tsh_render_camera_section` 94 (0 参数 1 回传 `cam`, 相机连接/窗口/断开) 与 `_tsh_render_roi_size_section` 68 (1 参数 `cam`, ROI 开关与面板尺寸应用); 0 回传区再现生成器裸 `return ` 尾行, 按 ast 剥离
+- 新守卫条目: 该文件此前不在棘轮表内, 新增常量 `_TSH` + 三行 (parent 32/4/28 + 两 helper 行)
+- ⚠️ 重钉 (㉟ 同型): b134 的 `_spgd_epoch_loop` 整环上移令 `--max_peak` 告警块 (随环进 helper) 上移 35 行, TODO.md 行内区间 `:2360-2370` → `:2325-2335` (历史括注追加第一百三十四批复核记录)
+- 叶差分: 两区 verbatim=True (91/66 行); 载体: `test_target_shape_helper_offline` + 形状门禁 **464 passed**; `test_conventions` 72 passed; ruff 全仓绿; term 0; modsize exit=0
+- 跳过记录 (硬件/收益不足): `_HardwareBench.__init__` 207 (构造函数直开 SLM/相机, 无离线载体); `calibrate_shared_aberration` 207 (93 行是 docstring, 提取后仍 >150); `voltage_runner.run`/`phase_capture.run`/`micro_dm_image_collect.run` 等硬件 runner 载体仅 CLI-golden/facade 级, verbatim 提走无行为载体兜底, 暂不动
+
+**2026-11-17 · 09511252 之后 · 第 137 批: `execute_campaign` 177→99 行 (`runners/slm/transfer_shapes_runner.py`)**
+- 提取两区: `_campaign_kwargs_unpack` 56 (1 参数 46 回传, 整段 `kwargs.pop` 解包) 与 `_campaign_journal_setup` 30 (34 参数 8 回传, journal/stop_requested 闭包装配 —— 闭包工厂沿 b118 形态回传)
+- 叶差分: 两区 verbatim=True (53/27 行)
+- 载体: `test_transfer_shapes_runner` + `test_transfer_shapes_resume` + 形状门禁 **489 passed**; ruff 全仓绿; term 0; modsize baseline 抬高 (+18)
+
+**2026-11-17 · 33feb9b7 之后 · 第 138 批: `align` 220→137 行 + 三条源码文本守卫扩链 (`tools/slm/calibration/calibration.py`)**
+- 提取三区: `_align_candidate_setup` 18 (3 参数 3 回传, 候选周期 + `restore_full` 闭包工厂) / `_align_fov_probe` 57 (10 参数 3 回传, FOV 适配探针环整体, 环内 break 随环走; `period` 条件更新走 ⑳ 强制参数) / `_align_report_finalize` 19 (6 参数 0 回传, 成功报告装配; 0 回传裸 `return ` 尾行按 ast 剥离)
+- ⚠️ 教训 (新 ㊹): **b133 载体口径漏了 `tests/.../transfer/` 子包** —— 只跑了顶层 `test_transfer_*.py` (15 文件), 而 transfer/ 子目录还有 3 个**源码文本守卫** (归属者链钉子) 在 b131/b133 后失去目标 (批后 tools/slm 全域跑发现)。修法是 batch-74 既定"先钉委派边、性质移宿承接 helper": `capture → _cap_session_setup → _cap_live_reader` 链两测 + `run → _validate_runtime_imports` 的 `remaining_blocks` 门一处。规则更新: **lift 触及 capture/validate/run 这类被源码钉子引用的函数时, 域跑必须覆盖整个子包目录, 且改钉前先 ast 定位调用的新家** (b133 台账里"param_checks"实际是 runtime_imports, 凭记忆钉错一次)
+- 载体: `test_slm_calibration_pure/windowed/alignment_probe` + 形状门禁 **483 passed**; tools/slm 全域 **1478 passed / 7 skipped**; conventions 72 passed; ruff 全仓绿; term 0
+- 新增守卫条目: `_CALIBRATION` 表加 align + 三 helper 行
+
+**2026-11-18 · d5652e29 之后 · 第 139 批 (修复): `c678e660` 合并回退的上游脚本债二次清零**
+- ⚠️ 教训 (新 ㊺): **上游合并可以把已修债整体吃回去** —— `c678e660` (经 `86b15af1` 文档提交 rebase 带入) 把 b132-A 的四脚本 `_fmt` 收口 / `synthetic_frozen_parameters` / ladder 合成几何回退 / hermetic 子进程测试**全部还原** (provenance.py 也被旧版覆盖丢光 20261117 四条注册)。rebase 后不能只跑 conventions, **必须重跑被修域的守卫测试** (本批靠 ci135/136 终判 + scripts 域全量抓回)
+- 重申 (逐处 diff 对照历史提交 831f8f8c/435a126c): analyze_model_hw_fidelity→`fmt_spec_or_text` 别名; ladder/sweep→`partial(fmt_general, ...)`; `synthetic_frozen_parameters` (gain=250/sigma=1 调优值) + dry-run 无检查点回退; `sec.synthetic_geometry` + `run_dry_run` 回退; clean-process 测试真子进程化
+- provenance 注册表修复: 上游把 `ideal_path_static_test_20261117` 条目贴在函数体外 (模块级 `X": ReportProvenance(` 语法炸, `load_opt_module` 全链 SyntaxError) —— 移回 REPORTS 闭合前; 从 `git show` 历史版本逐块恢复 fwdmodel_fit_20261117 / status_20261117 / issue235 报告 (HANDWRITTEN) + summary (含 command), 新登记 candidate_parallelism_20261117 (HANDWRITTEN, 无生成脚本), sync 重渲染头部与 README 索引
+- 门禁连带 (全部登记于 §8.9 2026-11-17 条目): 盲捕获棘轮 425→438、盲静默 39→45 (上游相机功能净增, 非本批拆分); 未判据 2→0 用**就地 policy 判定行**清零而非抬上限; `ruff.toml` per-file-ignores 加 `"report/**" = ["E402"]` (归档脚本副本字节冻结证据, 只豁免 E402, 其余规则仍可见)
+- AGENTS/module_inventory: `signal_processing/` 行补 `shaping_lr_schedule` (c678e660 新模块, `test_wavefront_inventory_doc` 双向对账)
+- 验证: `tests/ao_shaping/scripts/` 域 **3486 passed** (仅剩 2 个 PySide6 容器缺依赖); conventions **72 passed**; ruff 全仓绿; term 0; modsize exit=0 (policy 注释 +2 行已入基线)
+
+**2026-11-18 · 9f1518f0 之后 · 第 140 批: `main_shift_calib` 208→105 行 + 二次吃回再拆 (`tools/slm/calibration/calibration.py` 等三文件)**
+- ⚠️ 教训 (㊺ 续): `c678e660` 的"冲突以本地为主"还吃掉了 **b129 `ccd_analyzer.main` 与 b136 `target_shape_helper._render_sidebar` 两批拆分** (守卫行报"found 0"才暴露; 形状守卫不在 scripts 域, 上批域跑没覆盖到)。规则再补: **上游合并后必跑 `test_issue205_function_shape.py` 全量**
+- 重申: tsh 拆分在新版上重做后**尺寸与 b136 钉行逐位相同** (28/94/68, 上游修复恰在区外), 旧行直接复绿; ccd_analyzer 因上游重构了 sidebar 结构按新边界重拆 (main 262→138, 两 helper 0 参数 0 回传全走 session_state, 裸 return 尾行×2 按 ast 剥离), 三行重钉 150/5/138、76/4/66、74/4/64
+- 新拆 `main_shift_calib` 208→105: `_shift_eval_closures` 36 (6 参数 2 回传 `evaluate/scan_axis` 闭包工厂) / `_shift_axis_refine` 35 (4/2) / `_shift_quality_verdict` 44 (9 参数含 ⑳ 强制 `ok`, 1 回传)
+- 叶差分: 五区 verbatim=True (62/66 与 33/32/41 行, 去尾 `return` 行后); 泄漏审计仅 5 个 helper 名
+- 验证: 形状守卫 + `test_slm_calibration_pure/windowed` + `test_target_shape_helper_offline` **491 passed**; `test_ccd_analyzer_offline` 7 passed; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高 +53 (三文件 helper 开销)
+
+**2026-11-18 · b13f8bba 之后 · 第 141 批: `train_beam_shaping` 186→139 行 (`algorithm/signal_processing/differentiable_shaping.py`)**
+- 提取 `_tbs_prepare_candidates` 51 行 (11 参数 4 回传 `amp/device/phase/t_tensor`, 候选归一与相位批装配); 尾段 Try 区双条件存储 (`converged/loss_history`) risk=2 不动, 单区已把跨度压到 <150
+- 新增守卫常量 `_DIFFERENTIABLE_SHAPING` + 两行 (150/3/139、56/3/51)
+- 载体: `test_differentiable_shaping` + `_quality` + **`_golden` (逐位一致训练)** + 形状门禁 **529 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
+
+**2026-11-18 · 06f532f3 之后 · 第 142 批: `_run_shaping_loop` 170→92 行 (`differentiable_shaping.py`)**
+- 提取 `_shaping_epoch_loop` 81 行 (14 参数 0 回传, 逐迭代 lr 调度/多候选评分/最优相位回写整环; 环内 2 处 break 由环自身绑定; 状态全经 loss_history/per_holder/张量原地突变流动, 与逐字提取语义一致; 0 回传裸 return 尾行按 ast 剥离)
+- 载体 (golden 逐位兜底): 同前三文件 + 形状门禁 **531 passed**; ruff 全仓绿; term 0; modsize 抬高后绿
+
+**2026-11-18 · 392e21f7 之后 · 第 143 批: `optimizer_greedy` 165→119 行 (`optimizer/wf/greedy_zernike.py`)**
+- 提取 `_greedy_setup` 23 (3 参数 6 回传) 与 `_greedy_final_poll` 30 (12 参数 0 回传, 裸 return 尾行剥离); With 体内 `evaluate` 闭包与早退 Return 留父级
+- wiki 重钉 (㉞/㊱ 先例): `optimizer-greedy.md` `source:` 355→416 (helper 插入使 def 下移, 手工改该页单行, 不整跑生成管线)
+- 新增守卫常量 `_GREEDY_ZERNIKE` + 三行; 载体 `test_greedy_zernike_characterization` + 形状 **487 passed**; **wf 域 174 passed / 1 skipped** (与 b126 基线一致); conventions 72 passed; ruff/term/modsize 绿
+
+**2026-11-18 · b115752e 之后 · 第 144 批: `run` 168→101 行 (`runners/slm/zernike_matrix_runner.py`)**
+- 提取 `_zmr_setup_norm` 30 (3 参数 4 回传, debug 目录/显示归一) 与 `_zmr_run_calibration` 44 (11 参数 0 回传, 幅值模式表 + 标定执行 + UI 回调, 裸 return 剥离)
+- wiki 重钉 (㉞ 同型, 两页三处): `zernike-matrix.md` source 与正文内联 1326→1408, `closed-loop.md` 1818→**1833** (该 def 只被 setup 区抬升 15 行 —— 位移按 def 实况逐页核, 不能按"净增总行数"统一平移)
+- 载体: `test_zernike_matrix_runner` + `from_response_matrix_guard` + 形状 **479 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
+
+**2026-11-18 · c6dcb573 之后 · 第 145 批: `estimate_exposure_ceiling_ms` 189→147 行 (`utils/image/exposure_control.py`)**
+- 该函数 110 行是 docstring; 提取 `_exposure_doubling_ladder` 30 (12 参数 4 回传, 倍增阶梯扫描) 与 `_exposure_logfit` 20 (8 参数 3 回传, 双点对数拟合), 条件存储名 (`fit_full_scale/last_safe/fit_ms/fit_slope/fit_intercept`) 全部预绑于区前, 走 ⑳ 强制参数重绑, 语义与逐字一致
+- 棘轮行改钉 197/5/176→160/1/147 (旧行是早期部分提取时代钉值) + 两 helper 行
+- 载体: `test_exposure_control` + `_bit_depth` + 形状 **509 passed**; conventions 72 passed; ruff 全仓绿; term 0; modsize 绿
+
+**2026-11-18 · 59b9bc80 之后 · 第 146 批: `floor_probe.main` 166→131 行 (`tools/ccd/floor_probe.py`)**
+- 提取 `_floor_setup` 13 (2 参数 7 回传) 与 `_floor_build_summary` 30 (8 参数 1 回传); 首轮把嵌套 `def checkpoint(row)` 一并圈入时生成器把 **def 形参 `row` 误判为自由加载** 列入回传 (调用点会 UnboundLocalError) —— 审计 RISK `row(s=0,c=0)` 正是该误判信号, 缩小区域至 def 之前解决 (教训: **区域含嵌套 def 且 RISK 出现 s=0,c=0 名 = 形参误判, 收缩边界**)
+- 新增守卫常量 `_FLOOR_PROBE` + 三行; 载体 `test_slm_floor_probe` + 形状 **505 passed**; conventions 72; ruff/term/modsize 绿
+
+**2026-11-18 · a7068f82 之后 · 第 147 批: `run_session` 178→109 行 (`transfer/workflow.py`)**
+- 提取 `_session_prepare_stage` 56 (3 参数 4 回传, 网格决策/config 覆写/journal + `stage` 闭包工厂整体) 与 `_session_write_summary` 20 (10 参数 0 回传, 摘要落盘; 裸 return 剥离)
+- 载体: transfer 顶层 15 文件 + transfer/ 子包 + 形状 **1075 passed / 3 skipped**; conventions 72 passed; ruff 全仓绿; term 0; modsize 抬高后绿
+
+**2026-11-18 · 11252a5b 之后 · 第 148 批: `_run_model_in_loop_rounds` 181→48 行 (`optimizer/wfless/slm_model_in_loop.py`)**
+- 提取 `_mil_round_loop` 137 行 (33 参数 5 回传, 逐轮 refit/候选接受/停滞 break 整环; 环内 4 处 break 由环自身绑定; `best_frame/best_phase/status` 是母函数形参且环内条件重绑 → ⑳ 强制参数原样传入再回传, 与逐字一致)
+- 载体: `test_slm_model_in_loop` + `loop_invariants` + 形状; **wfless 域逐文件 55/55 全绿**; conventions 72; ruff 全仓绿; term 0; modsize 抬高后绿
+
+**2026-11-18 · 54e7b6e8 之后 · 第 149 批: `_run_square_search_stage` 176→109 行 (`slm_square_shaping.py`)**
+- 提取 `_square_search_with` 71 (47 参数 6 回传, 亮度搜索设备会话 With+For 整体; 环内 continue 自绑; 47 参数超 b135 的 57 参数先例范围, 语义逐字)
+- 候选改道记录: `_run_pib_session` 196 的剩余大块是 29+16 行 Expr (提取后仍 ~170 >150, 且同名 helper 与 `pib.py` 载体交叉), 收益不足转后
+- 载体: `test_slm_square_*` 四文件 + 形状 **532 passed**; ruff 全仓绿; term 0; modsize 绿; conventions 72 passed
+
+**2026-11-18 · 79b2af8d 之后 · 第 150 批: `_locate_zero_order_and_window` 163→50 行 (`slm_gs_refine.py`)**
+- 提取 `_gsr_blaze_discovery` 75 (7 参数 3 回传, blaze 弥散发现 + 嵌套 `nonlocal` 探针闭包整体随迁 —— nonlocal 改绑 helper 自身作用域的 `blaze_probe_count`, 语义等价) / `_gsr_full_frame_center` 21 / `_gsr_window_geometry` 28 (0 回传, 裸 return 剥离)
+- 改道记录 (本批跳过并登记理由): `_run_pib_session` 196 余块为 29+16 行 Expr (提后仍 >150); `optimize_slm_zernike_pib` 175 是 config→55 局部变量解包段, 整体外提会得到 55 元组回传的机械 helper (可读性反受损), 转 pin-only; `pib.py::_run_pib_bench_session` 175 与两文件 `_spgd_epoch_loop` (152/156) 因嵌套 def 形参误判 / 条件绑定名 / 环绑定 continue 不可二次切, 转 pin-only
+- 新增 4 行钉到既有 `_SLM_GS_REFINE` 常量 (该文件另有旧常量 `_GS_REFINE`, 双常量并存系仓库现状, 不顺手改)
+- 载体: `test_slm_gs_refine` + `session_golden` + `target_shapes` + 形状 **614 passed**; ruff 全仓绿; term 0; conventions 72; modsize 绿
+
+**2026-11-18 · 0ac18f5f 之后 · 第 151 批: `optimizer_rms_dm` 158→99 行 (`optimizer/wf/rms.py`)**
+- 提取 `_rms_dm_epoch_loop` 62 行 (12 参数 0 回传, SPGD 逐 epoch 环整体; 环内 break 自绑; `_init_v` 仅环内消费无需回传; 裸 return 剥离)
+- 守卫行命名教训: `_RMS` 常量已被 `rms_by_zernike.py` 占用 → 新常量 `_RMS_DM`; 且锚定字符串要用行首 `\n` 防子串碰撞 (`_GS_REFINE` 是 `_SLM_GS_REFINE` 的子串, `str.count` 会数到 2)
+- wiki 重钉: `optimizer-rms-dm.md` source 50→51
+- 载体: **wf 域 + 形状 + conventions 合计 735 passed / 2 skipped**; ruff 全仓绿; term 0; modsize 绿
+
+**2026-11-18 · f77512a3 之后 · 第 152 批: `AOClosedLoop.run` 153→83 行 (`optimizer/wf/closed_loop.py`)**
+- 提取 `_closed_loop_control_iter` 74 行 (11 参数 4 回传, 控制迭代环整体; 3 处 break 自绑; `converged/diverged` 预绑于环前走 ⑳ 强制参数; run 是类方法, `self` 随参数流动)
+- 新增 `_CLOSED_LOOP` 常量 + 两行 (92/2/83、82/4/74); run def 116→194, 无 wiki 引用该页, conventions 无漂移
+- 载体: **wf 域 + 形状 665 passed**; ruff 全仓绿; term 0; modsize 绿
+
+**2026-11-18 · 21fa1a75 之后 · 第 153 批: `abba_probe.main` 164→67 行 (`tools/zernike/abba_probe.py`)**
+- 提取四区 (全部闭包工厂形态回传, 0 risk): `_abba_display_capture` 20 (`capture`/`display_pattern` 两闭包) / `_abba_probe_wiring` 52 (9 回传, ROI 探针/检查点装配含 `roi_capture`/`checkpoint` 闭包) / `_abba_build_rows` 16 / `_abba_write_summary` 25
+- 新增 `_ABBA_PROBE` 常量 + 五行; conventions 72 passed (无 wiki 引用漂移)
+- 载体: `test_slm_abba_probe` + 形状 + conventions 合计 **612 passed**; ruff/term/modsize 绿
+
+**2026-11-18 · 7c508658 之后 · 第 154 批: `capture_response.capture` 162→59 行 (`transfer/capture_response.py`)**
+- 提取 `_capresp_pattern_loop` 106 行 (12 参数 0 回传, 逐 pattern 曝光阶梯采集环整体; `capture_once` 计时闭包随环迁; 裸 return 剥离)
+- 新增 `_CAPRESP` 常量 + 两行 (70/5/59、117/4/106)
+- 载体: `test_transfer_workflow` + transfer/ 子包 + 形状 **1011 passed / 3 skipped**; conventions 72; ruff/term/modsize 绿
+
+**2026-11-18 · 1438a707 之后 · 第 155 批: `zernike_matrix_runner.closed_loop_run` 154→31 行 (`runners/slm/`)**
+- 两区提取: `_cl_build_configuration` 60 (`device_cfg/law/loop_cfg/n_modes/output_path/ui_display` 6 回传装配) + `_cl_execute_session` 66 (12 参数含函数级导入 `ZernikeSLM/datetime/json/plt` 随参流动, 裸 return 剥离)
+- lift 后父体暴露 5 个函数级死导入 (`Path/np/MlaRes/ThorlabWFS/get_timestamp_str`, 模块级同名导入仍在) → `ruff --fix` 清理, 逐字性不受影响
+- wiki 重钉: `closed-loop.md` source 1833→1967; 棘轮行 178/4/154 → 38/2/31 + helper 两行
+- 载体: **runners 全域 + 形状 + conventions 1215 passed / 26 skipped**; ruff/term/modsize 绿
+- 上游 `97b37eee` 协作者重钉了第 144/147 批 5 处文档行号 (rebase 带入, 无冲突)
+
+**2026-11-18 · 360fe949 之后 · 第 156 批: `objective._raw_base` 150→88 行 (`utils/image/target/objective.py`)**
+- dispatch 链两计算区提取 (均不含分支 Return, 保留 `return` 于原地): `_rawbase_pib_rms_terms` 24 (`j/pib_term` 回传) + `_rawbase_shape_score` 46 (`energy/score/tracking` 回传, `tracking` 自回写走 ㊶ stores-loads)
+- 新增 `_OBJ` 常量 + 三行; wiki 无该页引用 (conventions 绿)
+- 载体: algorithm target_func/gaussian_radius + utils loggrad/pearson/shaping_objective + wfless objectives_sim + 形状 + conventions 合计 **797 passed / 8 skipped**; ruff 全仓绿
+
+**2026-11-18 · aa3ad7b6 之后 · 第 157 批: `abba_probe.dense_abba_sweep` 154→82 行 (`tools/zernike/abba_probe.py`)**
+- 两区提取: `_dense_pattern_probe_loop` 49 (15 参数 0 回传, 逐 pattern 响应探针环; `capture_once` 闭包随环迁; 裸 return 剥离) + `_dense_build_summary` 30 (`summary` 单回传统计装配)
+- `_ABBA_PROBE` 追加三行 (90/2/82、55/3/49、34/1/30); wiki 无 dense 引用 (conventions 绿)
+- 载体: `test_slm_abba_probe` + 形状 + conventions **622 passed**; ruff/term/modsize 绿
+
+**2026-11-18 · 372f6a31 之后 · 第 158 批: `optimize_beam_shaping` 153→116 行 (`optimizer/wfless/differentiable_beam.py`)**
+- 提取 `_db_prepare_run` 41 行 (13 参数 11 回传含 6 个强制参数回显, 校验+优化器/recorder 装配; 阶段环 `_run_simulation_phase`/`_run_hardware_phase` 此前已在位)
+- **pin-only 登记**: `rms_by_zernike.optimizer_rms_slm` 155 = 签名 52 + docstring 48 + 纯转发 kwargs 调用 42, 无可提取执行体 (同 `calibrate_shared_aberration` 先例, 棘轮行 200/1/155 保持)
+- 新增 `_DIFF_BEAM` 常量 + 两行 (126/2/116、46/2/41)
+- 载体: **algorithm 全域 + 形状 + conventions 1497 passed / 27 skipped**; ruff 全仓绿
+
+**2026-11-18 · 9dcf123f 之后 · 第 159 批: `pib.optimize_pib` 153→126 行 (`optimizer/wfless/pib.py`)**
+- 提取 `_pib_prepare_run` 31 行 (6 参数 9 回传: 校验 + recorder/历史装配 + `_show_probe_frame` 嵌套回调随区外提; risk=0)
+- 棘轮: 过期行 `(_PIB, "optimize_pib", 200, 2, 153)` 删除, 新行 136/1/126 + 36/2/31 (`_PIB` 常量本已在位)
+- wiki 重钉: `optimize-pib-wfless.md` source 517→552 (def 位移, conventions 首跑抓到 1 failed → 重钉后 581 passed)
+- 载体: **wfless 全域须用 `AO_TEST_PER_FILE=1` 逐文件模式** (单进程跨文件累积在 6g/12g 均 SIGKILL 137, 运行器注释既有的设计) — 57 文件 rc=0; 形状+conventions 581 passed; ruff 全仓绿; modsize 基线 bump
+- **pin-only 候选登记**: `optimizer/rl/sac_turbulence_train.main` 189 全树零测试引用 (无载体, 不入批)
+
+**2026-11-18 · 92c90d60 之后 · 第 160 批: 上游 doc-coverage 债修复 (无函数改动)**
+- CI 取证 (run 44163275845/44164417553, jobs 134322485869/134326540103, "Run shards" 步): `test_optimizer_doc_coverage` 报 `optimizer/wfless/slm_zernike_pib_gates.py` 零提及、`test_tools_doc_coverage` 报 `tools/slm/calibration/diffraction_efficiency/calibration_access.py` 零提及 —— 上游 `7f1a4b5b` (协作者拆分提交, 随 c678e660 系合并进树) 拆出两模块但未登记文档 (㊺ 又一同型)
+- 修复: module_inventory.md 两处登记 (wfless 表 `slm_zernike_pib_gates.py` 行 + 衍射效率子包行追加 `calibration_access.py`), 术语按模块自身 docstring (光路标定/实验系统)
+- 载体: 两守卫本地复跑 **2 passed** (CI 曾红这两个); term 0
+- 同 run 附带观察: ci156 还红过一次 `test_hw_forward_model_fidelity_ladder::test_signal_floor_spearman_…` (ci157 未复现) → 按 flake 观察, ci158/ci159 若再红再立案
+- 取证通道教训 (㊻): poll 日志 tsv 第一字段是 **run ID** 非 job ID; job logs/annotations 端点必须先用 `/actions/runs/{rid}/jobs` 换真 job ID (失败 step 名同在该响应, 可少一次往返)
+
+**2026-11-18 · c69331c5 之后 · 第 160 批追加修复: 登记表裸竖条**
+- b160 给 `slm_zernike_pib_gates.py` 登记行时引用判据原文 `` `|diff| <= k·sigma_hat` `` —— **markdown 表格单元里的裸 `|` 即使在行内 code span 内也会切 cell**, 打红 `test_conventions.py::test_markdown_table_rows_never_write_more_cells_than_declared` (㊼ 新教训: 表格单元内一律改写为"不超过/≤", 不引入任何字面竖条)
+- 改为 `diff 绝对值不超过 k·sigma_hat` 纯文本; 守卫复跑 conventions+形状 **583 passed**; ci159/ci160 若曾红在同一条, 本批 head 起消失
+
+**2026-11-18 · 第 161 批: `sweep_analysis.snr_sweep` 158→135 行 (`tools/kernels/sweep_analysis.py`)**
+- 提取 `_snr_measure_loop` 27 行 (10 参数 4 回传 `multi/noise_values/sigma/single`: 单/多 delta 测量累积装配 + For 环; 嵌套 `measure_single/measure_multi` 闭包以**函数对象作参数**随区流动)
+- 新增 `_SWEEP_ANALYSIS` 常量 + 两行 (142/3/135、31/3/27)
+- 载体: **tools/ 全域 `AO_TEST_PER_FILE=1` 逐文件** (snr probe 命中 `test_slm_snr_probe.py`) + 形状 + conventions 583 passed; ruff 全仓绿; term 0; modsize 基线 bump
+
+**2026-11-18 · 4f29e5d9 之后 · 第 162 批: `calibrate_bench_geometry` 173→122 行 + `45e06487` ponytail-lean 漂移重钉 (`optimizer/wfless/model_in_loop_shaping.py` 等)**
+- 提取 `_bench_scan_loop` 55 行 (10 参数 1 回传 `best` 预绑回显; 双 For 扫描环整体, 3 处 continue 自绑; 嵌套边缘搜索 def 留母函数以**函数对象作参数**随区流动, 同 b161 模式)
+- 棘轮: 既有行 `(_MODEL_IN_LOOP_SHAPING, "calibrate_bench_geometry", 190, 5, 173)` → 132/3/122 + helper 行 60/5/55
+- **㊽ 事故与修复 (上游代码提交在 rebase 时夹带, push 前未复跑守卫)**: b161 push 的 rebase 带入上游 `45e06487` (#205 ponytail-lean, 删 3 孤儿 Mixin + 7 死函数, 净 −765 行) 后**未重跑 conventions 即推送** → head 4f29e5d9 的 CI 预期红三处: (1) 6 个 wiki `source:` 与 (2) 4 行 live-doc 锚 (pre_run_characterization `:2083`、TODO `_apply_best_on_exit :1822`/`--max_peak :2325-2335`/`ccd_analyzer :297/324`) 整体 −1~−4 漂移; (3) 盲静默 handler 45→44 (死函数随删)。本批全部重钉 (wiki 1967→1965、1408→1406、429→427、552→548、321→320、894→893) + `_BLIND_SILENT_BASELINE = 44` 主动降档 (守卫注释要求"measured fact 而非无人复推的数")。**教训固化: rebase 若带入 src/ 提交, push 前必须重跑 `test_conventions.py` + 形状守卫, 不能只信 rebase 前的绿**
+- ㊾ 小坑: live-doc 锚串里括号为全角 `（`, 补丁脚本 assert 计数 0 才暴露; 文档重钉一律先 count 再 replace
+- 载体: model_in_loop 三测试 + 形状 + conventions **665 passed / 1 skipped**; ruff 全仓绿; term 0
+
+**2026-11-18 · 71b465cd 之后 · 第 163 批: `_run_square_heuristic_stage` 168→97 行 (`optimizer/wfless/slm_square_shaping.py`)**
+- 提取 `_sq_heuristic_session` 75 行 (tqdm 黑盒搜索会话整体; 25 参数 9 回传: `_on_evaluate` 闭包内 8 个 `nonlocal` 名 `best_ar/best_cv/best_ee/best_quality/last_best_epoch/best_cost/best_c/best_img` 是母函数形参/局部, **lift 后 nonlocal 会绑到 helper 自身作用域 ⇒ 语义从"改母函数"变"改 helper"** —— 修法: `_fp`+`_fr` 双表强制这 8 名入参并回传 (b153 `_show_probe_frame` 强制参数先例的 nonlocal 变体), 母函数调用点接收回传后语义逐位还原)
+- 棘轮: 210/3/168 → 108/2/97 + helper 84/4/75
+- 载体: square 域 4 测试 (objective_search_sim / zernike_basis / gui_vs_slm_square / convergence_diagnostics) + 形状 + conventions **627 passed**; ruff/term 绿; modsize bump
+- 同批取证: CI run 44178791169 (ci159, b158+b159 head) 第三红 = `scripts/test_hw_forward_model_fidelity_ladder.py::test_signal_floor_spearman_…` (ci156 同款、ci157/ci158 未复现、本地单测×2 + 整文件×1 全绿) → 立案为 shard 状态污染型 flake, 观察 ci160/161/163 是否再现
+
+**2026-11-18 · fd29db73 之后 · 第 164 批: `workflow.main` 165→111 行 (`tools/slm/transfer/workflow.py`)**
+- 提取 `_wf_build_parser` 58 行 (0 参数 1 回传 `parser`: argparse 子命令装配整体, replay/audit/record/doctor/simulate/pretrain 六支 subparser 局部变量不出区)
+- 棘轮: `(_WORKFLOW, "main", 191, 5, 165)` → 122/5/111 + helper 行 64/1/58 (该文件 `_WF`/`_WORKFLOW` 两常量并存, main 族钉在 `_WORKFLOW`)
+- 载体: `test_transfer_workflow` + 形状 + conventions **638 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
+
+**2026-11-18 · 71f5ea91 之后 · 第 165 批: `core._pick_orders` 159→136 行 (`tools/slm/calibration/diffraction_efficiency/core.py`)**
+- 提取 `_pick_anchor_block` 27 行 (锚点侧向修正块, 7 参数 3 回传 `anchor/side_a/side_b`; **anchor 的绑定全在深嵌套分支 (If-493 两支各一 Store, 其一路径以早退 Return 收口), ㊳ 式 pre 扫不到** → `_fp`+`_fr` 强制入参+回显 (⑳ 预绑回显), risk=1 的 `anchor(s=1,c=1)` 是分支内条件 Store, 参数化后恒有初值, 语义逐位还原)
+- 大 If 区 493-542 含早退 Return 不可逐字外提; 555-565 亦含 Return — 均留在原地, 本批只取无 Return 尾块
+- 棘轮: `(_DECORE_CORE, "_pick_orders", 183, 4, 159)` → 146/5/136 + helper 行 31/3/27
+- 载体: `test_slm_diffraction_efficiency` + `test_cli_argv_binding` + 形状 + conventions **673 passed / 1 skipped**; ruff 全仓绿; term 0; modsize bump
+
+**2026-11-18 · 8a2aa0ab 之后 · 第 166 批: 重构队列收口 —— 全树 ≥150 行残余逐项终判 (无代码改动)**
+- 重扫 (ast 全树, 第 165 批后): 残余 38 个 ≥150 行函数, **全部终判为 pin-only, 无一可用逐字提取降到 <150**; 分三类:
+  1. **结构性不可提 (新增终判, 逐区实测)**: `optimize_slm_square` 386 行 = 79 行 docstring + **42 个逐行 config 解包** + 59 行会话分派 Return, 中段全部外提后母体下界 ≈190 仍 ≥150 (与 b150 已登记的 `optimize_slm_zernike_pib` 55 参解包同型); `rms_by_zernike.optimizer_rms_slm` 155 (b158 已登记); `calibrate_shared_aberration` 207 (b150 已登记, docstring 主导); 两 `_spgd_epoch_loop` 156/152 (环绑 continue, b150 已登记); `_run_pib_session` 196 / `_run_pib_bench_session` 175 / `optimize_slm_zernike_pib` 175 (b150 已登记)
+  2. **硬件域 (载体须实验系统)**: `drivers/wfs/_thorlab_wfs.load_dll` 351 (Windows ctypes 装载面, 测试仅惰性装载契约 `test_lazy_driver_loading`); `tools/wfs/` 三 CLI `zernike_correction.main` 189 + `scan_response_matrix` 151 / `wfs_reference.main` 162 / `zernike_response.export_driver_correction` 160; `tools/slm/calibration/` 家族 `lut_runner.run` 329 / `phase_capture.run` 286 / `train_data_collect.main` 277 + `acquire` 162 / `measure._run_measurement_session` 250; `runners/micro_drive/voltage_runner` 241 + `_amain` 151; `tools/micro_dm/micro_dm_image_collect.run` 230; 顶级 `tools/train_data_collect.optimizer` 184; `slm_model_in_loop.__init__` 207 + `_session_open_bench` 151; `panel/focus_probe.probe_session_focus` 171 + `panel/panel_locate._scan_panel_session` 151 — 逐字提取硬件会话环已有先例但需 sim 载体逐环验证, 与"无硬件 issue"边界冲突, 不入批
+  3. **GUI 构建/视图层 (无有意义载体)**: `zernike_debug_viewer._render_main` 349 + `_compute_response_matrix_from_debug` 171; `ceramic_viewer.render_tab_grid` 257/250 (dm+r50 双胞胎); `r50_units.render_tab_single_unit` 190; `exposure_status.probe_session_exposure_ms` 174; `transfer_desktop/page._build_target` 173 + `archive_replay._build` 153 (PySide6, 载体 `test_transfer_desktop_archive_replay` 只测回放逻辑不测构建层); `zernike_response_matrix_ui.render_load_view_mode` 167 行 + `_render_interactive_measurement` 155 行 + `_initialize_state` 154 行; `md_img_analysis_ui.run_pipeline` 162 (**全树零测试引用**, grep 已核); `optimizer/rl/sac_turbulence_train.main` 189 (**全树零引用**, b159 已登记) — 与 b150 先例一致
+- **结论: issue #205 的逐字提取范围自此完成**。126→165 批共 40 个函数落刀; 棘轮表覆盖全部已拆函数 (cap=实测+裕量); 残余 38 个逐项理由在上列, 若后续出现 sim 化载体 (如 focus_probe 数字孪生化) 可按 b163 nonlocal-`_fp`/`_fr` 或 b157 闭包工厂模式重评
+
+**2026-11-18 · 3cb7c56b 之后 · 第 166 批追加修复: 上游 `ac954b76` (ponytail 技能落库) 双债**
+- CI "CI" 快门红: `term_unify --check` 报 `libs/skills/ponytail/SKILL.md` 1 行 — 上游该句用了术语表左列的违规口语词 (其规范术语为"实验"), 已 `--apply` 统一为"实验系统需要的标定"; **㊿ 台账教训: 登记债因时不得逐字引用违规原词 (扫描器不分引用语境), 只描述"左列违规词"**
+- 本地 conventions 红: `dead-code-audit.md` 引 `scripts/ponytail_lean_scan.py` 不在 git index (实际在 `libs/skills/ponytail/scripts/`) → 按守卫指示重钉两处 (31 行触发守卫, 5 行同错顺带修)
+- 载体: `test_quoted_source_paths_in_live_text_exist_in_the_git_index` + conventions 全量 **72 passed**; term 0; ruff 全仓绿
+- ㊺ 三连证实: 上游合入**新文件同样能带红** (不必改旧文件): 技能/文档类提交落库后必须复跑 term + conventions, 已在 rebase 检查清单内
+
+**2026-11-18 · 285f522d 之后 · 修复 #248: 取向择优加确定性 tie-break (保真度阶梯脚本, CI scripts blocking 分片随机红绿根治)**
+- 根因 (issue #248 已定位, 本批实测证实): 对称高斯预测下 identity/transpose 的 `intensity_correlation` 差 ~1-2 ulp@1.0 (本地 numpy 2.5.4 差 -1.11e-16, CI 镜像 +5.55e-16), `sweep_axis_convention` 裸 `max()` 的胜者由末位舍入决定 ⇒ 同一测试随镜像红绿翻转 (run 44219825135 红 / 6273265d 绿)
+- 修复 (issue 推荐选项 1): `_hw_fidelity_ladder_sections.py` 新增 `ORIENTATION_TIE_TOL = 1e-9` 绝对带; 并列带内取 `_AXIS_CANDIDATES` **表首** (identity 表首, 两处镜像表逐字同序已核); 真实取向失配差 ≫ tol 行为不变; 全非有限退回表首 = 旧 `max()` 同分选择
+- 载体: `test_hw_forward_model_fidelity_ladder` **21 passed** (+2: 对称并列带契约 + monkeypatch 复刻 CI 精确翻转方向 [transpose +2.5 ulp 仍须判 identity]; 两测在旧代码上 **2 failed** 证锁得住); scripts 全分片 3490 passed
+- 环境: `test_script_imports_resolve[gui_entry/capture_transfer_desktop_screens]` 2 失败为 master 既有 (容器缺 PySide6, CI 镜像有), 与本改动无关
+- 门禁: ruff 全仓绿; modsize=0 (scripts 仅报告); term 0 (中途代码注释用了 1 个左列违规词, 已就地改写 —— ㊿ 教训同样适用于**代码注释**, 扫描器不分文档/代码); conventions 72 passed (本批 lift 未移动任何被引用行)
+
+**2026-11-18 · 042b0a00 之后 · F-5 切片 #2 收口: print→loguru (库内调试 print 清零 + 双向 AST 守卫, #56)**
+- AST 复扫 (只数 `ast.Call` 真调用, docstring doctest 与注释天然免疫): `src/ao_shaping` 全树仅剩 **30 处真实 print**, 全部是 CLI/机器协议 stdout —— `device_mutex` 探针协议行 (同文件 :930 读取端按 `PROBE_NOTE_PREFIX` 解析, loguru 走 stderr 会让读取端空转)、`parallel_fit` 机读 JSON 退出行、transfer CLI 流式 `Session complete:`/逐 stage 行 (桌面 GUI 子进程解析)、`shaping.__main__` 的产物输出
+- ⚠️ issues_report §11.1 原指令"**所有 print() 改为 logger**"照做会**出事** (打断上述三组协议)。按 §4 惯例在原文就地加更正块 + 状态行改 ✅, 不删历史快照
+- 守卫: `test_src_print_calls_stay_within_cli_contract_allowlist` —— 14 组 (文件, 内层函数) 键 + 逐对数量, **双向**钉死 (新增调试 print 红、契约消失也红, `test_the_baseline_has_not_grown` 同款文化); 非空洞性已由首轮键前缀漂移的红状态实证
+- 载体: `test_conventions` 全量 **73 passed** / 1 skipped (原 72+新守卫); ruff 全仓绿; term 0
+- §3 F-5 行同步三切片状态: #2 本批收口; #3 宽泛 except 实质已由 #174 收口 (未标注盲捕棘轮 = 0, 逐处判定); #4 大文件 = `check_module_size.py` 棘轮门禁已上线 (增量必红, 存量基线跟踪, 拆分另轨 #205/b166 终判)。#56 本体留待按三条证据终审关闭, 本批不抢关
+
+**2026-11-18 · 094e8032 之后 · #178 覆盖率/注解工具链收口 (测量基础设施, 非新门禁)**
+- 前提实测坐实: 测试镜像无 `pytest-cov` (`docs/dev/ci_testing.md` 的 `-- --cov` 命令是坏的)、pyproject 无 `[tool.coverage.*]`、类型检查配置不存在 (旧 AGENTS 快照"pyrightconfig 存在"已失真, 现树无该文件)
+- 工具链: dev 组 + 两个测试镜像 Dockerfile 一并加 `pytest-cov>=6.0`; `[tool.coverage.run/report/xml]` 钉死 source=`src/ao_shaping` / branch / `relative_files` (宿主与容器双挂载根) / `exclude_also` (TYPE_CHECKING、abstractmethod 等, 否则首测即被数百不可达行淹没)
+- 注解普查棘轮: `scripts/_common/type_annotation_census.py` —— 方法学钉在 docstring (参数排除 self/cls, return 每 def 一槽, 槽位等权), AST 全树实测 **76.52%** (issue 的 ~62.6% 是历次收口前口径); 分面积细分指出最弱区 `optimizer` 52.6% 作后续战役锚点; 基线 `type_annotation_baseline.json` + 守卫 `test_type_annotation_ratchet.py` 与 CLI `--check` **两向一致** (下降 >0.2pp 红、工具链被"顺手清理"也红)
+- ⚠️ 覆盖率仍是**测量不是门禁** (§6 决策 B: blocking = ruff + pytest 分片 + conventions 守卫); 本批棘轮只保"注解不回退 + 工具有存在性"
+- 文档: `ci_testing.md` 覆盖率块重写 (坏命令缘由 + 新口径 + 镜像重建提示); AGENTS.md 旧 MISSING INFRASTRUCTURE 节已被上游精简为索引, 无需再修
+- 载体: ratchet 4 passed + conventions **77 passed** / 1 skipped; ruff 全仓绿; modsize 0; term 0
+- 环境: gh-proxy 对单 issue 端点间歇 301→HTML (列表端点正常), #235 详情待代理恢复后读
+
+**2026-11-19 · 81b04014 之后 · #88 [R-66] `src/calculators/` 移出 src → `experiments/calculators/`**
+- 决策: issue 三选一取方案 2 (移出 src, 不删除也不正式化) —— 该目录零 import、不在 `[tool.setuptools.packages.find]` 打包清单、`benchmark_results.json` 属构建产物且早已不在 index
+- 迁移: 6 文件整体 `git mv` (历史保留); `src/` 自此只含 `ao_shaping/` + `ml/` 两个可打包包 (+ 空壳 `optical_ui/`)
+- 引用面 (24 处断言式替换, 逐条 count 校验): `.gitignore` 4 条构建产物模式; `tests/calculators/test_gerchberg_saxton_cython.py` 的 sys.path 引导与构建命令 docstring; `scripts/dm/generate_cython_optimizer_report.py` 的 `BENCHMARK_RESULTS_FILE` + 三处提示文案; `scripts/README.md` 与 `scripts/_common/provenance.py` 的 note; 四份结构树 (README / docs/architecture / docs/dev/module_inventory / docs/dev/project_structure) 把该行从 `src/` 下移为顶层 `experiments/`
+- 守卫加强: `_INVOCATION` 前缀集 `(?:src|scripts|tests|libs)` → 加 `experiments`, 新位置的可执行声明仍被扫描; `.pyx` 反例路径同步改写 (test_conventions 注释仍准确)
+- 溯源: `sync_report_provenance.py` 重渲染 report/README 索引行与报告页脚 (幂等)
+- 载体: conventions + tests/calculators + report_provenance **957 passed** / 2 skipped (Cython 扩展未编译、ruff 不在容器 PATH, 均为既有跳过); ruff 全仓绿; term 0; 注解棘轮 76.52% 不动
+- 提交: 021b5b3a (`Closes #88`); 本行为台账追加
+
+**2026-11-19 · c9779c85 之后 · #150 多 SLM 控制: 布局层从硬编码 2 台改为 N 台**
+- 事实核对: 设备发现/连接层早已 N-safe (`_scan_available_slms(max_slms)` 扫 1..8, `connect_slm` 按 `slm{N}` 前缀), 只有**布局/侧栏**把 `(1, 2)` 写死 ⇒ 第 3 台连上后被静默忽略
+- 单一判定: `bench_settings.connected_slm_numbers()` / `connected_slm_handles()` 每次现算 (不落 state, 断开即失效), `MAX_SLMS = 8` 与扫描上限共用; 侧栏 per-SLM 块与 `shaping_controls._slms_on_screen()` 全部改为调用该视图
+- 六处写死点收口: `_initialize_slm_state` 改 `range(1, MAX_SLMS+1)` (初始化针对**可能**连接的槽位); 主区 `connected_slms`; 标题改 `{1: 单, 2: 双}.get(count, f"{count} 台")`; 侧栏设置循环; `bench_settings.render_bench_settings` per-SLM 循环; `shaping_controls._slms_on_screen` (原第二份判定, 去掉重复实现)
+- 3 台以上的人因: 设置 expander 标题带序列号 (`SLM N 设置 · {serial}`, 序号不足以对上物理设备); 设备信息前加串联语义 caption (`_chain_role_caption`: 首台 = 激光入射, 第 k 台 = 上一台出射面; 序号 0 不出 caption)
+- 载体: 新增 `tests/ao_shaping/gui/slm/test_multi_slm_n_channels.py` 7 项 —— 视图按真实序号/不缓存/排除无句柄槽位、handles 配对、初始化覆盖 1..MAX_SLMS、扫描默认值 = MAX_SLMS 且 ≥3、行宽助手计 3 台、`_chain_role_caption` 文案、三模块 AST 守卫 (禁回 `for slm_num in (1, 2)`)
+- 金标重基 (刻意): `multi_slm_controller_render_golden.json` 仅 3 处 expander label 变化 (`SLM 0 设置` → `SLM 0 设置 · SN-0001`), 顺序/键零漂移; 金标测试自述"重基是刻意行为", 本批正文已在台账说明
+- 模块体积棘轮 (CI 首跑 `Module size gate` 红: `bench_settings.py` 2370>2346, `multi_slm_controller.py` 1765>1752): 新增 `gui/slm/slm_registry.py` 承载 `MAX_SLMS` + 连接视图 + 串联文案, 三模块改为 import (2346 / 1751 / 2821, 全部回到基线内); 顺带把 TODO 行锚 1258→1254
+- 门禁: 目标 5 文件 **102 passed**; conventions **73 passed** / 1 skipped (顺带按守卫重钉 TODO.md 行锚 1250→1258); ruff 全仓绿; term 0; 容器缺 PySide6 的 12 个 transfer_desktop 收集错误为 master 既有 (CI 镜像有 PySide6)
+- 未验: 3 台物理串联的实际排布 (需实验系统), 本批只保证代码路径与控件树
+
+**2026-11-19 · b37de319 之后 · #156 第 1 项: 七因子保真度分解 (纯 numpy 叶子模块)**
+- 交付 `src/ao_shaping/utils/slm/fidelity_diag.py`: Mastiani/Cox/Vellekoop 2024 (DOI 10.1088/2515-7647/ad5775, Eq. 15-44) 的七因子分解 —— `|γ_N|²` 受控模式占比 / `|γ_A|²=⟨|t|⟩²/⟨|t|²⟩` / `|γ_0|²` 由 `|F1|/|F0|=γ0√(1-γ0²)` 反解小缺陷根 / `|γ_φ|²=|⟨e^{iΔφ}⟩|²` / `|γ_J|²=(sinΔφ/Δφ)²` / `|γ_S|²=SNR/(1+SNR)` / `|γ_D|²=Pearson²`; `step_dft` 做步进谐波分解 (单帧 DC 与时均一致)
+- 口径修正 (issue 第 3 项, 最低成本项): `theoretical_ceiling(N)=π/4·(N-1)+1`, 纯相位强散射上限, 比 N 低约 21% (N=100 → 78.75); docstring 明写该式依赖圆高斯 `t_ba`, 弱前向散射只当上界
+- 合成 `diagnose()`: 只纳入**给了输入**的因子 (缺省 1.0 = 无证据), 产出 `FidelityReport` (逐因子 + 乘积 + 期望增强 + 缺口 + 低于 `DEFAULT_THRESHOLD` 的缓解建议), 七个机制各配一行缓解文案
+- 反向校验 (文献同款注入): `arange(256)/128*π*1.2` 的相位响应错误只让 `|γ_φ|²` 跌破阈值 (0.88) 而 `|γ_S|²≈1`; 完美条件 → 期望增强 == 上限; 常量相位偏置不扣分 (全局相位)
+- 载体 `tests/ao_shaping/utils/slm/test_fidelity_diag.py` 26 项: 上限/七核/DFT/注入缺陷隔离/半配对输入拒绝/`MITIGATIONS` 键与因子同步/AST 叶子导入守卫
+- 叶子契约: 只 import numpy + stdlib, 由 AST 守卫挡住 `ao_shaping` 导入 (与 `utils/math/stability.py` 同构)
+- 未做 (issue 余项): `slm-fidelity-probe` CLI (需硬件的 phase-stepping 序列)、jitter 周期量化、闭环内去相关接入
+- 门禁: 26 passed; ruff 全仓绿; term 0; conventions 73 passed / 1 skipped; module size `--check` 0
+
+**2026-11-19 · 89a0a21f 之后 · 第 167 批: `runner_common` 电压/绘图 IO 五函数外提 (4320→4224 行)**
+- 外提 `round_to_int` / `truncate_to_int` / `load_init_v` / `save_best_voltages` / `plot_pib_debug_grid` 逐字至新模块 `runners/voltage_io.py`（保留 `__all__`、`TYPE_CHECKING` 下的 `Recorder`、matplotlib/`plot_funcs` 惰性导入——`plot_pib_debug_grid` 不能在 import 期拉硬依赖）
+- `runner_common` 只保留 re-export（`x as x` 形式，ruff 认作显式再导出）；`nlight_dm` 四 runner 与 `test_voltage_rounding` 的 `from ...runner_common import ...` 零改动；`voltage_io` 是叶子（AST 守卫挡 `import runner_common`，防循环）
+- 两处 monkeypatch 目标随实现迁移: `test_runner_common` 改 patch `voltage_io.get_date_dir_name` —— 函数在自己模块的 globals 里解析该名, patch 旧模块会静默失效（首跑 2 failed 实证）；顺带删掉 `runner_common` 中因此不再使用的 `get_date_dir_name` 与 `loguru.logger` 导入
+- 棘轮: baseline `runner_common.py` 4320→4224 (-96)；`--update-baseline` 同时收紧两处历史滞后（`multi_slm_controller` 1752→1751、`shaping_controls` 2823→2821，均为拆 `slm_registry` 后未落盘的收紧），方向 **收紧 3 / 抬高 0**
+- 守卫新增 `TestVoltageIoExtraction`: 五个公开名与 `voltage_io` 同名对象 `is` 恒等（复制体实现会让全部行为测试照绿而两份漂移）+ `voltage_io` 不 import `runner_common` 的 AST 方向守卫
+- 载体: `test_runner_common` + `test_voltage_rounding` **21 passed**；conventions + `test_cli_argv_binding` **98 passed / 1 skipped**（跳过项 = 容器 PATH 无 ruff, CI 专用 job 兜底）；ruff 全仓绿; term 0; modsize `--check` 0
+- 注: `docs/dev/call_graph_wiki/raw/assets/` 仍按 `ao_shaping.runners.runner_common.<helper>` 记名（生成物；re-export 后该限定名仍可解析）；wiki 正文无这些函数的 `file:line` 引用（已 grep 核实），本批不重生成
+
+**2026-11-19 · 7f1184d7 之后 · 第 168 批: `runner_common` model-in-loop 落盘族外提 (4224→3917 行)**
+- 外提 `ModelInLoopSaveResult` + `save_model_in_loop_config` + `_model_in_loop_json_payload` + 三个 `_smil_*` helper + `save_model_in_loop_results` 逐字至新模块 `runners/model_in_loop_io.py`（`save_gs_refine_results` 半族按 b167 同款边界留在 `runner_common`，其 wiki 记名 `gen_wiki_pages.py:257` 不动）
+- `runner_common` re-export 三个公开名（`x as x`）；`model_in_loop_runner` / `compare_disturbance` / `shaping_controls` / `replay_model_in_loop_config` / 两处测试的 `from ...runner_common import ...` 零改动
+- 循环防线: 新模块只在 `TYPE_CHECKING` 下 import `SlmModelInLoopParams`（re-export 反向 import 会成运行时环），守卫 `test_runner_common_import_is_type_checking_only` 用 AST 断言 `runner_common` 的 ImportFrom 必须落在 `if TYPE_CHECKING:` 子树内；re-export `is` 恒等守卫同款
+- 棘轮表 `test_issue205_function_shape` 4 条改指新路径（新增 `_MODEL_IN_LOOP_IO` 常量），cap/nesting/实测值逐字不动 —— 形状守卫按 (文件, 函数) 定位，只搬家不重测; 515 passed 实证搬迁后形状不变
+- wiki 记名 `gen_wiki_pages.py:258` 限定名同步为 `model_in_loop_io.save_model_in_loop_results`（该表是映射源而非生成物，改 key 即生效）
+- baseline: `runner_common.py` 4224→3917 (-307)，方向 **收紧 1 / 抬高 0**; 注释头同步改写声明新边界（gs-refine 半族留驻 + 迁出指引）
+- 载体: `test_runner_common` + `test_model_error_terms` + `test_runner_param_config_wiring` **60 passed**; shape **515 passed**; conventions **73 passed / 1 skipped**; ruff 全仓绿; term 0; modsize `--check` 0
+- ㊻ 外提批的"未破坏面"清单本批全部为阴性: wiki 引用 (无 file:line) / monkeypatch 目标 (本批无人 patch 迁移名) / 行锚 (runner_common 被引用行号全部 <3400) / TYPE_CHECKING 导入 (ModelInLoopResult 从 runner_common 删除后 ruff F401 兜底)
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
