@@ -3298,12 +3298,12 @@ def test_relative_links_in_live_docs_point_at_tracked_paths() -> None:
 
 #: An invocation claim -- ``python <repo-relative>.py`` inside a module docstring or a live
 #: doc -- is an instruction, so a target missing from the git index is a command that cannot
-#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``src/calculators/gerchberg_
+#: run. The trailing ``(?![\w.])`` is load-bearing: without it ``experiments/calculators/gerchberg_
 #: saxton.pyx`` (a tracked Cython module) matches as ``…/gerchberg_saxton.py`` and the guard
 #: reports a real file as a defect. Historical docs are skipped by the repo's own marker list:
 #: a dated record quoting a command that ran at the time is a record, not an instruction.
 _INVOCATION = re.compile(
-    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs)/[\w./-]+\.py)(?![\w.])"
+    r"(?:^|[\s(>])(?:uv run )?python3?[ \t]+((?:src|scripts|tests|libs|experiments)/[\w./-]+\.py)(?![\w.])"
 )
 #: Floor on resolved claims. Measured 533; guards that parse nothing pass vacuously (TODO 8.9
 #: items 32 and 34), so a grammar break has to be loud.

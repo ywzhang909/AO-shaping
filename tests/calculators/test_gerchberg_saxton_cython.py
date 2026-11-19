@@ -1,9 +1,9 @@
 """Parity check: the Cython Gerchberg-Saxton must match the Python one.
 
 The Cython extension (``gerchberg_saxton_cython``) is built in place from
-``src/calculators/gerchberg_saxton.pyx``; it is not part of the packaged build,
+``experiments/calculators/gerchberg_saxton.pyx``; it is not part of the packaged build,
 so this test **skips** unless someone has compiled it locally
-(``python src/calculators/setup.py build_ext --inplace`` -- note the extension is
+(``python experiments/calculators/setup.py build_ext --inplace`` -- note the extension is
 not yet listed in ``setup.py``, only ``adam_cython`` and ``target_func_cython``
 are).
 
@@ -23,7 +23,7 @@ import pytest
 
 # The extension is compiled next to its .pyx source, so that directory has to be
 # importable before ``importorskip`` probes for the module.
-_CALCULATORS = Path(__file__).resolve().parents[2] / "src" / "calculators"
+_CALCULATORS = Path(__file__).resolve().parents[2] / "experiments" / "calculators"
 if str(_CALCULATORS) not in sys.path:
     sys.path.insert(0, str(_CALCULATORS))
 

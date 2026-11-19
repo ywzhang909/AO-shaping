@@ -823,7 +823,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/dm/generate_cython_optimizer_report.py",
         command="python scripts/dm/generate_cython_optimizer_report.py",
         environment="离线",
-        note="读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成",
+        note="读 experiments/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成",
     ),
     "report/benchmarks/backend_kernels_report/backend_kernels_performance.md": ReportProvenance(
         script="scripts/generate_backend_kernels_report.py",

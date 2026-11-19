@@ -2177,8 +2177,8 @@ Outputs to `report/beam_shaping/papers/`:
 
 ### generate_cython_optimizer_report.py
 
-Runs the Cython optimizer benchmark (`src.calculators.benchmark`, reading
-`src/calculators/benchmark_results.json`) and emits the markdown performance
+Runs the Cython optimizer benchmark (`calculators.benchmark`, run from
+`experiments/`, reading `experiments/calculators/benchmark_results.json`) and emits the markdown performance
 comparison with tables + analysis. **Fully offline** — no hardware, no CLI
 arguments.
 

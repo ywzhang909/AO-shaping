@@ -408,8 +408,8 @@ AO-shaping/
 │   ├── ao_shaping/     # 主程序包: runners/ algorithm/ model/ drivers/
 │   │                   #   optimizer/ utils/ tools/ display/ gui/
 │   ├── ml/             # 机器学习独立包: gsnet/ phase/ hwdataset/ zernike/
-│   ├── calculators/    # Cython 扩展 (standalone)
 │   └── optical_ui/     # [DEPRECATED] Empty package
+├── experiments/        # Cython 扩展 (原 src/calculators, 不随包发布)
 ├── tests/ao_shaping/   # 测试（镜像 src 结构）
 ├── scripts/            # 实用脚本，按处理对象分组（含 generate_*_report.py）
 │                       # slm/ zernike_bench/ dm/ wfs/ = 设备域；ml/ rl/ oopao/ build/ = 数据与用途

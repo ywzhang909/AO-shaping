@@ -149,8 +149,8 @@ AO-shaping/
 │   │   ├── zernike/             # Zernike forward/inverse model (models, forward_model, train_coeff, train_amp, losses, metrics, augment, dataset, inverse_design, eval_stats)
 │   │   ├── train.py             # ML 训练入口
 │   │   └── wandb_logger.py      # W&B 集成
-│   ├── calculators/               # Cython扩展 (standalone)
 │   └── optical_ui/                # [DEPRECATED] Empty package
+├── experiments/                   # Cython 扩展 (原 src/calculators, 不随包发布)
 ├── tests/ao_shaping/              # Tests (镜像 src 结构)
 ├── scripts/                      # 实用脚本 (含报告生成 generate_*_report.py)
 ├── docs/                         # 设备说明文档 (设备规格/SDK用法/操作手册/图集)

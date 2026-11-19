@@ -32,8 +32,8 @@ AO-shaping/
 │   │   ├── tools/                    # 独立工具 (SLM 相位采集 / Micro-DM 采图 / 训练数据采集)
 │   │   ├── display/                  # 可视化 (窗口 / 帧 / 渲染器)
 │   │   └── gui/                      # Streamlit GUI, 按设备域分包 (r50 / dm / slm / zernike / ccd)
-│   ├── calculators/                  # Cython 扩展 (独立)
 │   └── optical_ui/                   # [DEPRECATED] 空包
+├── experiments/                     # Cython 扩展 (原 src/calculators, 不随包发布)
 ├── tests/ao_shaping/                 # 测试 (镜像 src 结构)
 ├── libs/                             # 第三方 SDK 二进制 (gxipy, Drv_UDPST)
 └── scripts/                          # AI 一次性脚本, 按处理对象分组 (slm / dm / wfs / ml / rl / oopao / build / _common ...)

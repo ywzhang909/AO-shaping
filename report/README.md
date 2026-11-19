@@ -24,7 +24,7 @@
 | 报告 | 生成脚本 | 运行环境 | 说明 |
 |---|---|---|---|
 | [`benchmarks/backend_kernels_report/backend_kernels_performance.md`](benchmarks/backend_kernels_report/backend_kernels_performance.md) | `scripts/generate_backend_kernels_report.py` | 离线 | NumPy/Numba/CuPy 逐函数耗时；原先挂在 tests/ 的零断言用例里写回仓库（#162） |
-| [`benchmarks/cython_optimizer_report/cython_optimizer_performance.md`](benchmarks/cython_optimizer_report/cython_optimizer_performance.md) | `scripts/dm/generate_cython_optimizer_report.py` | 离线 | 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成 |
+| [`benchmarks/cython_optimizer_report/cython_optimizer_performance.md`](benchmarks/cython_optimizer_report/cython_optimizer_performance.md) | `scripts/dm/generate_cython_optimizer_report.py` | 离线 | 读 experiments/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成 |
 | [`benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`](benchmarks/device_less_full/beam_shaping_benchmark_metrics.md) | `scripts/slm/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画 |
 | [`benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md`](benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md) | `scripts/slm/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元网格中 gs x circle 的逐 GIF 指标 |
 | [`benchmarks/device_less_full/gif/gs_gaussian/gs_gaussian_metrics.md`](benchmarks/device_less_full/gif/gs_gaussian/gs_gaussian_metrics.md) | `scripts/slm/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元网格中 gs x gaussian 的逐 GIF 指标 |

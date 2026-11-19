@@ -1,6 +1,6 @@
 """生成 Cython 优化器性能对比报告。
 
-运行 ``src.calculators.benchmark`` 中的基准测试，输出性能表格与分析到
+运行 ``calculators.benchmark`` (在 ``experiments/`` 目录下) 中的基准测试，输出性能表格与分析到
 ``report/benchmarks/cython_optimizer_performance.md``（仓库约定：报告生成脚本写入
 ``report/<topic>/``，不写 ``report/`` 根目录）。
 
@@ -46,7 +46,7 @@ plt.rcParams["axes.unicode_minus"] = False
 # Constants
 # ---------------------------------------------------------------------------
 OUT_DIR = ROOT / "report" / "benchmarks"
-BENCHMARK_RESULTS_FILE = ROOT / "src" / "calculators" / "benchmark_results.json"
+BENCHMARK_RESULTS_FILE = ROOT / "experiments" / "calculators" / "benchmark_results.json"
 
 
 def load_results() -> list[dict]:
@@ -54,7 +54,7 @@ def load_results() -> list[dict]:
     if not BENCHMARK_RESULTS_FILE.exists():
         raise FileNotFoundError(
             f"Benchmark results not found at {BENCHMARK_RESULTS_FILE}. "
-            "Run `python src/calculators/benchmark.py` first."
+            "Run `python experiments/calculators/benchmark.py` first."
         )
     with open(BENCHMARK_RESULTS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -210,7 +210,7 @@ def write_report(results: list[dict], out_dir: Path) -> None:
         "# Cython Optimizer Performance Comparison",
         "",
         "This report compares the performance of 8 gradient-based optimizers implemented in Cython "
-        "(`src/calculators/adam.pyx`) against their pure Python counterparts in "
+        "(`experiments/calculators/adam.pyx`) against their pure Python counterparts in "
         "`src/ao_shaping/algorithm/gradient/`.",
         "",
         "All implementations pass numerical correctness verification with maximum absolute difference "
@@ -290,7 +290,7 @@ def write_report(results: list[dict], out_dir: Path) -> None:
         "",
         "## Raw Data",
         "",
-        "Full benchmark results available at: `src/calculators/benchmark_results.json`",
+        "Full benchmark results available at: `experiments/calculators/benchmark_results.json`",
         "",
         "Generated: 2026-09-21",
         "",

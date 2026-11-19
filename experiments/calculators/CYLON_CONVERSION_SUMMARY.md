@@ -6,7 +6,7 @@ I successfully converted the Gerchberg-Saxton phase recovery algorithm from Pyth
 ## Files Created/Modified
 
 ### 1. New Cython Implementation
-- **File**: `src/calculators/gerchberg_saxton.pyx`
+- **File**: `experiments/calculators/gerchberg_saxton.pyx`
 - **Content**: Complete Cython implementation of the `gerchberg_saxton` function and related helper functions (`_compute_propagator`, `angular_spectrum_propagate`)
 - **Key Features**:
   - Uses Cython's static typing for performance
@@ -16,7 +16,7 @@ I successfully converted the Gerchberg-Saxton phase recovery algorithm from Pyth
   - Includes all validation checks from the original Python implementation
 
 ### 2. Updated Build Configuration
-- **File**: `src/calculators/setup.py`
+- **File**: `experiments/calculators/setup.py`
 - **Modification**: Added extension configuration for the new gerchberg_saxton_cython module
 - **Changes**:
   ```python
