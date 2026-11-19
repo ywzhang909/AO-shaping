@@ -82,8 +82,8 @@ from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
     CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
-    connected_slm_numbers,
 )
+from ao_shaping.gui.slm.slm_registry import connected_slm_numbers
 from ao_shaping.gui.slm.bench_status_view import (
     render_bench_status,
     render_exposure_status,

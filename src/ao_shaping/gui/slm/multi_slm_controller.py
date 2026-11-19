@@ -19,14 +19,13 @@ from ao_shaping.drivers.slm.santec import Santec, describe_santec_error
 from ao_shaping.gui.slm.bench_settings import (
     DEFAULT_CAMERA_PIXEL_UM,
     KNOWN_CAMERA_PIXEL_UM,
-    MAX_SLMS,
     auto_check_camera_pixel_um,
     build_send_overlay,
-    connected_slm_numbers,
     detect_camera_pixel_um,
     render_bench_settings,
     widget_default,
 )
+from ao_shaping.gui.slm.slm_registry import MAX_SLMS, chain_role_caption as _chain_role_caption, connected_slm_numbers
 from ao_shaping.gui.utils.phase_overlay import (
     OverlaidSantec,
     apply_overlays_to_handle,
@@ -981,19 +980,6 @@ def _render_slm_config_status(slm_num: int, prefix: str, slm_obj: Santec) -> Non
         fresh = slm_obj.load_config() if slm_obj._serial_number else {}
         st.session_state[f"{prefix}_loaded_config"] = fresh
         st.rerun()
-
-
-def _chain_role_caption(slm_num: int) -> str | None:
-    """串联语义: 第 k 台入射面 = 第 k-1 台出射面, 第 1 台为激光入射面。
-
-    3 台以上时操作员容易把后级当成独立光路; 显式caption 把物理串联关系说出来。
-    序号 0 不是真实设备 (仅测试替身会这样传), 返回 ``None`` 不出 caption。
-    """
-    if slm_num == 1:
-        return "串联首台：入射面 = 激光入射"
-    if slm_num > 1:
-        return f"串联第 {slm_num} 台：入射面 = SLM {slm_num - 1} 出射面"
-    return None
 
 
 def _render_slm_device_section(slm_num: int, prefix: str, slm_obj: Santec) -> None:

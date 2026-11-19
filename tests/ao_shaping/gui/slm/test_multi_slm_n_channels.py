@@ -25,6 +25,7 @@ import pytest
 from ao_shaping.gui.slm import bench_settings as bs
 from ao_shaping.gui.slm import multi_slm_controller as gui
 from ao_shaping.gui.slm import shaping_controls as sc
+from ao_shaping.gui.slm import slm_registry as reg
 
 
 class _St:
@@ -37,7 +38,10 @@ class _St:
 @pytest.fixture()
 def state(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     session: dict[str, Any] = {}
-    monkeypatch.setattr(bs, "st", _St(session))
+    fake = _St(session)
+    # Both modules read ``st``: the view moved to ``slm_registry`` (#150 size ratchet).
+    monkeypatch.setattr(bs, "st", fake)
+    monkeypatch.setattr(reg, "st", fake)
     return session
 
 
@@ -104,7 +108,7 @@ def test_chain_role_caption_names_the_previous_stage() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [Path(gui.__file__), Path(bs.__file__), Path(sc.__file__)],
+    [Path(gui.__file__), Path(bs.__file__), Path(sc.__file__), Path(reg.__file__)],
     ids=lambda p: p.name,
 )
 def test_no_loop_over_the_literal_pair(path: Path) -> None:
