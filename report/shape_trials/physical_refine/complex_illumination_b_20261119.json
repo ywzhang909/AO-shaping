@@ -1,0 +1,134 @@
+{
+  "kind": "complex_illumination_field_regularization_diagnostic",
+  "generated": {
+    "timestamp_utc": "2026-11-19T02:03:24.287141+00:00",
+    "monotonic_ns": 694514971096500
+  },
+  "script": "D:\\Projects\\TIFO\\AO-shaping\\.worktrees\\mil\\scripts\\slm\\diagnose_complex_illumination_b.py",
+  "script_sha256": "341d75b056fdc7889782cac8e43dec4cce5f481bc9717e1ade16b2d095ed745d",
+  "session_b": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\extend_b_20261118",
+  "manifest_sha256": "118fccfcb83d7bffe9473bead83927cd45641550f5ee7b8ad5cb3ce74201e4c7",
+  "original_fit": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\20261118_transfer_mil_zernike_probe_v1\\fit_m3_full",
+  "split_counts": {
+    "calibration": 10,
+    "train": 80,
+    "test": 24
+  },
+  "calibration_excluded": true,
+  "forward_api": {
+    "fitter": "ao_shaping.algorithm.signal_processing.physical_forward_fit.PhysicalForwardFit",
+    "blocker": "PhysicalForwardFit.prediction() hardcodes a REAL Gaussian illumination amplitude at physical_forward_fit.py:186 (`amplitude = gaussian_amplitude(...)`) and never forms an imaginary illumination part; it cannot natively accept a complex pupil amplitude without a production edit.",
+    "propagation_primitive": "ao_shaping.utils.wavefront.fraunhofer.focal_intensity",
+    "complex_field_accepted_by_primitive": true,
+    "diagnostic_method": "Wrapped model.propagate to multiply the complex pupil field by M=exp(s+i*t) BEFORE focal_intensity. Genuine pupil-plane complex amplitude; NOT an image-space correction. No production file edited.",
+    "production_files_modified": []
+  },
+  "method": {
+    "control_grid": 8,
+    "field_param_budget": 128,
+    "amp_log": 0.6,
+    "amp_phase": 0.6,
+    "support_width": 1.5,
+    "lambda_smoothness": 0.05,
+    "lambda_support": 0.01,
+    "n_iter": 220,
+    "optimizer": "Adam, fixed a-priori; test scored once after fit",
+    "train_only_fitting": true,
+    "no_b_test_tuning": true,
+    "loss": "production fitmod.fit_loss (train-only radiometry NNLS + corr/relMSE/CV)",
+    "radiometry_at_score": "gain/background/bias refit on B-TRAIN pixels only, then applied unchanged to train and test rows",
+    "origin_mode": "measured -- origin placed at B's own reference_start spot; the recorded eval_transfer/results.json uses 'session' (adds the original fit's ~5px offset), hence a small baseline-number delta",
+    "fast_radiometry_note": "train-only g/b/c solved by batched torch least-squares with non-negative projection; matches production scipy NNLS to <0.01 counts on this dataset"
+  },
+  "arms": {
+    "baseline_frozen": {
+      "description": "Transferred Gaussian illumination with ORIGINAL fit's frozen radiometry; no fitting (matches eval_transfer/results.json).",
+      "trainable_params": 0,
+      "radiometry": {
+        "gain": 3145.200229159137,
+        "background": 0.0,
+        "bias_counts": 0.643093604435795
+      },
+      "metrics": {
+        "train": {
+          "correlation": 0.7561482553903522,
+          "relative_l2": 0.6750544524990938,
+          "cv_abs_error": 1.0368033543236266
+        },
+        "test": {
+          "correlation": 0.7228203777258541,
+          "relative_l2": 0.7139263986461751,
+          "cv_abs_error": 1.0519117780796525
+        }
+      }
+    },
+    "gaussian_train_refit": {
+      "description": "Transferred Gaussian illumination; base physical params and radiometry refit on B-train only, no complex field.",
+      "trainable_params": 12,
+      "train_loss_first": 0.38107267022132874,
+      "train_loss_last": 0.13255056738853455,
+      "metrics": {
+        "train": {
+          "correlation": 0.9119320497420725,
+          "relative_l2": 0.35468791105245606,
+          "cv_abs_error": 0.5236826776486424
+        },
+        "test": {
+          "correlation": 0.8133436412990106,
+          "relative_l2": 0.5246344684689165,
+          "cv_abs_error": 0.5112816873647014
+        },
+        "radiometry": {
+          "gain": 43665.65234375,
+          "background": 0.0,
+          "bias_counts": 0.7308563590049744
+        }
+      }
+    },
+    "complex_extension": {
+      "description": "Transferred Gaussian illumination + smooth bounded complex pupil amplitude M=exp(s+i*t) with smoothness/support priors; base params, field and radiometry fit on B-train only.",
+      "trainable_params": 140,
+      "field_param_budget": 128,
+      "train_loss_first": 0.38107267022132874,
+      "train_loss_last": 0.13061745464801788,
+      "field_window_mean": 0.21126940846443176,
+      "field_theta_absmax": 1.482201099395752,
+      "metrics": {
+        "train": {
+          "correlation": 0.9137447163253384,
+          "relative_l2": 0.3515320575707688,
+          "cv_abs_error": 0.5140949484266827
+        },
+        "test": {
+          "correlation": 0.8188536304838582,
+          "relative_l2": 0.5174947849000363,
+          "cv_abs_error": 0.5095148119784633
+        },
+        "radiometry": {
+          "gain": 15676.8369140625,
+          "background": 0.0,
+          "bias_counts": 0.7310127019882202
+        }
+      }
+    }
+  },
+  "summary": {
+    "test_complex_minus_baseline_frozen": {
+      "correlation": 0.09603325,
+      "relative_l2": -0.19643161,
+      "cv_abs_error": -0.54239697
+    },
+    "test_complex_minus_gaussian_train_refit": {
+      "correlation": 0.00550999,
+      "relative_l2": -0.00713968,
+      "cv_abs_error": -0.00176688
+    },
+    "interpretation": "Negative relative_l2 / cv_abs_error and positive correlation deltas favour the complex extension. The comparison against gaussian_train_refit isolates the field's contribution under an equal optimizer/radiometry budget."
+  },
+  "runtime": {
+    "elapsed_seconds": 255.253,
+    "torch_threads": 4,
+    "torch_version": "2.11.0+cu128",
+    "numpy_version": "2.4.6"
+  }
+}

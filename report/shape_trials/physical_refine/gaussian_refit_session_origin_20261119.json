@@ -1,0 +1,134 @@
+{
+  "kind": "complex_illumination_field_regularization_diagnostic",
+  "generated": {
+    "timestamp_utc": "2026-11-19T02:39:35.971755+00:00",
+    "monotonic_ns": 696686650600000
+  },
+  "script": "D:\\Projects\\TIFO\\AO-shaping\\.worktrees\\mil\\scripts\\slm\\diagnose_complex_illumination_b.py",
+  "script_sha256": "7bee90293588ef387c183cc3602066ae4d12e0df13a1d9e065836efec312c77c",
+  "session_b": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\extend_b_20261118",
+  "manifest_sha256": "118fccfcb83d7bffe9473bead83927cd45641550f5ee7b8ad5cb3ce74201e4c7",
+  "original_fit": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\20261118_transfer_mil_zernike_probe_v1\\fit_m3_full",
+  "split_counts": {
+    "calibration": 10,
+    "train": 80,
+    "test": 24
+  },
+  "calibration_excluded": true,
+  "forward_api": {
+    "fitter": "ao_shaping.algorithm.signal_processing.physical_forward_fit.PhysicalForwardFit",
+    "blocker": "PhysicalForwardFit.prediction() hardcodes a REAL Gaussian illumination amplitude at physical_forward_fit.py:186 (`amplitude = gaussian_amplitude(...)`) and never forms an imaginary illumination part; it cannot natively accept a complex pupil amplitude without a production edit.",
+    "propagation_primitive": "ao_shaping.utils.wavefront.fraunhofer.focal_intensity",
+    "complex_field_accepted_by_primitive": true,
+    "diagnostic_method": "Wrapped model.propagate to multiply the complex pupil field by M=exp(s+i*t) BEFORE focal_intensity. Genuine pupil-plane complex amplitude; NOT an image-space correction. No production file edited.",
+    "production_files_modified": []
+  },
+  "method": {
+    "control_grid": 8,
+    "field_param_budget": 128,
+    "amp_log": 0.6,
+    "amp_phase": 0.6,
+    "support_width": 1.5,
+    "lambda_smoothness": 0.05,
+    "lambda_support": 0.01,
+    "n_iter": 220,
+    "optimizer": "Adam, fixed a-priori; test scored once after fit",
+    "train_only_fitting": true,
+    "no_b_test_tuning": true,
+    "loss": "production fitmod.fit_loss (train-only radiometry NNLS + corr/relMSE/CV)",
+    "radiometry_at_score": "gain/background/bias refit on B-TRAIN pixels only, then applied unchanged to train and test rows",
+    "origin_mode": "session -- origin = B measured reference_start + original fit's fitted offset (origin_fit - measured_old), matching eval_transfer/results.json primary variant 'origin_session'",
+    "origin_vec": [
+      1231.4189668800261,
+      1106.1965495365475
+    ],
+    "origin_offset_from_measured": [
+      5.214318758568879,
+      1.359961351635775
+    ],
+    "arms_run": [
+      "gaussian"
+    ],
+    "fast_radiometry_note": "train-only g/b/c solved by batched torch least-squares with non-negative projection; matches production scipy NNLS to <0.01 counts on this dataset"
+  },
+  "arms": {
+    "baseline_frozen": {
+      "description": "Transferred Gaussian illumination with ORIGINAL fit's frozen radiometry; no fitting (matches eval_transfer/results.json).",
+      "trainable_params": 0,
+      "radiometry": {
+        "gain": 3145.200229159137,
+        "background": 0.0,
+        "bias_counts": 0.643093604435795
+      },
+      "metrics": {
+        "train": {
+          "correlation": 0.7780927295901527,
+          "relative_l2": 0.6572353128777981,
+          "cv_abs_error": 1.0360575780279646
+        },
+        "test": {
+          "correlation": 0.7174757659051701,
+          "relative_l2": 0.7088072970587426,
+          "cv_abs_error": 1.0517516601355708
+        }
+      }
+    },
+    "gaussian_train_refit": {
+      "description": "Transferred Gaussian illumination; base physical params and radiometry refit on B-train only, no complex field.",
+      "trainable_params": 12,
+      "train_loss_first": 0.34916988015174866,
+      "train_loss_last": 0.1304047703742981,
+      "metrics": {
+        "train": {
+          "correlation": 0.9134105781556215,
+          "relative_l2": 0.35241666219319895,
+          "cv_abs_error": 0.5158770215072224
+        },
+        "test": {
+          "correlation": 0.8192957392087031,
+          "relative_l2": 0.5173631544537385,
+          "cv_abs_error": 0.5114197714584311
+        },
+        "radiometry": {
+          "gain": 44028.828125,
+          "background": 0.0,
+          "bias_counts": 0.7310624122619629
+        }
+      }
+    }
+  },
+  "fidelity_gate": {
+    "model": "gaussian_train_refit",
+    "stored_prediction": "D:\\Projects\\TIFO\\AO-shaping\\.worktrees\\mil\\report\\shape_trials\\physical_refine\\gaussian_refit_prediction_20261119.npz",
+    "rows": 104,
+    "max_abs_deviation_counts": 0.0,
+    "relative_l2_deviation": 0.0,
+    "correlation": 1.0,
+    "max_metric_deviation": {
+      "correlation": 0.0,
+      "relative_l2": 0.0,
+      "cv_abs_error": 0.0
+    },
+    "tolerances": {
+      "counts": 0.05,
+      "relative_l2": 0.0001,
+      "correlation": 0.9999
+    },
+    "all_passed": true,
+    "note": "Rebuilt forward from the refit's parameters + saved train-only radiometry after a full base restore; compares against the scored prediction to prove deterministic reproducibility."
+  },
+  "summary": {
+    "test_gaussian_train_refit_minus_baseline_frozen": {
+      "correlation": 0.10181997,
+      "relative_l2": -0.19144414,
+      "cv_abs_error": -0.54033189
+    },
+    "interpretation": "No complex arm in this run; the delta compares the train-only Gaussian refit against the frozen baseline on the same origin mode."
+  },
+  "runtime": {
+    "elapsed_seconds": 137.636,
+    "torch_threads": 4,
+    "torch_version": "2.11.0+cu128",
+    "numpy_version": "2.4.6"
+  }
+}

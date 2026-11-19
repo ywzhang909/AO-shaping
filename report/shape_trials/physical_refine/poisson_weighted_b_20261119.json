@@ -1,0 +1,594 @@
+{
+  "format_version": 1,
+  "created_utc": "2026-11-19T01:36:19.767927+00:00",
+  "script": "scripts/slm/diagnose_transfer_poisson_weighting.py",
+  "question": "Can a physically meaningful Poisson/count-variance data fidelity be derived from session B, and would it improve held-out B prediction and the flat-profile bias over the existing correlation+MSE+CV objective?",
+  "decision": "stop_not_defensible",
+  "decision_reason": "A defensible Poisson likelihood cannot be derived from the stored data. Blocking preconditions fail (see blocking_reasons). Per the task rule, the script stops and explains why instead of inventing a noise model.",
+  "poisson_likelihood_defensible": false,
+  "blocking_reasons": [
+    {
+      "name": "independently_measured_offset",
+      "evidence": {
+        "source_split": "train",
+        "dark_frames_found": [],
+        "only_offset_is_fitted_radiometry": {
+          "gain": 3145.200229159137,
+          "background": 0.0,
+          "bias_counts": 0.643093604435795
+        },
+        "fitted_bias_counts": 0.643093604435795,
+        "fitted_background_term": 0.0,
+        "empirical_background_mean": {
+          "0.028": 0.640288,
+          "0.051": 0.638132
+        },
+        "empirical_background_median": {
+          "0.028": 1.0,
+          "0.051": 1.0
+        }
+      },
+      "explanation": "No dark/offset frame exists in the session. The only additive offset is the radiometry bias_counts from the session-A fit, which the codebase documents as not independently identifiable without a dark/response experiment. A Poisson mean cannot be separated into light + measured offset from these data."
+    },
+    {
+      "name": "camera_conversion_gain",
+      "evidence": {
+        "source_split": "dataset_metadata",
+        "source_note": "Reads light_check.json metadata only; no image rows, no split dependence.",
+        "recorded_camera_gain": null,
+        "counts_per_ms": 4040.0,
+        "read_noise_sigma_counts": 0.7413,
+        "note": "counts_per_ms is an optical count-rate, not the camera ADU/e- conversion gain; no e-/ADU value is stored."
+      },
+      "explanation": "Poisson statistics apply to photoelectrons. Without the ADU/e- conversion gain the variance of an ADU count is unknown up to a multiplicative factor, so an absolute Poisson likelihood cannot be formed."
+    },
+    {
+      "name": "poisson_variance_law",
+      "evidence": {
+        "source_split": "train",
+        "var_over_mean_background": [
+          0.325199,
+          0.320237
+        ],
+        "var_over_mean_core": [
+          0.337524,
+          0.165898
+        ],
+        "poisson_expectation": 1.0,
+        "note": "Computed from B train rows only; no test row contributes to this decision."
+      },
+      "explanation": "Per-pixel temporal variance is about 0.3x the mean, not ~1x. The recorded ADU are strongly sub-Poisson (consistent with ~3 e-/ADU or on-camera averaging), so a var=mean likelihood mis-weights pixels by roughly 3x and mis-models the near-deterministic pedestal."
+    }
+  ],
+  "checks": [
+    {
+      "name": "integer_raw_counts",
+      "status": "pass",
+      "blocking": false,
+      "evidence": {
+        "source_split": "train",
+        "raw_dtypes": [
+          "uint8"
+        ],
+        "frames_per_row": [
+          3
+        ],
+        "inspected_train_rows": 80,
+        "manifest_rows": 114
+      },
+      "explanation": "raw_frames are integer ADU with repeated frames, so a count law is at least representable."
+    },
+    {
+      "name": "per_row_exposure_ms",
+      "status": "pass",
+      "blocking": false,
+      "evidence": {
+        "source_split": "train",
+        "exposures": [
+          "0.028",
+          "0.051"
+        ],
+        "train_rows": 80,
+        "test_rows_descriptive_only": 24,
+        "calibration_rows_excluded": 10
+      },
+      "explanation": "Every train/test row carries a positive exposure in ms."
+    },
+    {
+      "name": "signal_linear_in_exposure",
+      "status": "pass",
+      "blocking": false,
+      "evidence": {
+        "source_split": "train",
+        "exposure_ratio": 1.821429,
+        "core_mean_ratio": 1.793782,
+        "background_mean_ratio": 0.996633
+      },
+      "explanation": "Core counts scale with exposure like light; the additive background does not scale with exposure, so it is a constant pedestal rather than ambient (Poisson) light."
+    },
+    {
+      "name": "independently_measured_offset",
+      "status": "fail",
+      "blocking": true,
+      "evidence": {
+        "source_split": "train",
+        "dark_frames_found": [],
+        "only_offset_is_fitted_radiometry": {
+          "gain": 3145.200229159137,
+          "background": 0.0,
+          "bias_counts": 0.643093604435795
+        },
+        "fitted_bias_counts": 0.643093604435795,
+        "fitted_background_term": 0.0,
+        "empirical_background_mean": {
+          "0.028": 0.640288,
+          "0.051": 0.638132
+        },
+        "empirical_background_median": {
+          "0.028": 1.0,
+          "0.051": 1.0
+        }
+      },
+      "explanation": "No dark/offset frame exists in the session. The only additive offset is the radiometry bias_counts from the session-A fit, which the codebase documents as not independently identifiable without a dark/response experiment. A Poisson mean cannot be separated into light + measured offset from these data."
+    },
+    {
+      "name": "camera_conversion_gain",
+      "status": "fail",
+      "blocking": true,
+      "evidence": {
+        "source_split": "dataset_metadata",
+        "source_note": "Reads light_check.json metadata only; no image rows, no split dependence.",
+        "recorded_camera_gain": null,
+        "counts_per_ms": 4040.0,
+        "read_noise_sigma_counts": 0.7413,
+        "note": "counts_per_ms is an optical count-rate, not the camera ADU/e- conversion gain; no e-/ADU value is stored."
+      },
+      "explanation": "Poisson statistics apply to photoelectrons. Without the ADU/e- conversion gain the variance of an ADU count is unknown up to a multiplicative factor, so an absolute Poisson likelihood cannot be formed."
+    },
+    {
+      "name": "poisson_variance_law",
+      "status": "fail",
+      "blocking": true,
+      "evidence": {
+        "source_split": "train",
+        "var_over_mean_background": [
+          0.325199,
+          0.320237
+        ],
+        "var_over_mean_core": [
+          0.337524,
+          0.165898
+        ],
+        "poisson_expectation": 1.0,
+        "note": "Computed from B train rows only; no test row contributes to this decision."
+      },
+      "explanation": "Per-pixel temporal variance is about 0.3x the mean, not ~1x. The recorded ADU are strongly sub-Poisson (consistent with ~3 e-/ADU or on-camera averaging), so a var=mean likelihood mis-weights pixels by roughly 3x and mis-models the near-deterministic pedestal."
+    },
+    {
+      "name": "background_quantisation",
+      "status": "fail",
+      "blocking": false,
+      "evidence": {
+        "source_split": "train",
+        "background_frac_0_or_1": {
+          "0.028": 0.998139,
+          "0.051": 0.99991
+        },
+        "background_mean": {
+          "0.028": 0.640288,
+          "0.051": 0.638132
+        }
+      },
+      "explanation": "Nearly all background pixels are exactly 0 or 1 ADU and the mean is below one ADU, so the background is quantisation-limited, not a sampled Poisson light level."
+    },
+    {
+      "name": "stored_target_is_count_rate",
+      "status": "insufficient",
+      "blocking": false,
+      "evidence": {
+        "source_split": "code_definition",
+        "source_note": "Describes how fit.load_dataset stores the target; no image rows involved.",
+        "stored_frame": "raw_frames.mean(axis=0)",
+        "stored_target": "frame / exposure_ms  # counts per ms"
+      },
+      "explanation": "The fit compares count-rate images, not integer total counts. A Poisson likelihood would need N=sum(raw_frames) and a mean that also carries the three-frame stack, which the current target does not."
+    }
+  ],
+  "decision_data_policy": {
+    "decision_source_split": "train",
+    "rule": "Every decision-driving / blocking check is free of test-row influence. Row-derived checks (integer_raw_counts, per_row_exposure_ms, signal_linear_in_exposure, independently_measured_offset, poisson_variance_law, background_quantisation) are computed from B train rows only (source_split=train). camera_conversion_gain reads dataset metadata only (source_split=dataset_metadata), and stored_target_is_count_rate is a code-definition fact (source_split=code_definition); neither uses any image row, so neither can depend on the test split.",
+    "test_rows": "Held-out B test rows appear only in data_inventory.exposure_groups_test as descriptive aggregates. They never determine decision, blockers, thresholds, or the fit plan, and no parameter is fit or selected on them.",
+    "calibration_rows": "excluded from all checks (10 rows)."
+  },
+  "data_inventory": {
+    "dataset": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\extend_b_20261118",
+    "splits": {
+      "train": 80,
+      "test": 24,
+      "calibration": 10
+    },
+    "calibration_excluded": 10,
+    "exposure_groups": {
+      "0.028": {
+        "n_rows": 103,
+        "background_median": {
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "background_mean": {
+          "mean": 0.645229,
+          "min": 0.551538,
+          "max": 0.833851,
+          "std": 0.072758
+        },
+        "background_frac_0_or_1": {
+          "mean": 0.997888,
+          "min": 0.977851,
+          "max": 1.0,
+          "std": 0.004601
+        },
+        "core_mean": {
+          "mean": 40.020898,
+          "min": 25.212806,
+          "max": 53.858757,
+          "std": 8.277397
+        },
+        "peak": {
+          "mean": 113.708738,
+          "min": 75.0,
+          "max": 159.0,
+          "std": 25.311508
+        },
+        "total_mean": {
+          "mean": 3.068078,
+          "min": 2.912079,
+          "max": 3.2177,
+          "std": 0.064435
+        },
+        "total_zero_fraction": {
+          "mean": 0.090899,
+          "min": 0.058447,
+          "max": 0.146676,
+          "std": 0.018295
+        },
+        "var_over_mean_background": {
+          "mean": 0.31997,
+          "min": 0.145646,
+          "max": 0.414614,
+          "std": 0.072618
+        },
+        "var_over_mean_core": {
+          "mean": 0.324106,
+          "min": 0.077408,
+          "max": 1.002588,
+          "std": 0.183884
+        },
+        "count_rate_mean": {
+          "mean": 36.524734,
+          "min": 34.667607,
+          "max": 38.305952,
+          "std": 0.767082
+        }
+      },
+      "0.051": {
+        "n_rows": 1,
+        "background_median": {
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "background_mean": {
+          "mean": 0.638132,
+          "min": 0.638132,
+          "max": 0.638132,
+          "std": 0.0
+        },
+        "background_frac_0_or_1": {
+          "mean": 0.99991,
+          "min": 0.99991,
+          "max": 0.99991,
+          "std": 0.0
+        },
+        "core_mean": {
+          "mean": 74.706215,
+          "min": 74.706215,
+          "max": 74.706215,
+          "std": 0.0
+        },
+        "peak": {
+          "mean": 217.0,
+          "min": 217.0,
+          "max": 217.0,
+          "std": 0.0
+        },
+        "total_mean": {
+          "mean": 3.802901,
+          "min": 3.802901,
+          "max": 3.802901,
+          "std": 0.0
+        },
+        "total_zero_fraction": {
+          "mean": 0.110914,
+          "min": 0.110914,
+          "max": 0.110914,
+          "std": 0.0
+        },
+        "var_over_mean_background": {
+          "mean": 0.320237,
+          "min": 0.320237,
+          "max": 0.320237,
+          "std": 0.0
+        },
+        "var_over_mean_core": {
+          "mean": 0.165898,
+          "min": 0.165898,
+          "max": 0.165898,
+          "std": 0.0
+        },
+        "count_rate_mean": {
+          "mean": 24.855563,
+          "min": 24.855563,
+          "max": 24.855563,
+          "std": 0.0
+        }
+      }
+    },
+    "exposure_groups_train": {
+      "0.028": {
+        "n_rows": 79,
+        "background_median": {
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "background_mean": {
+          "mean": 0.640288,
+          "min": 0.551538,
+          "max": 0.833851,
+          "std": 0.071154
+        },
+        "background_frac_0_or_1": {
+          "mean": 0.998139,
+          "min": 0.977851,
+          "max": 1.0,
+          "std": 0.004479
+        },
+        "core_mean": {
+          "mean": 41.64731,
+          "min": 25.212806,
+          "max": 53.858757,
+          "std": 8.229063
+        },
+        "peak": {
+          "mean": 119.151899,
+          "min": 75.0,
+          "max": 159.0,
+          "std": 24.860669
+        },
+        "total_mean": {
+          "mean": 3.076729,
+          "min": 2.93349,
+          "max": 3.2177,
+          "std": 0.06006
+        },
+        "total_zero_fraction": {
+          "mean": 0.093952,
+          "min": 0.058447,
+          "max": 0.146676,
+          "std": 0.018831
+        },
+        "var_over_mean_background": {
+          "mean": 0.325199,
+          "min": 0.145646,
+          "max": 0.414614,
+          "std": 0.070836
+        },
+        "var_over_mean_core": {
+          "mean": 0.337524,
+          "min": 0.077408,
+          "max": 1.002588,
+          "std": 0.202622
+        },
+        "count_rate_mean": {
+          "mean": 36.627723,
+          "min": 34.922503,
+          "max": 38.305952,
+          "std": 0.715002
+        }
+      },
+      "0.051": {
+        "n_rows": 1,
+        "background_median": {
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "background_mean": {
+          "mean": 0.638132,
+          "min": 0.638132,
+          "max": 0.638132,
+          "std": 0.0
+        },
+        "background_frac_0_or_1": {
+          "mean": 0.99991,
+          "min": 0.99991,
+          "max": 0.99991,
+          "std": 0.0
+        },
+        "core_mean": {
+          "mean": 74.706215,
+          "min": 74.706215,
+          "max": 74.706215,
+          "std": 0.0
+        },
+        "peak": {
+          "mean": 217.0,
+          "min": 217.0,
+          "max": 217.0,
+          "std": 0.0
+        },
+        "total_mean": {
+          "mean": 3.802901,
+          "min": 3.802901,
+          "max": 3.802901,
+          "std": 0.0
+        },
+        "total_zero_fraction": {
+          "mean": 0.110914,
+          "min": 0.110914,
+          "max": 0.110914,
+          "std": 0.0
+        },
+        "var_over_mean_background": {
+          "mean": 0.320237,
+          "min": 0.320237,
+          "max": 0.320237,
+          "std": 0.0
+        },
+        "var_over_mean_core": {
+          "mean": 0.165898,
+          "min": 0.165898,
+          "max": 0.165898,
+          "std": 0.0
+        },
+        "count_rate_mean": {
+          "mean": 24.855563,
+          "min": 24.855563,
+          "max": 24.855563,
+          "std": 0.0
+        }
+      }
+    },
+    "exposure_groups_test": {
+      "0.028": {
+        "n_rows": 24,
+        "background_median": {
+          "mean": 1.0,
+          "min": 1.0,
+          "max": 1.0,
+          "std": 0.0
+        },
+        "background_mean": {
+          "mean": 0.661493,
+          "min": 0.582142,
+          "max": 0.808509,
+          "std": 0.075555
+        },
+        "background_frac_0_or_1": {
+          "mean": 0.99706,
+          "min": 0.981629,
+          "max": 1.0,
+          "std": 0.004894
+        },
+        "core_mean": {
+          "mean": 34.667294,
+          "min": 26.506591,
+          "max": 44.293785,
+          "std": 5.811474
+        },
+        "peak": {
+          "mean": 95.791667,
+          "min": 75.0,
+          "max": 131.0,
+          "std": 17.221545
+        },
+        "total_mean": {
+          "mean": 3.039601,
+          "min": 2.912079,
+          "max": 3.16504,
+          "std": 0.069909
+        },
+        "total_zero_fraction": {
+          "mean": 0.080848,
+          "min": 0.060144,
+          "max": 0.0988,
+          "std": 0.011725
+        },
+        "var_over_mean_background": {
+          "mean": 0.302757,
+          "min": 0.171293,
+          "max": 0.380123,
+          "std": 0.075687
+        },
+        "var_over_mean_core": {
+          "mean": 0.279941,
+          "min": 0.128834,
+          "max": 0.436917,
+          "std": 0.086204
+        },
+        "count_rate_mean": {
+          "mean": 36.185727,
+          "min": 34.667607,
+          "max": 37.679047,
+          "std": 0.832255
+        }
+      }
+    },
+    "exposure_groups_note": "exposure_groups is an all-split descriptive aggregate and is NOT used by any decision; decision checks use exposure_groups_train only.",
+    "crop": {
+      "span": 160,
+      "side": 161,
+      "stride": 2,
+      "background_pixels": 14824,
+      "core_pixels": 177
+    },
+    "reference_label": "reference_start"
+  },
+  "units_and_offsets": {
+    "raw_frames": "integer ADU, repeated frames; summed for a count target",
+    "stored_frame": "raw_frames.mean(axis=0)  # ADU per frame",
+    "stored_target": "frame / exposure_ms  # count-rate (counts/ms)",
+    "model_counts_rate": "gain*optical + background + bias_counts/exposure_ms",
+    "fitted_offset_per_frame_ADU": 0.643093604435795,
+    "measured_background_per_frame_ADU_train": {
+      "0.028": 0.640288,
+      "0.051": 0.638132
+    }
+  },
+  "intended_design": {
+    "start": "session-A fit_m3_full frozen parameters (defocus, amplitude centre/width, residual Z5..Z11) with B's ramp matrix re-fitted from B's signed ramp pairs and origin re-anchored to B's reference_start; adaptation=full.",
+    "train_rows": 80,
+    "test_rows": 24,
+    "calibration_rows_excluded": 10,
+    "comparison": [
+      "baseline: existing correlation + 0.25*relative_mse + 0.25*CV, fitted on B train only",
+      "treatment: Poisson NLL on integer total counts versus the same full physical forward fitted on B train only"
+    ],
+    "same_start_same_budget": "identical initial parameters and identical number of optimizer steps for both objectives; model frozen before test",
+    "freeze_then_test": "select on train, freeze, then report signed Pearson, relative L2, CV absolute error and the flat-profile bias on the 24 test rows; no test tuning",
+    "run": false,
+    "not_run_reason": "A defensible Poisson likelihood cannot be derived from the stored data. Blocking preconditions fail (see blocking_reasons). Per the task rule, the script stops and explains why instead of inventing a noise model."
+  },
+  "what_would_make_it_defensible": [
+    "Capture a blocked-beam dark frame stack at each exposure (0.028 and 0.051 ms) to measure the per-pixel bias and its temporal noise.",
+    "Capture an exposure-response series to estimate the ADU/e- conversion gain and read noise from variance versus mean; verify var/mean ~ 1/gain.",
+    "Re-run this diagnostic; if var/mean ~ 1/gain and a measured dark exists, use a Poisson (or Poisson+read-noise / Pearson chi-square) likelihood on dark-subtracted integer counts."
+  ],
+  "authoritative_context": {
+    "session_a_fit": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\20261118_transfer_mil_zernike_probe_v1\\fit_m3_full",
+    "session_a_fitted_radiometry": {
+      "gain": 3145.200229159137,
+      "background": 0.0,
+      "bias_counts": 0.643093604435795
+    },
+    "prior_authoritative_results": [
+      "report/shape_trials/physical_refine/fit_compare_m3_20261118.md",
+      "report/shape_trials/physical_refine/corrector_transfer_to_b.json"
+    ],
+    "current_objective": "correlation + 0.25*relative_mse + 0.25*CV (fit_loss)",
+    "known_bias_to_test": "flat/smooth-profile contrast: predicted CV is biased relative to measured (cv_prediction rose +0.45 in the session-A comparison); this is the target of the Poisson experiment."
+  },
+  "provenance": {
+    "manifest_sha256": "118fccfcb83d7bffe9473bead83927cd45641550f5ee7b8ad5cb3ce74201e4c7",
+    "config_sha256": "b20cd36a4fce3141a3449065ba728b9190da48bff554e8d464317e8cb6ab7c9c",
+    "light_check_sha256": "5e93100312813f3e4ee7aded65480d2dd1aa4cd5219286d18be08a7da3b31c86",
+    "baseline_frozen_sha256": "4c6420050d95497b4dd96e173546fbf7cc34988cc47aab57366712c507ec6edc",
+    "device_touched": false,
+    "fit_code_modified": false
+  }
+}
