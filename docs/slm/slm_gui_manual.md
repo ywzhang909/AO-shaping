@@ -211,7 +211,7 @@ classDiagram
 > `msc_*` 这些键属于**独立的** `gui/slm/multishape_campaign_ui.py`
 > （`streamlit run` 单独启动，不挂进本页）；列在这里是因为它复用本节的
 > `bench_settings` 侧栏与 `slm{N}_*` 设备键。完整说明见
-> [`docs/GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md`](../../GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md)。
+> [`docs/GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md`](../GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md)。
 
 ---
 
