@@ -606,7 +606,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    `r50_single.py:111`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
    整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:296/323`，数字钉的是下面两个**调用行**而非 `except` 行——后者在本文件里文本全同，按内容无法定位；2026-11-17 复核 MJPEG 簇外提 `mjpeg_streamer.py` 后重钉至 168/195；2026-11-17 跟进上游 `ae788a42`（经 `c678e660` 合并带入，ROI/capture 流 stale-handle 修复在本两处调用行上方插入退避/重开块，两调用行被顶下至 297/324）重钉至 `:297/324`；2026-11-18 复核 `45e06487` #205 ponytail-lean（两调用行之上 −1）重钉 `:296/323`）——这两处是包住
    `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
-    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1250`，本项 2026-10-29 重钉而非撤销：`detect_camera_pixel_um`
+    同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1258`，本项 2026-10-29 重钉而非撤销：`detect_camera_pixel_um`
     改为只查型号配置 `data/ccd_configs/ccd/models.json`（`probe_daheng_models` + `lookup_model_pixel_size_um`，大恒侧不再开相机探测），
     型号未登记时驱动侧 `resolve_model_pixel_size_um` 抛 `CameraError` 并给出登记命令，原先两条吞 `except Exception` 的兜底随
     `15ea0a22` 删除 ⇒ 大恒侧已无护栏可钉；剩下的就是这条 MiiCam 侧收窄后的 `except (ImportError, OSError)` → 打 debug →
@@ -5742,6 +5742,16 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 溯源: `sync_report_provenance.py` 重渲染 report/README 索引行与报告页脚 (幂等)
 - 载体: conventions + tests/calculators + report_provenance **957 passed** / 2 skipped (Cython 扩展未编译、ruff 不在容器 PATH, 均为既有跳过); ruff 全仓绿; term 0; 注解棘轮 76.52% 不动
 - 提交: 021b5b3a (`Closes #88`); 本行为台账追加
+
+**2026-11-19 · c9779c85 之后 · #150 多 SLM 控制: 布局层从硬编码 2 台改为 N 台**
+- 事实核对: 设备发现/连接层早已 N-safe (`_scan_available_slms(max_slms)` 扫 1..8, `connect_slm` 按 `slm{N}` 前缀), 只有**布局/侧栏**把 `(1, 2)` 写死 ⇒ 第 3 台连上后被静默忽略
+- 单一判定: `bench_settings.connected_slm_numbers()` / `connected_slm_handles()` 每次现算 (不落 state, 断开即失效), `MAX_SLMS = 8` 与扫描上限共用; 侧栏 per-SLM 块与 `shaping_controls._slms_on_screen()` 全部改为调用该视图
+- 六处写死点收口: `_initialize_slm_state` 改 `range(1, MAX_SLMS+1)` (初始化针对**可能**连接的槽位); 主区 `connected_slms`; 标题改 `{1: 单, 2: 双}.get(count, f"{count} 台")`; 侧栏设置循环; `bench_settings.render_bench_settings` per-SLM 循环; `shaping_controls._slms_on_screen` (原第二份判定, 去掉重复实现)
+- 3 台以上的人因: 设置 expander 标题带序列号 (`SLM N 设置 · {serial}`, 序号不足以对上物理设备); 设备信息前加串联语义 caption (`_chain_role_caption`: 首台 = 激光入射, 第 k 台 = 上一台出射面; 序号 0 不出 caption)
+- 载体: 新增 `tests/ao_shaping/gui/slm/test_multi_slm_n_channels.py` 7 项 —— 视图按真实序号/不缓存/排除无句柄槽位、handles 配对、初始化覆盖 1..MAX_SLMS、扫描默认值 = MAX_SLMS 且 ≥3、行宽助手计 3 台、`_chain_role_caption` 文案、三模块 AST 守卫 (禁回 `for slm_num in (1, 2)`)
+- 金标重基 (刻意): `multi_slm_controller_render_golden.json` 仅 3 处 expander label 变化 (`SLM 0 设置` → `SLM 0 设置 · SN-0001`), 顺序/键零漂移; 金标测试自述"重基是刻意行为", 本批正文已在台账说明
+- 门禁: 目标 5 文件 **102 passed**; conventions **73 passed** / 1 skipped (顺带按守卫重钉 TODO.md 行锚 1250→1258); ruff 全仓绿; term 0; 容器缺 PySide6 的 12 个 transfer_desktop 收集错误为 master 既有 (CI 镜像有 PySide6)
+- 未验: 3 台物理串联的实际排布 (需实验系统), 本批只保证代码路径与控件树
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

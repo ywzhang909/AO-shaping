@@ -94,6 +94,7 @@ __all__ = [
     "DEFAULT_CAMERA_PIXEL_UM",
     "GEOMETRY_SOURCE_OPTIONS",
     "KNOWN_CAMERA_PIXEL_UM",
+    "MAX_SLMS",
     "MIL_TARGET_SIDE_MIN_PX",
     "MIN_TARGET_SIDE_PX",
     "PUPIL_CENTER_FALLBACK",
@@ -110,6 +111,8 @@ __all__ = [
     "bench_window_side",
     "measure_illuminated_radius",
     "build_calibration_params",
+    "connected_slm_handles",
+    "connected_slm_numbers",
     "current_exposure_ms",
     "detected_state",
     "effective_state",
@@ -150,6 +153,11 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # 常量（全部来自设备 / 手册，不写死本实验系统的实测值）
 # ---------------------------------------------------------------------------
+
+#: Highest SLM ordinal the layout and the discovery scan consider (1..MAX_SLMS).
+#: Matches ``multi_slm_controller._scan_available_slms`` so the two never disagree
+#: about which ordinals exist.
+MAX_SLMS = 8
 
 #: CCD 后端，顺序即选择框顺序。``sim`` = 2f-Fourier 数字孪生（无硬件自检）。
 CAM_TYPE_OPTIONS: tuple[str, ...] = ("daheng", "miicam", "sim")
@@ -1720,6 +1728,26 @@ def merge_bench_values(
 # ---------------------------------------------------------------------------
 
 
+def connected_slm_numbers() -> list[int]:
+    """Ordinals of the SLMs that are connected *and* hold a live handle.
+
+    Derived on every call. Caching this in ``st.session_state`` would outlive a
+    disconnect and hand the layout a closed handle. Storage stays flat
+    (``slm{N}`` keys): Streamlit widget-key ownership forbids nesting it.
+    """
+    return [
+        n
+        for n in range(1, MAX_SLMS + 1)
+        if st.session_state.get(f"slm{n}_connected")
+        and st.session_state.get(f"slm{n}") is not None
+    ]
+
+
+def connected_slm_handles() -> list[tuple[int, Any]]:
+    """``(ordinal, handle)`` pairs for every connected SLM, ascending."""
+    return [(n, st.session_state[f"slm{n}"]) for n in connected_slm_numbers()]
+
+
 def render_bench_settings() -> None:
     """侧栏「CCD参数设置」区块入口。
 
@@ -1730,12 +1758,8 @@ def render_bench_settings() -> None:
     sync_manual_states("")
     _render_experiment_block()
 
-    for slm_num in (1, 2):
+    for slm_num in connected_slm_numbers():
         prefix = f"slm{slm_num}"
-        if not (
-            st.session_state.get(f"{prefix}_connected") and st.session_state.get(prefix)
-        ):
-            continue
         flush_pending(prefix)
         sync_manual_states(prefix)
         _render_slm_block(prefix, slm_num)

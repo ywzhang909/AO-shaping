@@ -82,6 +82,7 @@ from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
     CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
+    connected_slm_numbers,
 )
 from ao_shaping.gui.slm.bench_status_view import (
     render_bench_status,
@@ -588,16 +589,13 @@ def validate_exposure(
 def _slms_on_screen() -> int:
     """本页当前渲染几台 SLM 的区块 —— 与 ``multi_slm_controller.main`` 同一判定。
 
-    只读**已存在**的 session_state 信号（``slm{N}`` 句柄与 ``slm{N}_connected``），
-    不新增键、不读硬件、不探测窗口尺寸。双 SLM 并排时每台主区列只有 ~500 px，
-    一行 4/5 个控件会把 number_input 挤到 ~100 px（标签换行、控件变形）。
+    判定只有一份 (``bench_settings.connected_slm_numbers``), 所以这里不会与主区
+    漂移。只读**已存在**的 session_state 信号（``slm{N}`` 句柄与
+    ``slm{N}_connected``），不新增键、不读硬件、不探测窗口尺寸。双 SLM 并排时
+    每台主区列只有 ~500 px，一行 4/5 个控件会把 number_input 挤到 ~100 px
+    （标签换行、控件变形）。
     """
-    return sum(
-        1
-        for slm_num in (1, 2)
-        if st.session_state.get(f"slm{slm_num}_connected")
-        and st.session_state.get(f"slm{slm_num}") is not None
-    )
+    return len(connected_slm_numbers())
 
 
 def _param_cells(count: int) -> list[Any]:

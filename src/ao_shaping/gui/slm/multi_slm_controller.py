@@ -19,8 +19,10 @@ from ao_shaping.drivers.slm.santec import Santec, describe_santec_error
 from ao_shaping.gui.slm.bench_settings import (
     DEFAULT_CAMERA_PIXEL_UM,
     KNOWN_CAMERA_PIXEL_UM,
+    MAX_SLMS,
     auto_check_camera_pixel_um,
     build_send_overlay,
+    connected_slm_numbers,
     detect_camera_pixel_um,
     render_bench_settings,
     widget_default,
@@ -142,7 +144,8 @@ def _scan_camera_status() -> list[dict]:
 
 
 def _initialize_slm_state() -> None:
-    for slm_num in (1, 2):
+    # 初始化针对**可能**连接的槽位, 不是已连接的: 连接发生在扫描之后。
+    for slm_num in range(1, MAX_SLMS + 1):
         prefix = f"slm{slm_num}"
         if prefix not in st.session_state:
             st.session_state[prefix] = None
@@ -214,7 +217,7 @@ def _probe_slm(slm_num: int) -> dict | None:
     return probe_slm(slm_num)
 
 
-def _scan_available_slms(max_slms: int = 8) -> list[dict]:
+def _scan_available_slms(max_slms: int = MAX_SLMS) -> list[dict]:
     """Scan for available SLM devices without disrupting existing connections."""
     available: list[dict] = []
     for slm_num in range(1, max_slms + 1):
@@ -456,12 +459,7 @@ def main():
     with st.sidebar:
         render_slm_sidebar()
 
-    connected_slms = [
-        slm_num
-        for slm_num in (1, 2)
-        if st.session_state.get(f"slm{slm_num}_connected")
-        and st.session_state.get(f"slm{slm_num}") is not None
-    ]
+    connected_slms = connected_slm_numbers()
 
     count = len(connected_slms)
     if count == 0:
@@ -469,7 +467,8 @@ def main():
         st.info(f"尚未连接 SLM —— {CONNECT_HINT}, 连上后这里出现相位控制。")
         return
 
-    st.title(f"{'双' if count == 2 else '单'}SLM200 控制器")
+    _layout_titles = {1: "单SLM200 控制器", 2: "双SLM200 控制器"}
+    st.title(_layout_titles.get(count, f"{count} 台 SLM200 控制器"))
 
     # 主区分 tab: 每台已连接 SLM 各一个「相位控制」(沿用既有管线) 与一个
     # 「PatternHelper」(直接暴露底层生成 API), 再加一个共用「实时 CCD 画面」。
@@ -922,13 +921,8 @@ def render_slm_sidebar():
     # run_session_calibration，纯重复入口）。
     render_bench_settings()
 
-    for slm_num in (1, 2):
-        prefix = f"slm{slm_num}"
-        if (
-            st.session_state.get(f"{prefix}_connected")
-            and st.session_state.get(prefix) is not None
-        ):
-            _render_slm_settings(slm_num)
+    for slm_num in connected_slm_numbers():
+        _render_slm_settings(slm_num)
 
 
 def _slm_resolution_label(width: int, height: int) -> str:
@@ -989,8 +983,24 @@ def _render_slm_config_status(slm_num: int, prefix: str, slm_obj: Santec) -> Non
         st.rerun()
 
 
+def _chain_role_caption(slm_num: int) -> str | None:
+    """串联语义: 第 k 台入射面 = 第 k-1 台出射面, 第 1 台为激光入射面。
+
+    3 台以上时操作员容易把后级当成独立光路; 显式caption 把物理串联关系说出来。
+    序号 0 不是真实设备 (仅测试替身会这样传), 返回 ``None`` 不出 caption。
+    """
+    if slm_num == 1:
+        return "串联首台：入射面 = 激光入射"
+    if slm_num > 1:
+        return f"串联第 {slm_num} 台：入射面 = SLM {slm_num - 1} 出射面"
+    return None
+
+
 def _render_slm_device_section(slm_num: int, prefix: str, slm_obj: Santec) -> None:
     """Device info, wavelength, video mode, pattern shift and config status."""
+    role_caption = _chain_role_caption(slm_num)
+    if role_caption:
+        st.caption(role_caption)
     st.markdown("**设备信息**")
     col_info1, col_info2 = st.columns(2)
     with col_info1:
@@ -1229,7 +1239,10 @@ def _render_slm_settings(slm_num: int):
         return
 
     # --- Section 1: Device info + wavelength/mode/shift (expanded by default) ---
-    with st.expander(f"SLM {slm_num} 设置", expanded=True):
+    # 3 台以上时序号不足以对上物理设备, 序列号是唯一稳定标识。
+    serial = getattr(slm_obj, "_serial_number", None)
+    settings_label = f"SLM {slm_num} 设置" + (f" · {serial}" if serial else "")
+    with st.expander(settings_label, expanded=True):
         _render_slm_device_section(slm_num, prefix, slm_obj)
 
     # --- Section 3: Wavefront correction (overlay layer 1 of the send pipeline) ---
