@@ -1,0 +1,373 @@
+# mil 分支独有实验性改动（归档，2026-11-19）
+#
+# 背景：`mil` 分支/worktree 在本次迁移后删除。其工作树里有两处**未并入 master** 的
+# 实验性改动，删除后无法再从 git 取回，故在此原样归档。**这些改动不是 master 的
+# 生产路径**，`master` 的 `fit.py` / `physical_forward_fit.py` 保持不含它们。
+#
+# 1) physical_forward_fit.py：新增 `residual_modes: Sequence[int] | None` 关键字参数，
+#    允许拟合器只优化指定 Noll 模式子集（mil 用它做 5..11 / 5..21 容量对照）。
+#    master 硬编码 `list(range(5, 12))`；本仓库的诊断脚本已按该默认写断言。
+# 2) transfer/fit.py：+205 行，引入 blur / static basis（`static_basis_k` /
+#    `static_mode` / `static_coef`）/ `learn_sigma_ccd` / `sigma_ccd_px` 的观测模型，
+#    以及 residual basis 补齐逻辑（后者已单独以更小的形式并入 master）。
+#
+# 状态与用法：
+# - 归档仅供查阅与将来按需重启该实验线；`master` 的 `fit.py` 已有其它后续改动，
+#   此 patch **不保证**能直接 `git apply`，应以 diff 内容为准手工挑选。
+# - 依赖此改动的权威结果不靠重跑复现：B 会话 test 指标以原 JSON/NPZ 为准
+#   （见 transfer_mil_hardware_plan_20261118.md §10、§11）。
+#
+# 生成命令：
+#   git -C .worktrees/mil diff HEAD -- \
+#     src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py \
+#     src/ao_shaping/tools/slm/transfer/fit.py
+#diff --git a/src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py b/src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py
+index af11aa21..466fea7f 100644
+--- a/src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py
++++ b/src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py
+@@ -2,6 +2,7 @@
+ from __future__ import annotations
+ 
+ import time
++from collections.abc import Sequence
+ from loguru import logger
+ from datetime import datetime, timezone
+ 
+@@ -41,7 +42,8 @@ class PhysicalForwardFit:
+                  slm_phase_a=0., slm_phase_b=0., amplitude_residual_coeffs=(),
+                  monotonic_ccd_h=(), monotonic_ccd_v_max=255., phase_sign=1.,
+                  phase_sign_scope="command", focus_phase=None, carrier_phase=None,
+-                 registration_shift_ccd_px=None, learn_registration=False):
++                 registration_shift_ccd_px=None, learn_registration=False,
++                 residual_modes: Sequence[int] | None = None):
+         import torch
+         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+@@ -99,7 +101,12 @@ class PhysicalForwardFit:
+         params = [{"params": [self.d], "lr": .01}, {"params": [self.origin], "lr": 1.0}]
+         if learn_amplitude:
+             params += [{"params": [self.center], "lr": .5}, {"params": [self.log_width], "lr": .01}]
+-        self.residual_modes = list(range(5, 12)) if learn_residual else []
++        self.residual_modes = (
++            list(range(5, 12) if residual_modes is None else residual_modes) if learn_residual else []
++        )
++        if (any(not isinstance(j, int) or j < 5 for j in self.residual_modes)
++                or len(set(self.residual_modes)) != len(self.residual_modes)):
++            raise ValueError("residual_modes must contain unique Noll integers >= 5")
+         self.residual = torch.nn.Parameter(torch.zeros(len(self.residual_modes), device=self._device),
+                                            requires_grad=learn_residual)
+         self.residual_basis = torch.tensor(np.stack([
+diff --git a/src/ao_shaping/tools/slm/transfer/fit.py b/src/ao_shaping/tools/slm/transfer/fit.py
+index ad64176a..a3719571 100644
+--- a/src/ao_shaping/tools/slm/transfer/fit.py
++++ b/src/ao_shaping/tools/slm/transfer/fit.py
+@@ -169,11 +169,97 @@ class FitComponents:
+     measured_origin: np.ndarray
+     kernel: "Any"
+     exposure_values: np.ndarray
++    # Opt-in observation-model terms (see ``build_fit_model``). ``None``/0 keeps
++    # the historical forward pass and parameter set.
++    blur: "Any" = None
++    static_basis: "Any" = None
++    static_coef: "Any" = None
++    static_mode: str = "per-row"
++    static_l2: float = 1e-3
++
++
++# CCD-blur sigma the kernel builder may use. The optimiser's parameter is
++# ``sigma_ccd_px`` itself and is deliberately not clamped: the builder clamps, so
++# a step outside the range is accepted and simply re-projects the same kernel.
++SIGMA_CCD_PX_RANGE = (0.0, 5.0)
++
++# High-pass sigma of the shared static-structure construction, in camera-grid
++# pixels. The fit samples every 2nd CCD pixel, so 3.0 here is the 6.0 px used by
++# ``scripts/slm/characterize_transfer_static_structure.py``.
++STATIC_HIGHPASS_SIGMA_PX = 3.0
++
++
++def static_basis(images, train, k, *, sigma=STATIC_HIGHPASS_SIGMA_PX):
++    """K orthonormal high-pass maps built from TRAIN rows only.
++
++    Same construction as ``scripts/slm/characterize_transfer_static_structure.py``:
++    per-image mean normalisation, Gaussian high-pass, per-row mean subtraction,
++    SVD — the leading right singular vectors are the maps. ``validation`` and
++    ``test`` rows never enter the basis.
++    """
++    if k <= 0:
++        return None
++    from scipy.ndimage import gaussian_filter
++
++    stack = np.asarray(images[train], dtype=np.float64)
++    if stack.ndim != 3 or stack.shape[0] == 0:
++        raise ValueError("static basis needs a nonempty train stack")
++    stack = stack / np.maximum(stack.mean(axis=(1, 2), keepdims=True), 1e-12)
++    highpass = stack - gaussian_filter(stack, (0, sigma, sigma))
++    flat = highpass.reshape(len(highpass), -1)
++    flat = flat - flat.mean(axis=1, keepdims=True)
++    k = min(int(k), *flat.shape)
++    _, _, vt = np.linalg.svd(flat, full_matrices=False)
++    return np.ascontiguousarray(vt[:k].reshape(k, *highpass.shape[1:]), dtype=np.float32)
++
++
++class LearnableCcdBlur:
++    """Differentiable replacement for the frozen 25x25 Gaussian CCD blur.
++
++    ``sigma_ccd_px`` is the only parameter and it is *linear*, not logarithmic:
++    the checkpoint this fit warm-starts from has ``sigma_ccd_px = 0`` (no CCD
++    blur at all), and a log parameter cannot represent 0. At 0 :meth:`kernel`
++    returns ``None`` — the same thing ``FrozenDefocusForward._build_blaze_kernel``
++    returns for a non-positive sigma — so the checkpoint reproduces the frozen
++    forward pass bit-for-bit. Note the zero is a boundary: the delta kernel has no
++    gradient in sigma, so a fit that starts there stays there unless a positive
++    width is supplied.
++    """
++
++    def __init__(self, sigma_ccd_px, device):
++        import torch
++
++        low, high = SIGMA_CCD_PX_RANGE
++        sigma = float(sigma_ccd_px)
++        if not np.isfinite(sigma):
++            sigma = low
++        sigma = min(max(sigma, low), high)
++        self.sigma = torch.nn.Parameter(
++            torch.tensor(sigma, dtype=torch.float32, device=device))
++
++    def kernel(self):
++        import torch
++
++        low, high = SIGMA_CCD_PX_RANGE
++        sigma = self.sigma.clamp(low, high)
++        if float(sigma.detach()) <= 0.0:
++            # Exactly the frozen builder's non-positive branch: no convolution.
++            return None
++        grid = torch.arange(-12, 13, dtype=torch.float32, device=sigma.device)
++        kernel = torch.exp(-0.5 * (grid / (sigma / 2.0)) ** 2)
++        kernel = kernel / kernel.sum()
++        return (kernel[:, None] * kernel[None, :])[None, None]
++
++    def sigma_px(self) -> float:
++        low, high = SIGMA_CCD_PX_RANGE
++        return float(self.sigma.detach().clamp(low, high))
+ 
+ 
+ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
+                    amplitude_center_lr=None, radiometry="exposure", samples=None,
+-                   train_all=False):
++                   train_all=False, residual_modes=None,
++                   static_basis_k=0, static_mode="per-row", learn_sigma_ccd=False,
++                   static_l2=1e-3):
+     """Assemble a physical-forward fit model from a recorded dataset.
+ 
+     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
+@@ -194,11 +280,17 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
+         FrozenDefocusForward, load_frozen_parameters,
+     )
+     from ao_shaping.algorithm.signal_processing.physical_forward_fit import PhysicalForwardFit
++    from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+     from .adaptation import configure_adaptation
+ 
+     dataset = Path(dataset)
+     old = load_frozen_parameters(checkpoint).effective_parameters()
+     device = resolve_device(device)
++    static_basis_k = int(static_basis_k)
++    if static_basis_k < 0 or static_l2 < 0:
++        raise ValueError("static_basis_k must be >= 0 and static_l2 >= 0")
++    if static_mode not in {"per-row", "global"}:
++        raise ValueError(f"static_mode must be 'per-row' or 'global', got {static_mode!r}")
+         # Only the retrain loop deviates from the historical split, so the extra
+     # keyword is passed *only* when it is set: a caller (or a test) that
+     # replaces ``load_dataset`` keeps working unchanged.
+@@ -214,14 +306,26 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
+     initial = replace(old, ramp_matrix=tuple(tuple(x) for x in matrix))
+     frozen = FrozenDefocusForward(initial, xy, device=device)
+     basis = {4: frozen.z4.detach().cpu().numpy()}
+-    basis.update({j: b.detach().cpu().numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
++    if frozen.residual_basis is not None:
++        basis.update({j: b.detach().cpu().numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
++    # ``PhysicalForwardFit`` optimises Z5..Z11 and indexes ``basis_arrays[j]`` for
++    # every one of them, so a checkpoint with an empty ``residual_noll_radians``
++    # (the M1/M3 export format) -- or one that froze only some modes -- leaves it
++    # with a KeyError. ``FrozenDefocusForward`` keeps ``residual_basis = None`` /
++    # a partial stack in that case; fill the gap with the same fallback the fit
++    # model itself uses when no basis is passed: the bare mode on the control grid.
++    modes = list(range(5, 12)) if residual_modes is None else list(residual_modes)
++    for j in modes:
++        if j not in basis:
++            basis[j] = np.nan_to_num(generate_zernike_phase({j: 1.0}, (old.grid_size, old.grid_size)))
+     # Global registration (issue #237) is carried in from the checkpoint and is not
+     # fitted here, so the refit sees the same camera correspondence the frozen model did.
+     model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
+                               learn_amplitude=True, initial_defocus=old.defocus_diopter,
+                               learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
+                               basis_arrays=basis, batch_size=4, device=device,
+-                              registration_shift_ccd_px=old.registration_shift_ccd_px)
++                              registration_shift_ccd_px=old.registration_shift_ccd_px,
++                              residual_modes=modes)
+     with torch.no_grad():
+         model.origin.copy_(torch.tensor(measured_origin))
+         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
+@@ -235,12 +339,31 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
+                 group["lr"] = amplitude_center_lr
+     owner = {id(model.d): "d", id(model.origin): "origin", id(model.center): "center",
+              id(model.log_width): "log_width", id(model.residual): "residual"}
++    # The two observation-model terms are purely opt-in: with both flags off the
++    # optimiser below is byte-for-byte the one built in PhysicalForwardFit.
++    blur = None
++    if learn_sigma_ccd:
++        blur = LearnableCcdBlur(old.sigma_ccd_px, device)
++        model.optimizer.add_param_group({"params": [blur.sigma], "lr": 5e-2})
++        owner[id(blur.sigma)] = "sigma_ccd_px"
++    basis_maps = static_basis(images, train, static_basis_k)
++    static_coef = None
++    if basis_maps is not None:
++        shape = (len(rows), basis_maps.shape[0]) if static_mode == "per-row" \
++            else (basis_maps.shape[0],)
++        static_coef = torch.nn.Parameter(torch.zeros(*shape, device=device))
++        model.optimizer.add_param_group({"params": [static_coef], "lr": 5e-2})
++        owner[id(static_coef)] = "static_gain" if static_mode == "per-row" else "static_coef"
+     for group in model.optimizer.param_groups:
+         group.setdefault("name", owner.get(id(group["params"][0]), "unknown"))
+     return FitComponents(model=model, rows=rows, phases=phases, images=images, xy=xy,
+                         matrix=matrix, ramp_samples=ramp_samples, train=train, frozen=frozen,
+                         old=old, measured_origin=measured_origin, kernel=frozen._blaze_kernel,
+-                        exposure_values=np.asarray([row["exposure_ms"] for row in rows]))
++                        exposure_values=np.asarray([row["exposure_ms"] for row in rows]),
++                        blur=blur, static_basis=None if basis_maps is None else
++                        torch.tensor(basis_maps, dtype=torch.float32, device=device),
++                        static_coef=static_coef, static_mode=static_mode,
++                        static_l2=float(static_l2))
+ 
+ 
+ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
+@@ -251,9 +374,21 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
+ 
+     started = clock()
+     prediction = model.prediction()
+-    kernel = comps.kernel
++    kernel = comps.blur.kernel() if comps.blur is not None else comps.kernel
+     if kernel is not None:
+         prediction = conv2d(prediction[:, None], kernel, padding=12)[:, 0]
++    # Shared static term on train-only orthonormal maps, applied after blur and
++    # before radiometry. Zero coefficients leave the prediction untouched.
++    # ``per-row`` fits one gain per row (test rows get no gradient from the
++    # train-only loss, so effectively no correction); ``global`` fits a single
++    # shared amplitude that applies to EVERY row, test included.
++    if comps.static_coef is not None:
++        if comps.static_mode == "global":
++            prediction = prediction + torch.einsum(
++                "k,khw->hw", comps.static_coef, comps.static_basis)
++        else:
++            prediction = prediction + torch.einsum(
++                "nk,khw->nhw", comps.static_coef, comps.static_basis)
+     optical_prediction = prediction.detach().cpu().numpy()
+     _, radiometry = fit_radiometry(optical_prediction, comps.images, comps.exposure_values,
+                                   comps.train, mode=radiometry_mode)
+@@ -274,13 +409,21 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
+     pc, tc = pc - pc.mean(1, keepdim=True), tc - tc.mean(1, keepdim=True)
+     correlation_loss = (1 - (pc * tc).sum(1) / (pc.norm(dim=1) * tc.norm(dim=1)).clamp_min(1e-9)).mean()
+     loss = correlation_loss + .25 * relative_mse + .25 * ((cv - target_cv) / target_cv.clamp_min(.1)).square().mean()
++    if comps.static_coef is not None:
++        loss = loss + comps.static_l2 * comps.static_coef.square().sum()
+     if not torch.isfinite(loss):
+         raise RuntimeError("nonfinite training loss; prior snapshots retained")
++    sigma_ccd_px = comps.blur.sigma_px() if comps.blur is not None else comps.old.sigma_ccd_px
+     params = dict(defocus_diopter=float(model.d.detach()), origin=model.origin.detach().tolist(),
+                   amplitude_center=model.center.detach().tolist(),
+                   amplitude_width=model.log_width.detach().exp().tolist(),
+                   residual_noll_radians={str(j): float(v) for j, v in zip(model.residual_modes, model.residual.detach())},
+-                  gain=1., background=0., sigma_ccd_px=comps.old.sigma_ccd_px)
++                  gain=1., background=0., sigma_ccd_px=sigma_ccd_px)
++    if comps.static_coef is not None:
++        params["static_basis_k"] = int(comps.static_basis.shape[0])
++        params["static_mode"] = comps.static_mode
++        params["static_gain" if comps.static_mode == "per-row" else "static_coef"] = (
++            comps.static_coef.detach().cpu().tolist())
+     predicted = prediction.detach().cpu().numpy()
+     params.update(radiometry)
+     entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
+@@ -301,7 +444,12 @@ def fit(args):
+                             amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
+                             radiometry=getattr(args, "radiometry", "exposure"),
+                             samples=getattr(args, "samples", None),
+-                            train_all=bool(getattr(args, "train_all", False)))
++                            train_all=bool(getattr(args, "train_all", False)),
++                            residual_modes=getattr(args, "residual_modes", None),
++                            static_basis_k=int(getattr(args, "static_basis_k", 0)),
++                            static_mode=str(getattr(args, "static_mode", "per-row")),
++                            learn_sigma_ccd=bool(getattr(args, "learn_sigma_ccd", False)),
++                            static_l2=float(getattr(args, "static_l2", 1e-3)))
+     import torch
+     args.out.mkdir(parents=True, exist_ok=False)
+     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
+@@ -316,7 +464,18 @@ def fit(args):
+                       radiometry=getattr(args, "radiometry", "exposure"),
+                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
+                       train_all=bool(getattr(args, "train_all", False)),
++                      residual_modes=comps.model.residual_modes,
+                       window_step_px=2, window_span_px=args.span, rows=comps.rows, **clock())
++    if getattr(args, "learn_sigma_ccd", False) or int(getattr(args, "static_basis_k", 0)):
++        # Only an opted-in run records the observation-model terms, so a default
++        # run's provenance stays identical to the historical one.
++        provenance.update(
++            static_basis_k=int(getattr(args, "static_basis_k", 0)),
++            static_mode=str(getattr(args, "static_mode", "per-row")),
++            learn_sigma_ccd=bool(getattr(args, "learn_sigma_ccd", False)),
++            static_l2=float(getattr(args, "static_l2", 1e-3)),
++            sigma_ccd_px_init=float(comps.old.sigma_ccd_px),
++        )
+     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+     np.savez_compressed(args.out / "inputs.npz", phases=comps.phases, measured=comps.images,
+                         camera_xy=comps.xy, train=comps.train)
+@@ -438,12 +597,33 @@ def fit_adaptive(args):
+     print(f"Automatic adaptation selected {selected['stage']}", flush=True)
+ 
+ 
++def parse_residual_modes(text):
++    """Parse ``"5-21"`` or ``"5,6,7"`` into ascending unique Noll indices."""
++    modes = []
++    for part in str(text).split(","):
++        part = part.strip()
++        if not part:
++            continue
++        if "-" in part:
++            start, end = (int(v) for v in part.split("-", 1))
++            if end < start:
++                raise ValueError(f"descending mode range: {part!r}")
++            modes.extend(range(start, end + 1))
++        else:
++            modes.append(int(part))
++    if not modes:
++        raise ValueError("residual mode list is empty")
++    return sorted(set(modes))
++
++
+ def main():
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("--dataset", type=Path, required=True)
+     parser.add_argument("--checkpoint", type=Path, required=True)
+     parser.add_argument("--out", type=Path, required=True)
+     parser.add_argument("--iterations", type=int, default=100)
++    parser.add_argument("--residual-modes", type=parse_residual_modes, default=None,
++                        help="Residual Noll modes as an inclusive range or comma list (default: 5-11)")
+     parser.add_argument(
+         "--patience",
+         type=int,
+@@ -462,6 +642,17 @@ def main():
+     parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
+     parser.add_argument("--record-responses", action="store_true",
+                         help="Record detached physical-stage response statistics in every iteration (adds diagnostic overhead)")
++    parser.add_argument("--static-basis-k", type=int, nargs="?", const=4, default=0,
++                        help="Shared static term: K train-only orthonormal high-pass maps added after blur "
++                             "with a per-row gain (0 = off, the historical model; bare flag = 4)")
++    parser.add_argument("--static-mode", choices=("per-row", "global"), default="per-row",
++                        help="per-row = one gain per row (train rows only get gradient); "
++                             "global = one shared amplitude applied to every row, test included")
++    parser.add_argument("--learn-sigma-ccd", action="store_true",
++                        help="Fit the CCD blur width from the checkpoint's sigma_ccd_px "
++                             "(0 keeps the frozen no-blur forward pass)")
++    parser.add_argument("--static-l2", type=float, default=1e-3,
++                        help="L2 penalty weight on the per-row static gains")
+     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
+                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
+     args = parser.parse_args()

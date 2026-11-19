@@ -8,7 +8,7 @@
 
 > **这份文档记录的是代码交付与它们各自的验证口径，不是某一次测量的结论。**
 > 两次真正的测量在同目录另有两份，各自有生成脚本：
-> [`model_in_loop_cv.md`（历史明细已归档，见 Model-in-loop 历史总述）](../model_in_loop/model_in_loop_overview.md) 与 [`gs_golden_reference.md`](../gs_golden_reference/gs_golden_reference.md)。
+> [`model_in_loop_cv.md`](../model_in_loop_cv/model_in_loop_cv.md) 与 [`gs_golden_reference.md`](../gs_golden_reference/gs_golden_reference.md)。
 
 本轮在独立 worktree（起点 `defa275e`）上交付五组改动。贯穿全部五组的是同一条纪律：
 **默认路径必须逐位不变**。凡新增的行为都由一个默认关闭的开关承载，并且该「不变」

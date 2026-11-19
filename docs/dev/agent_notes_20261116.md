@@ -2,12 +2,6 @@
 
 > 按日追加；过期条目迁入 `docs/dev/` 对应专题。
 > 当日无新 commit（工作区改动），聚焦 **可微 Step B 逐迭代调试模式** 与 **SLM+CCD 物理设备验证**。
->
-> **2026-11-18 追注**：下文提到的 model-in-loop 执行链（MIL CLI / GUI 预设 / trust region /
-> 探针不确定度）已于 `remove-model-in-loop` 分支移除，`test_slm_model_in_loop.py` 等测试随之删除；
-> 删除范围、迁移映射与验证记录见
-> [`report/shape_trials/model_in_loop/removal_report.md`](../../report/shape_trials/model_in_loop/removal_report.md)。
-> 本节其余内容为 2026-11-16 当日历史记录，不再代表当前可运行入口。
 
 ## 可微 Step B 调试模式（`debug=`）
 

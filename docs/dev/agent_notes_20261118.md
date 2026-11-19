@@ -60,3 +60,24 @@
   注：`PhysicalForwardFit` 把 residual_modes 硬编码 range(5,12)，选择性删残差在 fit 管线里不可表示（KeyError），只能诊断。
 - **决定**：冻结模型类内继续搜参数无意义；要过双门须换模型类（数据驱动局部 Jacobian / 可学习像差-平移耦合）或修订门口径，**均需用户先定夺**。
   满足双门前不进锚定闭环。报告 §4 已写入全部数字与复现命令。
+
+## 方向门 amp=0.05 第二 pass + 双 pass 合并复核（2026-11-18 晚，设备已释放）
+
+- **设备占用/释放**：Santec SLM #1 (1064nm, memory) + Daheng CCD #0；20:48 开、20:51:40 关，单进程 exit 0，采集脚本内建 light_check + 光路 probe + safe-close 归零相位；device_lock 已释放，锁状态复核 `is_locked=False / holder=None`。全程无并行设备进程。
+- **采集**：`data/debug/slm_transfer/current_epoch_zernike_direction_pass2_20261118`，grid 128、±Z5..Z11 amp=0.05、2 帧/样本、seed 1104229、24 样本（7 对 + 校准），无 pass1 那帧残缺 0.10；实测中心 (1227,1106) vs pass1 (1226,1106) → 跨 pass 光路稳定（差 1 px）。
+- **口径自检**：`eval_direction_gate_2pass_20261118.py --passes pass1` 精确复现单 pass 已知值（11_18_fit median 0.6856 / 4-of-7；hybrid320_fresh_all 5/7）→ 合并口径与单 pass 逐字一致，可信。
+- **双 pass 合并（14 对，历史 10/14 判据首次字面可达）**：**无任何候选过 10/14**。11_18_fit **8/14**（median 0.6647）；诊断变体 `hybrid320_fresh_all` **9/14**（median 0.5716，无残差、非完整 checkpoint，不可当正式候选）；其余 ≤7/14。
+- **失败模式跨 pass 稳定**：11_18_fit Z6 (0.362/0.496)、Z7 (0.026/0.214) 两次均失败；Z9/Z11 为 split（一次过一次不过）。所有冻结候选共同短板集中在 Z6/Z7/Z11，与当晚 PC1 符号归因一致——不是随机噪声。
+- **结论强化**：补齐 14 对后仍不过门 → 失败不是"样本不足"，而是模型类系统性方向错配。**维持 0.50 阈值与 10/14 判据不变，无依据下调**；联合强度门无需再跑（方向门为必要条件，联合结论 = 不放行）。满足双门前不进锚定闭环。
+- 产物：`data/debug/offline_refit_20261118_freshep/direction_gate_2pass_results.json`；可复现脚本 `eval_direction_gate_2pass_20261118.py`；口径自检 `_gate2pass_selftest_pass1.json`。
+
+## 换模型类 LocalResponseModel（2026-11-18 深夜，隔离 worktree，纯离线）
+
+- **车道**：`fix/direction-model-class-20261118` @ `.worktrees/direction-model-class-20261118`（基于 master `3d78a9f8`），已提交 `f9220430`，工作区干净；未在主树 / `.worktrees/mil` 操作。用户要求"其他 worktree 测试"，遵守。
+- **模型类**：`LocalResponseModel`，`I(φ) ≈ I0 + Σ_k a_k·G_k`，`G_k=(I(+a Z_k)-I(-a Z_k))/(2a)`、`a=0.05`；**零自由超参数**。`I0` 取训练 pass 中与探针同曝光的零相位帧（pass1 `reference_start` 0.043；pass2 `reference_end` 0.047，不用其 0.024 的 `reference_start`）。中心只用训练 pass 决定；in-sample 泄漏演示、σ=1 平滑、最优全局标量都只作诊断不参与判定。
+- **方向门**：双向 cross-fit out-of-fold **12/14 ≥ 0.50，median 0.8378**（冻结模型 8/14、0.6647）；Z5 .9337 / Z6 .7721 / Z7 .7715 / Z8 .9097 / Z9 .8378 / Z10 .9418 过，仅 **Z11 两折都失败**（r=0.069、relL2 1.365、verdict=contradict，σ=1 平滑仍仅 0.078）。**关键限定**：`Pearson(a,b)=Pearson(b,a)`，两折逐位镜像（最大差 1.3e-4），有效证据是 **6/7 模式**跨 pass 复现，不是 14 个独立对；同 pass 拟合即评分 7/7 相关系数恒为 1.0，故只认 out-of-fold。
+- **零步强度门（held-out，未缩放）**：相关 0.9885–0.9964 明确通过；未缩放 relL2 pass1→pass2(end) 0.2612、pass2→pass1 0.2170，跨在既有 `escalation_heuristic.relative_l2_above=0.25` 两侧，仓库**无预注册数值门槛** → 既不宣布通过、也不据此判失败，不放宽成"允许全局增益"（诊断最优标量后 0.1489 仅作参考）。**不放行锚定闭环**。
+- **暴露的采集侧缺陷**：pass2 两帧零步 `reference_start` 0.024 ms / `reference_end` 0.047 ms 原始计数近似相等，率均值比 **1.793**、内部 corr 0.9850 却 relL2 **0.9726** → 至少一帧 `exposure_ms` 不代表实际积分（或光源功率漂移）。已按曝光一致规则避开其做 `I0`，但缺陷本身须单独查 `light_check` 曝光探测与记账。
+- **要拿可辩护确认**：锁定模型（`G_k`/`I0` 由两 pass 标定后取平均、不再调参），修复同曝光采集口径，再采两个独立 pass（各 7 对 ±Z5..Z11 amp=0.05 + 同曝光零步，交错 ± 顺序加重复块、Z11 重复），用既有 10/14 与强度门评估；两 pass 同属 current epoch，本轮只证明本地校准后跨 pass 复现，不证明跨 epoch / 漂移泛化。
+- **门禁**：新脚本 RUFF 通过（清掉 5 个死 `# noqa: E402`）、BOM-free；报告已登记 provenance，`sync_report_provenance.py --check`=clean，本 lane 4 项溯源测试通过；`ruff check .` 的 18 处错误与 provenance 全套测试的 39 处失败均为 base commit 既存（已 stash 对比确认本 lane 非回归、且是 base 失败的严格子集），未处理。
+- **设备状态**：本轮全程离线回放归档 npz，**未占用 SLM / CCD / 激光，无并行设备进程**；未启动任何采集 / 训练。产物：脚本 `scripts/slm/direction_model_class_20261118.py`、报告 `report/shape_trials/direction_model_class_20261118/direction_model_class_20261118.md`、结果 `data/debug/direction_model_class_20261118.json`（data/ 被 git 忽略，未入库）。

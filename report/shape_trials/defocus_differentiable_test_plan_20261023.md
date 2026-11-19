@@ -32,8 +32,8 @@ U 分支：不预叠聚焦补偿，由包含离焦的模型直接合成同一 CC
 来源为 [可微实验主报告](../slm/differentiable_opt/differentiable_opt_report.md)、
 [过程动画报告](../slm/differentiable_opt/differentiable_opt_animation_20261022.md)、
 [焦点判定验证](../slm/differentiable_opt/focus_gate_verification_20261022.md)，以及
-[离焦物理预测模型实验（见物理预测经验总结）](physical_forward_experience.md)、
-[采样与曝光响应诊断（见物理预测经验总结）](physical_forward_experience.md)。
+[离焦物理预测模型实验](model_in_loop/physical_forward_defocus_live_20261022.md)、
+[采样与曝光响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md)。
 
 | 证据 | 可使用的结论 | 本方案的处理 |
 | --- | --- | --- |
