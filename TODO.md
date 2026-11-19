@@ -5734,6 +5734,15 @@ slm_zernike_pib.py:1822`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 载体: ratchet 4 passed + conventions **77 passed** / 1 skipped; ruff 全仓绿; modsize 0; term 0
 - 环境: gh-proxy 对单 issue 端点间歇 301→HTML (列表端点正常), #235 详情待代理恢复后读
 
+**2026-11-19 · 81b04014 之后 · #88 [R-66] `src/calculators/` 移出 src → `experiments/calculators/`**
+- 决策: issue 三选一取方案 2 (移出 src, 不删除也不正式化) —— 该目录零 import、不在 `[tool.setuptools.packages.find]` 打包清单、`benchmark_results.json` 属构建产物且早已不在 index
+- 迁移: 6 文件整体 `git mv` (历史保留); `src/` 自此只含 `ao_shaping/` + `ml/` 两个可打包包 (+ 空壳 `optical_ui/`)
+- 引用面 (24 处断言式替换, 逐条 count 校验): `.gitignore` 4 条构建产物模式; `tests/calculators/test_gerchberg_saxton_cython.py` 的 sys.path 引导与构建命令 docstring; `scripts/dm/generate_cython_optimizer_report.py` 的 `BENCHMARK_RESULTS_FILE` + 三处提示文案; `scripts/README.md` 与 `scripts/_common/provenance.py` 的 note; 四份结构树 (README / docs/architecture / docs/dev/module_inventory / docs/dev/project_structure) 把该行从 `src/` 下移为顶层 `experiments/`
+- 守卫加强: `_INVOCATION` 前缀集 `(?:src|scripts|tests|libs)` → 加 `experiments`, 新位置的可执行声明仍被扫描; `.pyx` 反例路径同步改写 (test_conventions 注释仍准确)
+- 溯源: `sync_report_provenance.py` 重渲染 report/README 索引行与报告页脚 (幂等)
+- 载体: conventions + tests/calculators + report_provenance **957 passed** / 2 skipped (Cython 扩展未编译、ruff 不在容器 PATH, 均为既有跳过); ruff 全仓绿; term 0; 注解棘轮 76.52% 不动
+- 提交: 021b5b3a (`Closes #88`); 本行为台账追加
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
