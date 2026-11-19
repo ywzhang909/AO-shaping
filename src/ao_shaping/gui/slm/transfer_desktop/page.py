@@ -115,6 +115,7 @@ from ao_shaping.gui.slm.transfer_progress import (
     collect_progress,
 )
 from ao_shaping.tools.slm.transfer import campaign_progress
+from ao_shaping.utils.image.center_preference import get_opened_camera
 from ao_shaping.utils.io.file import ROOT_DIR
 
 __all__ = ["TransferPage"]
@@ -452,6 +453,10 @@ class TransferPage(QWidget):
         self._ccd_task: CcdDetectTask | None = None
         self._ccd_preferred: str = str(_DEFAULTS.camera)
         self._ccd_cam_id: int = int(_DEFAULTS.cam_id)
+        # Beam Quality 里操作员实际打开过的帧源会做 ① 的初值 (见
+        # ``_seed_camera_from_beam_quality``); 置位后加载时的自动探测不再覆盖它 ——
+        # 操作员真点开过的相机优先于探测结论。
+        self._camera_seeded_from_beam_quality = False
         self._probe_text: str = ""
         # 「读取零级」同理只在点按钮时发生; ``_zero_task`` 是强引用, 掉引用会让
         # 在飞任务被回收 (信号永远送不到)。``_zero_reading`` 同时是互斥标志。
@@ -501,6 +506,8 @@ class TransferPage(QWidget):
         # ``_revalidate`` 直接跳过, 搭完后再手动跑一次首次校验。
         self._form_ready = False
         self._build()
+        # ① 的初值优先用 Beam Quality 里操作员真打开过的那台相机 (没打开过则不动)。
+        self._seed_camera_from_beam_quality()
         self._form_ready = True
         self._apply_theme()
         # 先把「矩形长边隐藏 / 倾斜相位周期禁用」的初始态摆正, 再跑首次校验。
@@ -2041,6 +2048,27 @@ class TransferPage(QWidget):
         )
 
     # ---------------------------------------------------------------- 自动探测
+    def _seed_camera_from_beam_quality(self) -> None:
+        """用 Beam Quality 里操作员实际打开过的帧源做 ① 的初值。
+
+        这是*初值*而非锁定: 下拉框之后照常可改。操作员真点开过的帧源也优先于
+        加载时的自动探测 —— 置位 ``_camera_seeded_from_beam_quality`` 后
+        :meth:`_on_ccd_detected` 不再覆盖它。从没打开过、或该键不在本页选项里时
+        一个字也不改, 保留 :mod:`params` 的默认。
+        """
+        opened = get_opened_camera()
+        if opened is None:
+            return
+        kind, cam_id = opened
+        if kind not in params.CAMERA_CHOICES:
+            logger.warning("Beam Quality 打开过的相机 {} 不在本页选项内, 保留默认", kind)
+            return
+        cam_id = max(self._cam_id.minimum(), min(int(cam_id), self._cam_id.maximum()))
+        self._camera_seeded_from_beam_quality = True
+        self._ccd_preferred = str(kind)
+        self._ccd_cam_id = cam_id
+        self._apply_ccd_choice(str(kind), cam_id)
+
     def _start_ccd_detection(self) -> None:
         """页面加载时跑一次的只读相机枚举 (后台线程; 不打开相机、不探针 SLM)。"""
         task = CcdDetectTask(self._ccd_preferred, self._ccd_cam_id)
@@ -2104,14 +2132,21 @@ class TransferPage(QWidget):
         )
 
         # 操作员已经自己改过设备字段 (或会话已经跑起来) 就不覆盖: 探测是提示,
-        # 不是命令。
+        # 不是命令。Beam Quality 里真打开过的相机同属「操作员已选」。
         untouched = (
             not self._running
+            and not self._camera_seeded_from_beam_quality
             and self._camera.currentData() == self._ccd_preferred
             and self._cam_id.value() == self._ccd_cam_id
         )
         if untouched:
             self._apply_ccd_choice(kind, cam_id)
+        if self._camera_seeded_from_beam_quality:
+            kept = (
+                f"沿用 Beam Quality 打开过的 {self._ccd_preferred} "
+                f"cam_id={self._ccd_cam_id}"
+            )
+            detail_text = f"{detail_text}；{kept}" if detail_text else kept
         self._set_probe_text(detail_text or f"自动探测：已选 {kind} cam_id={cam_id}")
 
     # ------------------------------------------------------------------ 自检

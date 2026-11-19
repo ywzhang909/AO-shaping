@@ -1929,7 +1929,9 @@ class _HardwareBench:
                 self.signal_center_local = self._blaze_choice.signal_xy
                 logger.info("measured blaze: {}", self._blaze_choice)
             if config.cam_size > 0:
-                from ao_shaping.utils.image.beam_metrics import zero_order_center
+                from ao_shaping.utils.image.center_preference import (
+                    resolve_zero_order_center,
+                )
 
                 blank_panel = phase_to_panel(
                     np.zeros((config.region, config.region), dtype=np.float64),
@@ -1968,7 +1970,7 @@ class _HardwareBench:
                 full_x, full_y = (
                     self._blaze_choice.signal_xy
                     if self._blaze_choice is not None
-                    else zero_order_center(full_clean, refine=False)
+                    else resolve_zero_order_center(full_clean)
                 )
                 half = config.cam_size // 2
                 if (
@@ -3140,7 +3142,7 @@ def _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, c
 
 
 
-def _session_open_bench(bench, config, create_target_mask, probe_records, zero_order_center):
+def _session_open_bench(bench, config, create_target_mask, probe_records):
 # Stage 0 (flat baseline + frozen ROI) and Stage 1 (geometry
 # bake-off + model-space target) lifted verbatim. Returns the bench
 # geometry/target names the rest of the session reads.
@@ -3181,12 +3183,15 @@ def _session_open_bench(bench, config, create_target_mask, probe_records, zero_o
             "check the exposure and that the SLM is actually retracting "
             "light onto the camera"
         )
-    # Locate the optical axis ONCE. The 0-order is the frame's global
-    # maximum, never the geometric centre -- on this bench it sits far
-    # off-centre -- and it is frozen for the whole run from here on.
-    roi_center = getattr(bench, "signal_center_local", None) or zero_order_center(
-        flat_frame, refine=False
-    )
+    # Locate the optical axis ONCE. The 0-order is the preferred centre method
+    # picked in the Beam Quality window (ellipse centre when none was picked),
+    # never the geometric centre -- on this bench it sits far off-centre -- and
+    # it is frozen for the whole run from here on.
+    from ao_shaping.utils.image.center_preference import resolve_zero_order_center
+
+    roi_center = getattr(
+        bench, "signal_center_local", None
+    ) or resolve_zero_order_center(flat_frame)
     logger.info("frozen ROI centre (x, y) = {}", roi_center)
 
     # ---------------- Stage 1: geometry, then the bake-off -------------
@@ -3307,12 +3312,11 @@ def _run_model_in_loop_session(
     probe_records: object,
     recorder: object,
     shape_phase_with_frozen_aberration: object,
-    zero_order_center: object,
 ):
     """#205 batch-13: former 930-line Try session of optimize_slm_model_in_loop."""
     try:
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
-        calib_records, camera_rotation_quarters, cell_scale, flat_capture_utc, flat_frame, flat_phase, geometry, roi_center, target, target_camera, target_side_model = _session_open_bench(bench, config, create_target_mask, probe_records, zero_order_center)
+        calib_records, camera_rotation_quarters, cell_scale, flat_capture_utc, flat_frame, flat_phase, geometry, roi_center, target, target_camera, target_side_model = _session_open_bench(bench, config, create_target_mask, probe_records)
 
         # Illumination on the model grid, from the CALIBRATED waist. Omitting it
         # would make Step B optimise for a beam that is not the real one.
@@ -3405,7 +3409,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         _probe_set_loss,
         shape_phase_with_frozen_aberration,
     )
-    from ao_shaping.utils.image.beam_metrics import zero_order_center
     from ao_shaping.utils.io.file import Recorder
 
     recorder = Recorder()
@@ -3452,7 +3455,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         probe_records=probe_records,
         recorder=recorder,
         shape_phase_with_frozen_aberration=shape_phase_with_frozen_aberration,
-        zero_order_center=zero_order_center,
     )
 
 

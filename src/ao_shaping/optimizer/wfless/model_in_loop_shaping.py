@@ -59,10 +59,8 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
     ZernikeCoefficientOptimizer,
 )
 from ao_shaping.drivers.sim.fouriergsnet_env import BeamParams, SimFourierGSNetEnv
-from ao_shaping.utils.image.beam_metrics import (
-    compute_square_metrics,
-    zero_order_center,
-)
+from ao_shaping.utils.image.beam_metrics import compute_square_metrics
+from ao_shaping.utils.image.center_preference import resolve_zero_order_center
 from ao_shaping.utils.image.frame_analysis import spot_fwhm
 
 # ``_linear_slope`` was a verbatim copy of the canonical leaf kernel; alias it so the
@@ -639,13 +637,12 @@ def display_and_measure(
 def square_metrics_at_zero_order(
     intensity: np.ndarray, target_side: int
 ) -> tuple[dict[str, float], tuple[int, int]]:
-    """Compute the square metrics with the 0-order located by global argmax.
+    """Compute the square metrics with the 0-order located by the preferred method.
 
-    The optical axis is the frame's global maximum, never the geometric frame
-    centre, so the anchor comes from
-    :func:`~ao_shaping.utils.image.beam_metrics.zero_order_center` with
-    ``refine=False`` (literally ``np.unravel_index(np.argmax(frame))``) and is
-    handed straight to
+    The optical axis is never the geometric frame centre, so the anchor comes
+    from :func:`~ao_shaping.utils.image.center_preference.resolve_zero_order_center`
+    -- the centre method the operator picked in the Beam Quality window, ellipse
+    centre when none was picked -- and is handed straight to
     :func:`~ao_shaping.utils.image.beam_metrics.compute_square_metrics`, which
     shares the ``(x, y)`` convention.
 
@@ -656,7 +653,7 @@ def square_metrics_at_zero_order(
     Returns:
         A tuple of the metric dict and the ``(x, y)`` centre used.
     """
-    center = zero_order_center(intensity, refine=False)
+    center = resolve_zero_order_center(intensity)
     return compute_square_metrics(intensity, target_side, center), center
 
 
@@ -2868,13 +2865,14 @@ def _resize_grid(array: np.ndarray, grid: int) -> np.ndarray:
 
 
 def _crop_to_grid(image: np.ndarray, grid: int) -> np.ndarray:
-    """Crop a far field around its global ``argmax`` onto a ``grid`` window.
+    """Crop a far field around its preferred 0-order centre onto a ``grid`` window.
 
-    The 0-order is the frame's global maximum, never the geometric centre, so
-    the window is anchored by
-    :func:`~ao_shaping.utils.image.beam_metrics.zero_order_center` with
-    ``refine=False``. The window is clamped inside the frame, so a frame smaller
-    than ``grid`` yields a zero-padded result rather than an exception.
+    The 0-order is never the geometric centre, so the window is anchored by
+    :func:`~ao_shaping.utils.image.center_preference.resolve_zero_order_center`
+    -- the centre method the operator picked in the Beam Quality window, ellipse
+    centre when none was picked. The window is clamped inside the frame, so a
+    frame smaller than ``grid`` yields a zero-padded result rather than an
+    exception.
 
     Args:
         image: 2D far-field intensity frame.
@@ -2885,7 +2883,7 @@ def _crop_to_grid(image: np.ndarray, grid: int) -> np.ndarray:
     """
     frame = np.nan_to_num(np.asarray(image, dtype=np.float64), nan=0.0)
     side = int(grid)
-    center_x, center_y = zero_order_center(frame, refine=False)
+    center_x, center_y = resolve_zero_order_center(frame)
     out = np.zeros((side, side), dtype=np.float64)
     top = center_y - side // 2
     left = center_x - side // 2

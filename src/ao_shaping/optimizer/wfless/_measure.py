@@ -8,6 +8,7 @@ import numpy as np
 
 from ao_shaping.drivers.ccd.base import BaseCamera
 from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame
+from ao_shaping.utils.image.center_preference import resolve_zero_order_center
 
 
 class SLMHandle(Protocol):
@@ -45,6 +46,19 @@ def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
     frame (non-finite pixels are excluded).
     """
     return locate_peak(frame, finite=True)
+
+
+# AXIS: (row, col)
+def locate_zero_order_preferred(frame: np.ndarray) -> tuple[int, int]:
+    """按偏好口径定位 0 级, 返回 ``(cy, cx)`` (行优先)。
+
+    与 :func:`locate_zero_order` 同一坐标序, 但方法来自 Beam Quality 窗口的
+    选择 (操作员没点过时为椭圆中心), 而不是写死的 ``argmax``。``(x, y)`` 由
+    :func:`~ao_shaping.utils.image.center_preference.resolve_zero_order_center`
+    给出, 这里只做行/列换位。
+    """
+    x, y = resolve_zero_order_center(frame)
+    return (int(y), int(x))
 
 
 def display_and_average(

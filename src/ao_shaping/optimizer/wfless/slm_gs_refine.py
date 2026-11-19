@@ -95,7 +95,7 @@ from ao_shaping.drivers.ccd.base import BaseCamera
 from ao_shaping.optimizer.wfless._measure import (
     SLMHandle,
     display_and_average,
-    locate_zero_order,
+    locate_zero_order_preferred,
 )
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
@@ -1845,7 +1845,7 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
                 raise ValueError(
                     "Daheng full-frame discovery saturated; reduce exposure"
                 )
-            full_y, full_x = locate_zero_order(discovery)
+            full_y, full_x = locate_zero_order_preferred(discovery)
         discovery, full_x, full_y = _gsr_blaze_discovery(config, ctx, discovery, full_x, full_y, panel_shape, recorded_full_center)
         full_frame_center = _gsr_full_frame_center(ctx, discovery, full_frame_center, full_x, full_y, recorded_full_center)
         _gsr_window_geometry(config, ctx, discovery, full_x, full_y)
@@ -2061,8 +2061,8 @@ def _apply_resume_state(ctx: _RefineContext) -> None:
         cy, cx = int(resume["center_y"]), int(resume["center_x"])
     else:
         # 交接文件里没有窗口内的零级位置 ⇒ 从平场帧重新定位 (与优化器自己
-        # 用的峰值定位同一套 routine)。
-        cy, cx = locate_zero_order(frame0)
+        # 用的中心口径同一套 routine)。
+        cy, cx = locate_zero_order_preferred(frame0)
         logger.info(
             "续跑状态里没有窗口内的零级位置, 改从平场帧重新定位 (row={}, col={})",
             cy,
@@ -2092,7 +2092,7 @@ def _stage_flat_baseline(ctx: _RefineContext) -> None:
     cy, cx = (
         (ctx.signal_local_xy[1], ctx.signal_local_xy[0])
         if ctx.overlay is not None
-        else locate_zero_order(frame0)
+        else locate_zero_order_preferred(frame0)
     )
     ctx.cy = cy
     ctx.cx = cx

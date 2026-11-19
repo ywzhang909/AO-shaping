@@ -216,3 +216,13 @@ def sample_image():
 def sample_wavefront():
     """Create a sample wavefront for testing."""
     return np.random.rand(64, 64).astype(np.float32)
+
+
+@pytest.fixture(autouse=True)
+def _reset_center_preference() -> None:
+    """中心口径偏好是进程内模块状态: 用例间清零, 免一条 GUI 用例改变后续整形定位。"""
+    from ao_shaping.utils.image import center_preference
+
+    center_preference.reset()
+    yield
+    center_preference.reset()

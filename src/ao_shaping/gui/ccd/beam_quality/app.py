@@ -81,6 +81,10 @@ from ao_shaping.gui.ccd.beam_quality.profile_widget import ProfileWidget
 from ao_shaping.gui.ccd.beam_quality.trend_buffer import TrendBuffer
 from ao_shaping.gui.ccd.beam_quality.trend_widget import TrendWidget
 from ao_shaping.gui.ccd.beam_quality.video_widget import VideoWidget, to_uint8
+from ao_shaping.utils.image.center_preference import (
+    set_center_method,
+    set_opened_camera,
+)
 from ao_shaping.utils.io import paths
 from ao_shaping.utils.io.file import ROOT_DIR
 
@@ -453,6 +457,8 @@ class BeamQualityApp(QMainWindow):
             self._set_controls_enabled(True)
             # 打开后把曝光控件换成该设备的真实量程 (占位量程只用于打开前)
             self._sync_exposure_range(source)
+            # 交接给整形链路: 操作员实际打开的帧源优先于任何默认
+            set_opened_camera(kind, cam_id)
             self.statusBar().showMessage(
                 f"已启动 {SOURCE_KINDS[index][0]} (曝光 {source.exposure_ms:.3f} ms)",
                 5000,
@@ -681,6 +687,8 @@ class BeamQualityApp(QMainWindow):
         if key is None:
             return
         self._center_method = str(key)
+        # 交接给整形链路: 操作员点过的口径优先于椭圆中心默认
+        set_center_method(str(key))
         if self._last_view is None or self._source is None:
             return
         metrics = self._analyze(self._last_view)
