@@ -28,7 +28,7 @@ from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
 from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.optimizer.wfless.frozen_aberration_shaping import _aperture_from_basis
+from ao_shaping.optimizer.wfless.model_in_loop_shaping import _aperture_from_basis
 from ao_shaping.utils.image.beam_metrics import compute_square_metrics, zero_order_center
 from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
 

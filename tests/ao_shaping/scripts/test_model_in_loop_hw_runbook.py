@@ -217,7 +217,7 @@ class TestPureHelpers:
         assert amp[16, 20] < amp[16, 18] < amp[16, 16]
 
     def test_record_round_trip(self, runbook: Any, tmp_path: Path) -> None:
-        from ao_shaping.optimizer.wfless.bench_geometry_common import CalibrationRecord
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import CalibrationRecord
 
         records = [
             CalibrationRecord(
@@ -237,7 +237,7 @@ class TestPureHelpers:
         np.testing.assert_allclose(loaded[1].phase, records[1].phase)
 
     def test_geometry_round_trip(self, runbook: Any) -> None:
-        from ao_shaping.optimizer.wfless.bench_geometry import BenchGeometry
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import BenchGeometry
 
         geo = BenchGeometry(
             panel_disc_radius=200, region=256, beam_waist_panel_px=192.0,
@@ -252,7 +252,7 @@ class TestPureHelpers:
         """#152: producer writes via ``to_json``, consumer reads via
         ``from_json_text`` / ``load_bench_geometry`` — same object back, and the
         producer's module functions delegate to the same code (no drift)."""
-        from ao_shaping.optimizer.wfless.bench_geometry import (
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
             BenchGeometry,
             load_bench_geometry,
         )
@@ -830,7 +830,7 @@ class TestDryRun:
                                capsys: pytest.CaptureFixture[str]) -> None:
         args = _args(runbook, tmp_path, dry_run=True, region=64, far_field_size=256)
         # Mirror the geometry main() writes for a dry run, then exercise the path.
-        from ao_shaping.optimizer.wfless.bench_geometry import BenchGeometry
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import BenchGeometry
 
         geo = BenchGeometry(
             panel_disc_radius=200, region=64, beam_waist_panel_px=24.0,

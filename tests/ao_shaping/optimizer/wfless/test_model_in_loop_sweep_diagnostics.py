@@ -27,18 +27,12 @@ import numpy as np
 import pytest
 import torch
 
-from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
-    ZernikeCoefficientOptimizer,
-)
-from ao_shaping.optimizer.wfless.bench_geometry_common import (
-    _pupil_amplitude,
-    _spot_fwhm,
-)
-from ao_shaping.optimizer.wfless.bench_sweep import (
+from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     SweepCalibrationError,
     SweepRecord,
-)
-from ao_shaping.optimizer.wfless.bench_sweep_fit import (
+    ZernikeCoefficientOptimizer,
+    _pupil_amplitude,
+    _spot_fwhm,
     _zernike_phase,
     calibrate_bench_geometry_from_sweep,
 )
