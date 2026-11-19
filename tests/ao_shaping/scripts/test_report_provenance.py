@@ -65,6 +65,20 @@ _LINKABLE = re.compile(
 #: reason)``. Each needs a justification, because an unexplained baseline is just
 #: a suppressed failure.
 _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
+    "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": {
+        "artifacts/physical_forward_rows_20261022.csv": (
+            "per-phase metrics CSV, which .gitignore:7 (`*.csv`) keeps out of "
+            "the repo entirely -- it exists only on the collecting machine, so "
+            "the link cannot resolve on a clean clone."
+        ),
+    },
+    "report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md": {
+        "artifacts/sampling_radiometry_metrics_20261022_r2.csv": (
+            "radiometry metrics CSV, which .gitignore:7 (`*.csv`) keeps out of "
+            "the repo entirely -- it exists only on the collecting machine, so "
+            "the link cannot resolve on a clean clone."
+        ),
+    },
     "report/shape_trials/gs_refine/gs_refine_live_20261012.md": {
         "../../../data/debug/slm_gs_refine/20261012_173710/slm_gs_refine_20261012_173710_20261012_173710.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
@@ -110,6 +124,51 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
         "image/0516/1778923774713.png": (
             "screenshot never committed -- searched the whole repo by name, it "
             "exists nowhere. The embed has always rendered broken."
+        ),
+    },
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261013.md": {
+        # Hardware debug artefacts under data/debug/, kept out by .gitignore
+        # (`data/*`). They exist only on the collecting bench, so the relative
+        # links resolve there but not in a clean clone.
+        "../../../data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json": (
+            "bench geometry json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_in_loop/20261013_145819/best_far_field.png": (
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_in_loop/20261013_152341/best_far_field.png": (
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json": (
+            "exposure analysis json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv": (
+            "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv": (
+            "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv": (
+            "paired csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_model_compare/20261013_2015_new_session/phase_bandwidth_paired.csv": (
+            "paired csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../../data/debug/slm_disturbance_compare/20261013_165039/disturbance.json": (
+            "disturbance json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
         ),
     },
     "report/micro_deformable_mirror/voltage_test.md": {

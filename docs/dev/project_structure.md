@@ -26,7 +26,8 @@ AO-shaping/
 │   │   │       ├── slm_shaping_runner.py    # slm-pib 命令组 (spgd / heuristic / square)
 │   │   │       ├── gsnet_runner.py          # slm-gsnet
 │   │   │       ├── gs_refine_runner.py      # slm-gs-refine
-│   │   │       ├── session_calibration.py   # 硬件 session 预标定 (入射定位 / 曝光 / sweep 几何)
+│   │   │       ├── model_in_loop_runner.py  # slm-model-in-loop
+│   │   │       ├── model_in_loop_session.py # 硬件 session 预检 (入射定位 / 曝光)
 │   │   │       ├── rms_zernike_runner.py    # rms-zernike
 │   │   │       ├── zernike_matrix_runner.py # zernike-matrix + closed-loop
 │   │   │       └── offset_runner.py         # 未注册 (计划迁 tools/slm/)

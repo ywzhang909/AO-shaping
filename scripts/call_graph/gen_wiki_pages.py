@@ -85,6 +85,7 @@ CMD_ORDER = [
     ("slm-pib", "SLM Zernike 整形（spgd/heuristic 子命令）"),
     ("slm-gsnet", "SLM freeform 方形整形（spgd/heuristic/train）"),
     ("slm-gs-refine", "GS 预整形 + 全频随机相位 SPGD 细化"),
+    ("slm-model-in-loop", "物理预测模型闭环方形整形（反复迭代）"),
     ("slm-transfer-shapes", "多形状物理预测模型闭环整形（从零训练 → 逐形状整形 → 共同重放 → 记录）"),
     ("slm-lut", "SLM 灰度-相位 LUT 标定（衍射效率反演）"),
     ("slm-diagnose", "SLM 面板硬件自检（逐级定位）"),
@@ -109,6 +110,7 @@ CMD_SYMS = {
     "slm-pib": "slm_pib_run",
     "slm-gsnet": "slm_gsnet_run",
     "slm-gs-refine": "slm_gs_refine_run",
+    "slm-model-in-loop": "slm_model_in_loop_run",
     "slm-transfer-shapes": "slm_transfer_shapes_run",
     "slm-lut": "slm-lut",
     "slm-diagnose": "slm-diagnose",
@@ -251,7 +253,9 @@ ALIAS = {
     "ao_shaping.runners.runner_common.patch_sim_square_shaping": "functions/runner-common",
     "ao_shaping.runners.runner_common.parse_point": "functions/runner-common",
     "ao_shaping.runners.runner_common.build_gs_refine_config": "functions/runner-common",
+    "ao_shaping.runners.runner_common.build_model_in_loop_config": "functions/runner-common",
     "ao_shaping.runners.runner_common.save_gs_refine_results": "functions/runner-common",
+    "ao_shaping.runners.runner_common.save_model_in_loop_results": "functions/runner-common",
 }
 qual2slug.update(ALIAS)
 

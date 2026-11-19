@@ -43,6 +43,7 @@ def cli(ctx: click.Context, dir: str, debug: bool | None)
 | `slm-pib` | `runners.slm.slm_shaping_runner.run` | [[commands/slm-pib]] |
 | `slm-gsnet` | `runners.slm.gsnet_runner.run` | [[commands/slm-gsnet]] |
 | `slm-gs-refine` | `runners.slm.gs_refine_runner.run` | [[commands/slm-gs-refine]] |
+| `slm-model-in-loop` | `runners.slm.model_in_loop_runner.run` | [[commands/slm-model-in-loop]] |
 | `slm-transfer-shapes` | `runners.slm.transfer_shapes_runner.run` | [[commands/slm-transfer-shapes]] |
 | `slm-lut` | `tools.slm.calibration.lut_runner.run` | [[commands/slm-lut]] |
 | `slm-diagnose` | `tools.slm.panel.diagnose.main` | [[commands/slm-diagnose]] |
