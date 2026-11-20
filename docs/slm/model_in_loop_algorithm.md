@@ -737,11 +737,11 @@ payload 的键:
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致
   光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。
   (`report/slm/model_in_loop_bench_calibration.md:49-55`)
-- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:3088-3098`, 2026-10-27 复核；2026-11-13 重钉至当前——配置类 `SlmModelInLoopParams` 自 2026-10-20 的 `3f8198d5` 复核后累计上移 ~89 行，3058-3068→3081-3091；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3081-3091→3088-3098)。
+- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:3090-3100`, 2026-10-27 复核；2026-11-13 重钉至当前——配置类 `SlmModelInLoopParams` 自 2026-10-20 的 `3f8198d5` 复核后累计上移 ~89 行，3058-3068→3081-3091；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3081-3091→3088-3098；2026-11-20 跟进 `080279f0` #205 外提 `model_in_loop_io` 在 `runner_common` 顶部 +2 行，3088-3098→3090-3100)。
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:3211-3221` 的异常文案说的就是这件事，2026-11-01 复核；2026-11-17 跟进 da535a8c 第 119 批 `ModelInLoopConfig.__post_init__` lift 后 +8 重钉 3203-3213→3211-3221)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:3203-3213` 的异常文案说的就是这件事，2026-11-01 复核；2026-11-17 跟进 da535a8c 第 119 批 `ModelInLoopConfig.__post_init__` lift 后 +8 重钉 3203-3213→3211-3221；2026-11-20 跟进 `3d0fe7f2`/`9a311725` 合并恢复 `slm_model_in_loop.py`（算法以物理验证侧为准）后该块回到 3203-3213，由 `:3211-3221` 重钉）。
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -749,9 +749,9 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3211-3221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:275-291`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_*` helper 后重钉，187-203→275-291；2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 3203-3213→3211-3221）) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4064-4086`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（`_milr_round_probe_setup`/`_milr_round_score_after` 提至函数上方，该块 4035-4057→4056-4078）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4056-4078→4064-4086，原 `:3827-3849`) | `stepA-probe` 在, `stepB-shaped` **不在** |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4139-4147`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（同上，该块 4115-4123→4131-4139）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4131-4139→4139-4147，原 `:4075-4083` → `model_in_loop_runner.py:128-134`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_summary_and_save` helper 后重钉，原 269-275） 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:3203-3213` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:275-291`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_*` helper 后重钉，187-203→275-291；2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 3203-3213→3211-3221；2026-11-20 跟进 `3d0fe7f2`/`9a311725` 合并恢复 `slm_model_in_loop.py` 后由 `:3211-3221` 重钉至 `:3203-3213`）) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:4011-4033`，2026-11-02 第二十四批整轮循环迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批 `_run_model_in_loop_rounds` 一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（`_milr_round_probe_setup`/`_milr_round_score_after` 提至函数上方，该块 4035-4057→4056-4078）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4056-4078→4064-4086，原 `:3827-3849`；2026-11-20 跟进 `3d0fe7f2`/`9a311725` 合并恢复 `slm_model_in_loop.py`（算法以物理验证侧为准）后该块在 4011-4033，由 `:4064-4086` 重钉） | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:4086-4094`，2026-11-02 第二十四批迁入 `_run_model_in_loop_rounds`、2026-11-11 第五十四批一轮三缝后重钉、2026-11-12 第五十五批整 Try 体三缝后重钉、2026-11-12 第五十七批单 For 体五缝后重钉、2026-11-13 第八十三批两缝（同上，该块 4115-4123→4131-4139）后重钉、2026-11-17 跟进 da535a8c 第 119 批 `__post_init__` lift 后 +8 重钉 4131-4139→4139-4147，原 `:4075-4083`；2026-11-20 跟进 `3d0fe7f2`/`9a311725` 合并恢复 `slm_model_in_loop.py`（算法以物理验证侧为准）后该块在 4086-4094，由 `:4139-4147` 重钉 → `model_in_loop_runner.py:128-134`（2026-11-14 跟进 04ff4d2b 第 82 批 `run` 拆 `_milr_echo_summary_and_save` helper 后重钉，原 269-275） 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 
@@ -763,13 +763,13 @@ payload 的键:
 | SLM | Santec SLM-200 **#1**, sn `22030108`, 1920×1200, 10-bit, @1064 nm, **2π = 993 gray**, **只允许 memory mode** | `report/slm/model_in_loop_bench_calibration.md:293-294`; pitch 8 µm 见 `report/slm/bench_calibration_20261001.md:13` |
 | CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元是**型号级属性**: `--camera-pixel-um 0`(默认) 由 `drivers/ccd/pixel_size.py` 查型号配置 (`models.json`), 正数才是显式覆盖 |
 | 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 (0 阶浓度掉下去的那个拐点就是光斑边缘) | `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 `report/slm/model_in_loop_bench_calibration.md:181-191` |
-| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:3003-3015`(文档就写在 option 的 help 里；2026-11-13 重钉，配置类自 2026-10-20 复核后累计上移 ~89 行，2907-2919→2996-3008；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，2996-3008→3003-3015) |
+| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:3005-3017`(文档就写在 option 的 help 里；2026-11-13 重钉，配置类自 2026-10-20 复核后累计上移 ~89 行，2907-2919→2996-3008；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，2996-3008→3003-3015；2026-11-20 跟进 `080279f0` #205 外提 `model_in_loop_io` 在 `runner_common` 顶部 +2 行，3003-3015→3005-3017) |
 | 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** | `report/slm/model_in_loop_bench_calibration.md:297-299` |
 
 > 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的
 > 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差
 > 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推
-> (`runner_common.py:3016-3029` 的 help 文本；2026-11-13 重钉，2920-2933→3009-3022；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3009-3022→3016-3029)。
+> (`runner_common.py:3018-3031` 的 help 文本；2026-11-13 重钉，2920-2933→3009-3022；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3009-3022→3016-3029；2026-11-20 跟进 `080279f0` #205 外提 `model_in_loop_io` 在 `runner_common` 顶部 +2 行，3016-3029→3018-3031)。
 >
 > ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),
 > `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是
@@ -808,7 +808,7 @@ payload 的键:
 `10954`。以 2.2 µm 像元推算应得 **~7557**, 所以**三方无一是已验证的**。
 
 `--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距
-(`runner_common.py:3057-3067`；2026-11-13 重钉，2961-2971→3050-3060；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3050-3060→3057-3067)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
+(`runner_common.py:3059-3069`；2026-11-13 重钉，2961-2971→3050-3060；2026-11-19 跟进 `7f1184d7` #205 外提 `voltage_io` 顶部 +7 行，3050-3060→3057-3067；2026-11-20 跟进 `080279f0` #205 外提 `model_in_loop_io` 在 `runner_common` 顶部 +2 行，3057-3067→3059-3069)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
 `--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。
 
 ### 15.5 ⚠️ CLI 默认网格比唯一硬件验证过的几何粗约 16×
