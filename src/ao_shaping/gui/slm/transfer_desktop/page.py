@@ -458,6 +458,8 @@ class TransferPage(QWidget):
         # 操作员真点开过的相机优先于探测结论。
         self._camera_seeded_from_beam_quality = False
         self._probe_text: str = ""
+        # 关窗标记: 关窗后到达的探测结论一律丢弃 (控件正在被销毁, 不该再写)。
+        self._closing = False
         # 「读取零级」同理只在点按钮时发生; ``_zero_task`` 是强引用, 掉引用会让
         # 在飞任务被回收 (信号永远送不到)。``_zero_reading`` 同时是互斥标志。
         self._zero_reading = False
@@ -2071,6 +2073,8 @@ class TransferPage(QWidget):
 
     def _start_ccd_detection(self) -> None:
         """页面加载时跑一次的只读相机枚举 (后台线程; 不打开相机、不探针 SLM)。"""
+        if self._closing:
+            return
         task = CcdDetectTask(self._ccd_preferred, self._ccd_cam_id)
         # 与自检 / 会话同理: 信号送达前被 Qt 回收就丢掉结论。
         task.setAutoDelete(False)
@@ -2113,6 +2117,8 @@ class TransferPage(QWidget):
         duck typing 读 —— 读不出来就按失败写一行, 后面的完整流程照旧。
         """
         self._ccd_task = None
+        if self._closing:
+            return
         if isinstance(result, BaseException):
             self._set_probe_text(
                 f"自动探测失败：{_brief_exception(result)}"
@@ -2871,6 +2877,8 @@ class TransferPage(QWidget):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """关窗: 停轮询, 有限度地等在飞会话落地 —— ``run_session`` 没有取消接口。"""
+        # 关窗后到达的结论不再写控件 (页面正在被销毁)。
+        self._closing = True
         self._poll.stop()
         if self._running or self._zero_reading:
             # 完成信号排在 UI 事件队列里, 干等会拿不到; 必须泵事件驱动回调。
@@ -2879,4 +2887,13 @@ class TransferPage(QWidget):
             while (self._running or self._zero_reading) and time.monotonic() < deadline:
                 QApplication.processEvents()
                 time.sleep(0.02)
+        # 相机自动探测也跑在 ``_pool`` 的线程里, 入口还是驱动的首次 import (原生 SDK:
+        # ``drivers.ccd``/``drivers.adc`` → gxipy / nidaqmx)。池是页的子对象, 线程还
+        # 在 import 时页面先被回收, 就是本机 CPython 3.13 上那次进程级 access
+        # violation (dump 停在 Garbage-collecting, 栈上是 ``CcdDetectTask`` →
+        # ``hardware_check``)。清掉排队项, 只对有界等待在飞的那一个 —— SDK 调用
+        # 真挂住时也不该永远拖住关窗。
+        self._pool.clear()
+        if not self._pool.waitForDone(int(_CLOSE_GRACE_S * 1000)):
+            logger.warning("关闭时后台任务未在 {} s 内结束", _CLOSE_GRACE_S)
         super().closeEvent(event)

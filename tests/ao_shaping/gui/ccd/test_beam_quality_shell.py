@@ -145,8 +145,8 @@ def test_select_page_is_idempotent_and_bounds_checked(app, shell) -> None:
     # 越界索引被钳到最后一页, 不抛异常 (键盘/程序调用都可能传进来)。
     # 页面栈只保存已创建的惰性页, 所以用当前控件而非物理栈索引判断逻辑页。
     shell.select_page(9)
-    assert shell._static_page is not None
-    assert shell._stack.currentWidget() is shell._static_page
+    assert shell._closed_loop_page is not None
+    assert shell._stack.currentWidget() is shell._closed_loop_page
 
 
 # ---------------------------------------------------------------------------
@@ -170,13 +170,14 @@ def test_rail_is_compressed_and_single_line(app, shell) -> None:
     assert item.height() < 50
 
 
-def test_rail_has_three_nav_items(app, shell) -> None:
-    """导航栏三页齐在: 光束质量 / 迁移学习闭环整形 / SLM 静态整形。"""
+def test_rail_has_four_nav_items(app, shell) -> None:
+    """导航栏四页齐在: 光束质量 / 迁移学习闭环整形 / SLM 静态整形 / 实测闭环动态整形。"""
     from ao_shaping.gui.ccd.beam_quality.shell import _NAV_ITEMS
 
-    assert len(_NAV_ITEMS) == 3
-    assert len(shell._rail._items) == 3
+    assert len(_NAV_ITEMS) == 4
+    assert len(shell._rail._items) == 4
     assert shell._rail._items[2].accessibleName() == "SLM静态整形"
+    assert shell._rail._items[3]._title.text() == "实测闭环"
 
 
 def test_rail_labels_fit_without_clipping(app, shell) -> None:
@@ -217,3 +218,53 @@ def test_static_shaping_page_stays_cached(app, shell) -> None:
     _click_item(shell, 0, app)
     _click_item(shell, 2, app)
     assert shell._stack.currentWidget() is created
+
+
+def test_closed_loop_page_is_lazy_and_switches(app, shell) -> None:
+    """页 3 (实测闭环动态整形) 惰性创建: 冷启动不建, 点到才实例化并成为当前页。"""
+    assert shell._closed_loop_page is None  # 冷启动不建闭环页
+    _click_item(shell, 3, app)
+    app.processEvents()
+
+    assert shell._closed_loop_page is not None
+    assert shell._stack.currentWidget() is shell._closed_loop_page
+    from ao_shaping.gui.slm.closed_loop_shaping_page import ClosedLoopShapingPage
+
+    assert isinstance(shell._closed_loop_page, ClosedLoopShapingPage)
+    # 默认人工确认候选; 自动接受必须显式开启, 不能是默认值。
+    assert shell._closed_loop_page._auto_accept.isChecked() is False
+
+
+def test_closed_loop_page_stays_cached(app, shell) -> None:
+    """切走再切回, 闭环页实例不重建 (后台线程句柄与已填参数都不丢)。"""
+    _click_item(shell, 3, app)
+    created = shell._closed_loop_page
+    _click_item(shell, 0, app)
+    _click_item(shell, 3, app)
+    assert shell._stack.currentWidget() is created
+
+
+def test_transfer_page_opens_without_hardware_probe(app, shell, monkeypatch) -> None:
+    """外壳里的迁移学习页不跑相机自动探测。
+
+    探测任务在池线程里首次 import 驱动 (``drivers.ccd``/``drivers.adc`` → gxipy /
+    nidaqmx); 本机 CPython 3.13 上, 线程里触发的 GC 在这条路径上会变成进程级
+    access violation (dump 停在 Garbage-collecting, 栈上是 ``CcdDetectTask`` →
+    ``hardware_check``)。外壳里光束质量页就在同一窗口, 页面构造时
+    ``_seed_camera_from_beam_quality`` 已给出初值, 这次枚举只是重复付代价 ——
+    自动探测留给独立启动的 ``transfer_desktop`` 应用。
+    """
+    from ao_shaping.gui.slm.transfer_desktop.page import TransferPage
+
+    started: list[object] = []
+    monkeypatch.setattr(
+        TransferPage, "_start_ccd_detection", lambda self: started.append(self)
+    )
+
+    _click_item(shell, 1, app)
+    _wait_for_transfer_page(app, shell)
+
+    assert started == []  # 一次都没启动探测
+    assert shell._transfer_page._ccd_task is None
+    assert shell._transfer_page.ccd_probe_summary() == ""
+    assert shell._transfer_page._probe_label.text() == ""

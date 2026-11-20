@@ -14,9 +14,10 @@
   画面流是否正常的唯一读数, 丢了就没法用。所以外壳**不设自己的状态栏**, 否则两条
   状态栏上下叠在一起, 像两个应用挤在一个框里。切页只更新导航项的选中态,
   不再显示额外提示。
-* **页 1 / 页 2 惰性创建**。迁移学习闭环整形页在导入时会拉起 torch (物理预测模型
-  的拟合与可微合成都在 torch 上), 冷启动要多花好几秒; SLM 静态整形页也只在实际
-  切到时创建。看光束质量页的人不该为这些页面的初始化代价买单。
+* **页 1 / 页 2 / 页 3 惰性创建**。迁移学习闭环整形页在导入时会拉起 torch (物理预测
+  模型的拟合与可微合成都在 torch 上), 冷启动要多花好几秒; SLM 整形页与实测闭环
+  动态整形页也只在实际切到时创建 —— 后者还会拉 SLM/CCD 驱动, 更不该为冷启动买单。
+  看光束质量页的人不该为这些页面的初始化代价付费, 更不该因为没打算用的页而被碰设备。
 * **窄导航栏**: 120 px 一列, 每项只有一行短标题与状态点, 不放副标题或底部提示,
   把尽可能多的横向空间留给页面内容。超过可用宽度的长名 (如「迁移学习闭环整形」)
   在导航栏缩成短标签, 全名由页面自身标题承担, 悬停可看全名提示。
@@ -37,6 +38,7 @@ from __future__ import annotations
 
 import sys
 
+from loguru import logger
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -68,6 +70,7 @@ _NAV_ITEMS: tuple[tuple[str, str], ...] = (
     ("光束质量", "光束质量"),
     ("闭环整形", "迁移学习闭环整形"),
     ("SLM静态整形", "SLM静态整形"),
+    ("实测闭环", "实测闭环动态整形"),
 )
 
 #: 切页说明（保留给程序性索引访问，导航栏本身不再显示 —— 见模块 docstring）。
@@ -75,10 +78,16 @@ _NAV_HINTS: tuple[str, ...] = (
     "光束质量: 选信号源后点「打开」; 相机操作在后台线程, 不冻界面",
     "迁移学习闭环整形: 需要 torch; 切页不会打断正在跑的会话",
     "SLM静态整形: 选图案类型、调参数、生成预览, 再下发到所选 SLM",
+    "实测闭环动态整形: CCD 实测误差驱动下一步; 开始前确认占用 SLM 与 CCD",
 )
 
 #: 导航栏宽度 (px)。压缩到只放单行标题 + 状态点, 不抢页面。
 _RAIL_WIDTH = 120
+
+#: 关窗时等预热线程落地的上限 (ms)。预热线程在 import torch 与页面模块, 首次冷启动
+#: 实测约 8 s; 窗口先销毁而线程还在跑, 会让 Qt 在 GC 里碰到已回收的对象 (原生
+#: access violation)。真的卡死在 import 里时也不该无限拖住关窗, 故取有界等待。
+_WARM_CLOSE_GRACE_MS = 15_000
 
 #: 状态点 / 标题高亮的强调色。蓝在暗色与亮色主题下都够醒目。
 _ACCENT = QColor("#4a9eff")
@@ -129,7 +138,7 @@ class _RailItem(QWidget):
 
     导航项是**可激活控件**, 不是装饰: 鼠标点击与键盘 (Tab 聚焦 + Enter/空格) 都
     发出 :attr:`activated`, 由 :class:`_Rail` 汇总成带页索引的 ``pageRequested``。
-    少了这层接线, 整个外壳只剩页 0 能看 —— 页 1 / 页 2 会被惰性创建逻辑永远藏着。
+    少了这层接线, 整个外壳只剩页 0 能看 —— 页 1 / 页 2 / 页 3 会被惰性创建逻辑永远藏着。
     """
 
     #: 用户要求切到本项 (鼠标或键盘)。
@@ -283,7 +292,8 @@ class DesktopShellApp(QMainWindow):
     """AO-Shaping 桌面外壳: 窄导航 + 页面栈。
 
     页 0 是既有的光束质量分析 (整个窗口嵌进来), 页 1 是 SLM 迁移学习闭环整形
-    (惰性创建), 页 2 是 SLM 静态整形 (惰性创建, 会拉 SLM 驱动只在下发时)。
+    (惰性创建), 页 2 是 SLM 静态整形 (惰性创建, 会拉 SLM 驱动只在下发时), 页 3 是
+    实测闭环动态整形 (惰性创建, 只在操作员确认后占用 SLM 与 CCD)。
     窗口标题由外壳统一持有, 切页不会换标题 —— 操作员在各页之间移动时, 标题栏始终
     说明「这是哪个应用」。
     """
@@ -314,10 +324,16 @@ class DesktopShellApp(QMainWindow):
         self._warm_pool = QThreadPool(self)
         self._warm_pool.setMaxThreadCount(1)
         self._warm_started = False
+        # 预热任务的 Python 侧引用: ``QRunnable`` 在池里跑的时候若被 GC 回收,
+        # 线程回调（以及它带的 ``_WarmSignals``）就悬空 —— 这是原生崩溃而不是异常。
+        self._warm_task: _WarmTask | None = None
         self._closing = False
 
         # 页 2: SLM 静态整形 —— 惰性, 切过去才建 (不会拖慢冷启动)。
         self._static_page: QWidget | None = None
+
+        # 页 3: 实测闭环动态整形 —— 惰性, 切过去才建; 开跑前不碰任何设备。
+        self._closed_loop_page: QWidget | None = None
 
         central = QWidget(self)
         layout = QHBoxLayout(central)
@@ -354,11 +370,20 @@ class DesktopShellApp(QMainWindow):
 
     # ------------------------------------------------------------------ 页面
     def _transfer(self) -> QWidget:
-        """页 1 的真页面; 同步建好并缓存 (只在预热完成后调用, 切回来不重建)。"""
+        """页 1 的真页面; 同步建好并缓存 (只在预热完成后调用, 切回来不重建)。
+
+        加载时的相机自动探测在外壳里**关掉**: 光束质量页就在同一个窗口, 页面构造时
+        已由 ``_seed_camera_from_beam_quality`` 取走操作员真打开过的那台。再枚举一次
+        只会多付一次后台线程里的原生 SDK 首次 import (``drivers.ccd``/``drivers.adc``
+        → ``gxipy``/``nidaqmx``), 而那次 import 正是本机 CPython 3.13 上进程级
+        access violation 的爆点 (dump 停在 ``Garbage-collecting``, 栈上是
+        ``CcdDetectTask → hardware_check``; 同类崩溃见 ``docs/dev/todo_archive.md``
+        的 tqdm monitor 记录)。独立启动的 ``transfer_desktop`` 应用仍保留自动探测。
+        """
         if self._transfer_page is None:
             from ao_shaping.gui.slm.transfer_desktop import TransferPage
 
-            self._transfer_page = TransferPage()
+            self._transfer_page = TransferPage(auto_detect_ccd=False)
         return self._transfer_page
 
     def _show_transfer_placeholder(self) -> None:
@@ -377,12 +402,17 @@ class DesktopShellApp(QMainWindow):
             return
         self._warm_started = True
         task = _WarmTask()
+        # 与 transfer 页的探测任务同一条约定: 自己持有引用, 并关掉 Qt 的自动删除,
+        # 结论回来后再放手 —— 否则线程还在 import 时对象已被回收。
+        task.setAutoDelete(False)
+        self._warm_task = task
         task.signals.ready.connect(self._on_transfer_warm_ready)
         task.signals.failed.connect(self._on_transfer_warm_failed)
         self._warm_pool.start(task)
 
     def _on_transfer_warm_ready(self) -> None:
         """预热完成 (主线程): 构造真页面, 替换占位。窗口已关则不再建。"""
+        self._warm_task = None
         if self._closing or self._transfer_page is not None:
             return
         page = self._transfer()
@@ -399,6 +429,7 @@ class DesktopShellApp(QMainWindow):
 
     def _on_transfer_warm_failed(self, message: str) -> None:
         """预热失败: 占位改成错误提示; 允许再次点击重试。"""
+        self._warm_task = None
         self._warm_started = False
         if self._transfer_placeholder is not None:
             self._transfer_placeholder.setText(
@@ -426,12 +457,26 @@ class DesktopShellApp(QMainWindow):
             )
         return self._static_page
 
+    def _closed_loop(self) -> QWidget:
+        """惰性创建页 3 (实测闭环动态整形); 建好之后缓存, 切回来不重建。
+
+        构造页面只搭控件: 不 import torch、不打开 SLM 或 CCD。设备占用发生在
+        操作员点「开始闭环」并在确认框里确认之后 (页面内部专用 worker 线程)。
+        """
+        if self._closed_loop_page is None:
+            from ao_shaping.gui.slm.closed_loop_shaping_page import ClosedLoopShapingPage
+
+            self._closed_loop_page = ClosedLoopShapingPage()
+        return self._closed_loop_page
+
     def _page_for(self, index: int) -> QWidget:
-        """按页索引取页面实例 (惰性建页 1 / 页 2)。"""
+        """按页索引取页面实例 (惰性建页 1 / 页 2 / 页 3)。"""
         if index == 1:
             return self._transfer()
         if index == 2:
             return self._static()
+        if index == 3:
+            return self._closed_loop()
         return self._beam_app
 
     def _sync_stack(self, index: int) -> None:
@@ -449,7 +494,8 @@ class DesktopShellApp(QMainWindow):
         self._stack.setCurrentWidget(widget)
 
     def select_page(self, index: int) -> None:
-        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 静态整形)。"""
+        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 静态整形,
+        3 = 实测闭环动态整形)。"""
         self._sync_stack(max(0, min(index, len(_NAV_ITEMS) - 1)))
 
     # ------------------------------------------------------------------ 事件
@@ -460,7 +506,20 @@ class DesktopShellApp(QMainWindow):
         光束质量页的相机流不关就会占着设备。
         """
         self._closing = True
-        for widget in (self._beam_app, self._transfer_page, self._static_page):
+        # 预热线程 (import torch + 页面模块) 必须落地后才能让外壳销毁: 池虽是子对象,
+        # 线程还活着时页面/信号对象先被回收就是原生 access violation, 不是异常。
+        # 先清掉排队项, 再对在飞的那一个做有界等待。
+        self._warm_pool.clear()
+        if not self._warm_pool.waitForDone(_WARM_CLOSE_GRACE_MS):
+            logger.warning(
+                "预热线程未在 {} ms 内结束, 关窗不再等待", _WARM_CLOSE_GRACE_MS
+            )
+        for widget in (
+            self._beam_app,
+            self._transfer_page,
+            self._static_page,
+            self._closed_loop_page,
+        ):
             if widget is None:
                 continue
             widget.close()

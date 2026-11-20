@@ -1,7 +1,7 @@
 """X/Y 过中心剖面 + 一维高斯拟合曲线。
 
 上半部分/左右两个 ``QChart`` 各画一条剖面: 散点是实测数据, 虚线是高斯拟合,
-图下方标签给出 sigma、中心与拟合优度 (R^2), 拟合失败时明确写"拟合失败"。
+图下方是四格读数 (σ / FWHM / 中心 / R²); 拟合失败时四格留 "—", 下面一行写原因。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
 from PySide6.QtCore import QMargins, QPointF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QFontDatabase, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
@@ -22,6 +22,18 @@ from ao_shaping.gui.ccd.beam_quality.analyzer import (
 MAX_POINTS = 1200
 # 拟合曲线采样点数
 FIT_SAMPLES = 400
+
+#: 拟合读数格: (键, 格标题)。原先是一整行 "σ = … FWHM = … 中心 = … R² = …",
+#: 那条单行文字把面板最小宽度撑到 1536 px (两面板并排后整窗被迫加宽到 2254 px,
+#: 在 1560 宽的外壳里会被裁), 现在拆成四格 "小标题 + 数值"。
+_FIT_CELLS: tuple[tuple[str, str], ...] = (
+    ("sigma", "σ"),
+    ("fwhm", "FWHM"),
+    ("center", "中心"),
+    ("r2", "R²"),
+)
+_FIT_PLACEHOLDER = "—"
+_MUTED_STYLE = "color: #808088;"
 
 
 class _ProfilePanel(QWidget):
@@ -68,15 +80,38 @@ class _ProfilePanel(QWidget):
         self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._view.setMinimumHeight(150)
 
-        self._label = QLabel("σ = --    中心 = --")
-        self._label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        # 四格读数: 格标题在上 (说明), 数值在下 (等宽数字, 纵向对齐)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        self._fit_values: dict[str, QLabel] = {}
+        metrics_row = QHBoxLayout()
+        metrics_row.setContentsMargins(0, 0, 0, 0)
+        metrics_row.setSpacing(12)
+        for key, caption in _FIT_CELLS:
+            cell = QVBoxLayout()
+            cell.setContentsMargins(0, 0, 0, 0)
+            cell.setSpacing(0)
+            cap = QLabel(caption)
+            cap.setStyleSheet(_MUTED_STYLE)
+            value = QLabel(_FIT_PLACEHOLDER)
+            value.setFont(mono)
+            value.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            cell.addWidget(cap)
+            cell.addWidget(value)
+            metrics_row.addLayout(cell)
+            self._fit_values[key] = value
+        metrics_row.addStretch(1)
+        # 拟合失败是状态而不是读数: 单独一行提示, 正常时留空 (高度固定, 不跳动)
+        self._note = QLabel("")
+        self._note.setWordWrap(True)
+        self._note.setStyleSheet("color: #d08a3a;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.addWidget(self._view, 1)
-        layout.addWidget(self._label, 0)
+        layout.addLayout(metrics_row, 0)
+        layout.addWidget(self._note, 0)
 
     # ------------------------------------------------------------------ 更新
     def update_profile(
@@ -116,21 +151,24 @@ class _ProfilePanel(QWidget):
             )
             self._axis_x.setRange(x_min, x_max)
             # fit 的 center/sigma 已由 FrameMetrics.rescaled() 换算回原始像素
-            self._label.setText(
-                f"σ = {fit.sigma:.2f} px    "
-                f"FWHM = {fit.fwhm:.2f} px    "
-                f"中心 = {fit.center:.1f} px    "
-                f"R² = {fit.r_squared:.4f}"
-            )
+            self._fit_values["sigma"].setText(f"{fit.sigma:.2f} px")
+            self._fit_values["fwhm"].setText(f"{fit.fwhm:.2f} px")
+            self._fit_values["center"].setText(f"{fit.center:.1f} px")
+            self._fit_values["r2"].setText(f"{fit.r_squared:.4f}")
+            self._note.clear()
         else:
             self._fit.clear()
             self._axis_x.setRange(x_min, x_max)
-            self._label.setText("高斯拟合失败 (剖面非单峰或信噪比不足)")
+            for value in self._fit_values.values():
+                value.setText(_FIT_PLACEHOLDER)
+            self._note.setText("高斯拟合失败 (剖面非单峰或信噪比不足)")
 
     def clear(self) -> None:
         self._data.clear()
         self._fit.clear()
-        self._label.setText("σ = --    中心 = --")
+        for value in self._fit_values.values():
+            value.setText(_FIT_PLACEHOLDER)
+        self._note.clear()
 
 
 class ProfileWidget(QWidget):

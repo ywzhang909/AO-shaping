@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QIcon, QImage
+from PySide6.QtGui import QFontDatabase, QIcon, QImage
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -51,6 +52,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -97,6 +99,29 @@ SOURCE_KINDS: tuple[tuple[str, str], ...] = (
 
 #: 打开源之前的曝光控件占位值 (打开后按设备真实量程刷新, 关闭后恢复)
 DEFAULT_EXPOSURE_MS = 20.0
+
+#: 次要说明统一灰度 (与左栏既有提示色一致): 说明文字不抢读数的注意力
+MUTED_STYLE = "color: #808088;"
+
+#: 读数尚未产生时的占位符 —— 只占一个字符, 不再写 "分辨率: --" 这样的整行流水账
+INFO_PLACEHOLDER = "—"
+
+#: 左栏 "信息" 组的读数行: (键, 行首说明)。说明列由网格的左列承载, 数值列对齐。
+INFO_ROWS: tuple[tuple[str, str], ...] = (
+    ("resolution", "分辨率"),
+    ("exposure", "曝光"),
+    ("fps", "源帧率"),
+    ("dropped", "丢弃帧"),
+)
+
+#: "分析口径" 说明: 常驻四行文字会挤掉读数, 改挂在 ⓘ 图标的 tooltip /
+#: accessibleDescription 上 (物理口径与页面边界仍需可查, 见
+#: tests/ao_shaping/gui/ccd/test_beam_quality.py 中对应断言)。
+SCOPE_HINT_TEXT = (
+    "分析口径: 半高阈值包围椭圆 (二阶矩); >1080p 先 2x2 binning\n"
+    "饱和占比按灰度 >=255 统计, 不代表相机物理满量程\n"
+    "物理预测与任意形状整形: 迁移学习闭环整形页"
+)
 
 ANALYSIS_MAX_WIDTH = 1920
 ANALYSIS_MAX_HEIGHT = 1080
@@ -216,11 +241,14 @@ class BeamQualityApp(QMainWindow):
 
         self.setCentralWidget(central)
 
-        self._stats_label = QLabel("就绪")
+        self._stats_label = QLabel("已处理 0 帧 · UI — fps")
+        self._stats_label.setToolTip("画面流是否正常就看这两个数: 帧数在涨才是真在出帧")
         self.statusBar().addPermanentWidget(self._stats_label)
-        self.statusBar().showMessage("选择信号源后点击「打开」", 5000)
 
     def _build_controls(self) -> QWidget:
+        # 版面纪律: 组标题就是该组的字段名, 组内控件靠自身单位后缀 / 选项文字说明
+        # 自己 —— 不再加 "类型" / "方法" / "平均帧数" 这类与标题重复的行标签;
+        # 需要长期解释的内容 (为什么 / 代价是什么) 放 tooltip, 不占版面。
         panel = QWidget()
         panel.setFixedWidth(250)
         layout = QVBoxLayout(panel)
@@ -232,10 +260,17 @@ class BeamQualityApp(QMainWindow):
         self._source_combo = QComboBox()
         for label, _key in SOURCE_KINDS:
             self._source_combo.addItem(label)
+        self._source_combo.setToolTip(
+            "信号源: 真实相机, 或不需要硬件的离线仿真源 (下拉项本身即类型说明)"
+        )
+        self._source_combo.setAccessibleName("信号源类型")
         self._cam_id_spin = QSpinBox()
         self._cam_id_spin.setRange(0, 15)
         self._cam_id_spin.setValue(0)
-        form.addRow("类型", self._source_combo)
+        self._cam_id_spin.setToolTip(
+            "同型号多台相机时的设备序号: 驱动按下标取 dev_info_list"
+        )
+        form.addRow(self._source_combo)
         form.addRow("cam_id", self._cam_id_spin)
         layout.addWidget(source_box)
 
@@ -248,46 +283,71 @@ class BeamQualityApp(QMainWindow):
         layout.addLayout(row)
 
         exposure_box = QGroupBox("曝光")
-        exposure_form = QFormLayout(exposure_box)
+        exposure_layout = QVBoxLayout(exposure_box)
+        exposure_layout.setSpacing(6)
+        exposure_row = QHBoxLayout()
+        exposure_row.setSpacing(4)
         self._exposure_spin = QDoubleSpinBox()
         self._exposure_spin.setRange(*FALLBACK_EXPOSURE_RANGE_MS)
         self._exposure_spin.setDecimals(3)
         self._exposure_spin.setSingleStep(1.0)
         self._exposure_spin.setValue(DEFAULT_EXPOSURE_MS)
         self._exposure_spin.setSuffix(" ms")
-        self._apply_btn = QPushButton("应用曝光")
+        exposure_row.addWidget(self._exposure_spin, 1)
+        # "应用" 只作用于左边这个数: 对勾图标放进同一行, 不再单占一行文字按钮
+        self._apply_btn = QPushButton()
+        self._apply_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+        )
+        self._apply_btn.setToolTip(
+            "把左侧曝光值写给当前源 (MiiCam 要重启拉流, 约 10 s)"
+        )
+        self._apply_btn.setAccessibleName("应用曝光")
+        self._apply_btn.setFixedSize(30, 30)
+        exposure_row.addWidget(self._apply_btn, 0)
+        exposure_layout.addLayout(exposure_row)
+
+        auto_row = QHBoxLayout()
+        auto_row.setSpacing(4)
         self._auto_check = QCheckBox("自动曝光")
-        self._auto_check.setToolTip("闭环调整曝光时间, 使下面选中的统计量逼近目标灰度")
+        self._auto_check.setToolTip(
+            "闭环调整曝光时间, 使右侧选中的统计量逼近目标灰度"
+        )
+        auto_row.addWidget(self._auto_check, 0)
         self._auto_stat_combo = QComboBox()
         for label, _key in AUTO_STATISTICS:
             self._auto_stat_combo.addItem(label)
+        auto_row.addWidget(self._auto_stat_combo, 1)
+        exposure_layout.addLayout(auto_row)
+
+        target_form = QFormLayout()
+        target_form.setContentsMargins(0, 0, 0, 0)
         self._auto_target_spin = QDoubleSpinBox()
         self._auto_target_spin.setRange(1.0, 255.0)
         self._auto_target_spin.setDecimals(1)
         self._auto_target_spin.setSingleStep(5.0)
         self._auto_target_spin.setValue(DEFAULT_TARGETS[AUTO_STATISTIC_KEYS[0]])
-        exposure_form.addRow("曝光", self._exposure_spin)
-        exposure_form.addRow(self._apply_btn)
-        exposure_form.addRow(self._auto_check, self._auto_stat_combo)
-        exposure_form.addRow("目标灰度", self._auto_target_spin)
+        self._auto_target_spin.setToolTip("自动曝光闭环的目标值 (8-bit 灰度 0-255)")
+        target_form.addRow("目标灰度", self._auto_target_spin)
+        exposure_layout.addLayout(target_form)
         layout.addWidget(exposure_box)
 
         average_box = QGroupBox("多帧平均")
-        average_form = QFormLayout(average_box)
+        average_layout = QVBoxLayout(average_box)
         self._avg_spin = QSpinBox()
         self._avg_spin.setRange(1, 10)
         self._avg_spin.setValue(1)
         self._avg_spin.setSuffix(" 帧")
-        self._avg_spin.setToolTip("特征计算前先对最近 N 帧求平均 (1 = 单帧)")
-        average_form.addRow("平均帧数", self._avg_spin)
-        average_hint = QLabel("1 帧 = 不平均; 帧数越多噪声越低, UI 帧率随之下降")
-        average_hint.setWordWrap(True)
-        average_hint.setStyleSheet("color: #808088;")
-        average_form.addRow(average_hint)
+        # 原先常驻的两行代价说明并入 tooltip: 它只在调这个数时需要, 不是读数
+        self._avg_spin.setToolTip(
+            "特征计算前先对最近 N 帧求平均: 1 = 不平均; "
+            "帧数越多噪声越低, UI 帧率随之下降"
+        )
+        average_layout.addWidget(self._avg_spin)
         layout.addWidget(average_box)
 
         calc_box = QGroupBox("中心计算")
-        calc_form = QFormLayout(calc_box)
+        calc_layout = QVBoxLayout(calc_box)
         self._center_method_combo = QComboBox()
         for key, label in CENTER_METHODS:
             self._center_method_combo.addItem(label, userData=key)
@@ -304,30 +364,62 @@ class BeamQualityApp(QMainWindow):
         self._center_method_combo.currentIndexChanged.connect(
             self._on_center_method_changed
         )
-        calc_form.addRow("方法", self._center_method_combo)
+        calc_layout.addWidget(self._center_method_combo)
         layout.addWidget(calc_box)
 
-        self._snapshot_btn = QPushButton("保存快照 PNG")
-        layout.addWidget(self._snapshot_btn)
+        # 快照与 "分析口径" 共用一行: 口径与环境说明不常读, 收进 ⓘ 的 tooltip。
+        hint_row = QHBoxLayout()
+        hint_row.setSpacing(4)
+        self._snapshot_btn = QPushButton("快照")
+        self._snapshot_btn.setToolTip("把最近一帧原始画面存成 PNG (不含叠加层)")
+        self._snapshot_btn.setAccessibleName("保存快照 PNG")
+        hint_row.addWidget(self._snapshot_btn, 1)
+        self._scope_hint = QToolButton()
+        self._scope_hint.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+        )
+        self._scope_hint.setAutoRaise(True)
+        self._scope_hint.setToolTip(SCOPE_HINT_TEXT)
+        self._scope_hint.setToolTipDuration(15000)
+        self._scope_hint.setAccessibleName("分析口径")
+        self._scope_hint.setAccessibleDescription(SCOPE_HINT_TEXT)
+        hint_row.addWidget(self._scope_hint, 0)
+        layout.addLayout(hint_row)
 
         info_box = QGroupBox("信息")
         info_layout = QVBoxLayout(info_box)
-        self._info_label = QLabel("分辨率: --\n曝光: --\n源帧率: --\n丢弃帧: --")
+        info_layout.setSpacing(4)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(2)
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        #: 读数数值列 (键 -> QLabel); 说明列是静态文字, 由网格左列承载对齐
+        self._info_values: dict[str, QLabel] = {}
+        for info_row, (key, caption) in enumerate(INFO_ROWS):
+            cap = QLabel(caption)
+            cap.setStyleSheet(MUTED_STYLE)
+            cap.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            value = QLabel(INFO_PLACEHOLDER)
+            value.setFont(mono)
+            value.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            grid.addWidget(cap, info_row, 0)
+            grid.addWidget(value, info_row, 1)
+            self._info_values[key] = value
+        grid.setColumnStretch(1, 1)
+        info_layout.addLayout(grid)
+        # 补充说明行 (多帧平均进度 / 自动曝光闭环说明): 没有内容时整行收起,
+        # 不再像原先那样用 "--" 占位撑着。
+        self._info_label = QLabel("")
         self._info_label.setWordWrap(True)
-        self._info_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self._info_label.setStyleSheet(MUTED_STYLE)
+        self._info_label.setVisible(False)
         info_layout.addWidget(self._info_label)
         layout.addWidget(info_box)
-
-        self._scope_hint = QLabel(
-            "分析口径: 半高阈值包围椭圆 (二阶矩); >1080p 先 2x2 binning\n"
-            "饱和占比按灰度 >=255 统计, 不代表相机物理满量程\n"
-            "物理预测与任意形状整形: 迁移学习闭环整形页"
-        )
-        self._scope_hint.setWordWrap(True)
-        self._scope_hint.setStyleSheet("color: #808088;")
-        layout.addWidget(self._scope_hint)
         layout.addStretch(1)
 
         self._open_btn.clicked.connect(self.open_source)
@@ -342,8 +434,8 @@ class BeamQualityApp(QMainWindow):
     def _build_controls_scroll(self) -> QScrollArea:
         """把控制面板装进竖向滚动区 (左栏)。
 
-        # policy: 左栏控制项只增不减 (自动曝光 / 多帧平均 / 信息行), 窗口不够高时
-        面板必须能滚动, 否则最下面的 信息 组和口径提示会被窗口底边直接裁掉。
+        # policy: 左栏控制项只增不减 (自动曝光 / 多帧平均 / 信息读数), 窗口不够高时
+        面板必须能滚动, 否则最下面的 信息 组会被窗口底边直接裁掉。
         滚动区宽度 = 面板宽度 + 竖向滚动条宽度: 滚动条出现时内容不被横向挤窄;
         横向滚动条关闭, 无边框且背景透明, 外观与直接把面板放进布局时一致。
         """
@@ -481,7 +573,7 @@ class BeamQualityApp(QMainWindow):
         self._averager.reset()
         self._video.clear()
         self._profile.clear()
-        self._info_label.setText("分辨率: --\n曝光: --\n源帧率: --\n丢弃帧: --")
+        self._reset_info()
         self._set_controls_enabled(True)
         # 源已摘掉, 曝光控件退回打开前的占位量程与默认值
         self._reset_exposure_range()
@@ -704,28 +796,38 @@ class BeamQualityApp(QMainWindow):
         self._trend.update_buffer()
         self._trend.refresh()
 
+    def _reset_info(self) -> None:
+        """读数退回占位符并收起补充说明 (源未打开 / 已关闭时)。"""
+        for label in self._info_values.values():
+            label.setText(INFO_PLACEHOLDER)
+        self._info_label.clear()
+        self._info_label.setVisible(False)
+
     def _update_stats(self, img: np.ndarray) -> None:
         source = self._source
         height, width = int(img.shape[0]), int(img.shape[1])
         exposure = source.exposure_ms if source is not None else float("nan")
         source_fps = source.fps if source is not None else 0.0
         dropped = getattr(source, "dropped_frames", None)
-        lines = [
-            f"分辨率: {width} x {height}",
-            f"曝光: {exposure:.3f} ms",
-            f"源帧率: {source_fps:.1f} fps",
-            f"UI 处理: {self._ui_fps:.1f} fps",
-            f"丢弃帧: {'--' if dropped is None else dropped}",
-        ]
+        # 数值进网格的右列 (说明在左列的静态标签里); 处理量 (已处理 N 帧 / UI fps)
+        # 只在状态栏出现一次, 不在这里重复。
+        self._info_values["resolution"].setText(f"{width} x {height}")
+        self._info_values["exposure"].setText(f"{exposure:.3f} ms")
+        self._info_values["fps"].setText(f"{source_fps:.1f} fps")
+        self._info_values["dropped"].setText(
+            INFO_PLACEHOLDER if dropped is None else str(dropped)
+        )
+        notes: list[str] = []
         if self._averager.size > 1:
-            lines.append(
-                f"多帧平均: {self._averager.size} 帧 (已攒 {self._averager.filled})"
+            notes.append(
+                f"多帧平均 {self._averager.size} 帧 (已攒 {self._averager.filled})"
             )
         if self._auto_exposure:
-            lines.append(self._auto_hint or "自动曝光: 等待画面…")
-        self._info_label.setText("\n".join(lines))
+            notes.append(self._auto_hint or "自动曝光: 等待画面…")
+        self._info_label.setText(" · ".join(notes))
+        self._info_label.setVisible(bool(notes))
         self._stats_label.setText(
-            f"已处理 {self._processed} 帧 | UI {self._ui_fps:.1f} fps"
+            f"已处理 {self._processed} 帧 · UI {self._ui_fps:.1f} fps"
         )
 
     # ------------------------------------------------------------------ 退出

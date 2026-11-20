@@ -365,14 +365,25 @@ def qt_app():
 
 
 def test_app_scope_hint_is_read_only_and_distinguishes_model_page(qt_app) -> None:
-    """诊断页说明阈值和页面边界, 冷启动不打开任何信号源。"""
+    """诊断页说明阈值和页面边界, 冷启动不打开任何信号源。
+
+    2026-11-20 版面整理: 这段口径不再常驻四行文字 (会挤掉读数), 改由左栏底部的
+    ⓘ 图标承载 —— 事实一条不少, 只是搬到 tooltip / 无障碍描述上。因此断言改到
+    新的承载处: 三句话仍然必须写在那里, 图标必须是"只有图标、没有常驻文字"。
+    """
     from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
 
     window = BeamQualityApp()
-    text = window._scope_hint.text()
-    assert "饱和占比按灰度 >=255 统计" in text
-    assert "不代表相机物理满量程" in text
-    assert "迁移学习闭环整形页" in text
+    tooltip = window._scope_hint.toolTip()
+    description = window._scope_hint.accessibleDescription()
+    for text in (tooltip, description):
+        assert "饱和占比按灰度 >=255 统计" in text
+        assert "不代表相机物理满量程" in text
+        assert "迁移学习闭环整形页" in text
+    # 只有图标: 常驻文字为空 (说明按需悬停查看), 但图标存在且可被读屏软件识别
+    assert window._scope_hint.text() == ""
+    assert not window._scope_hint.icon().isNull()
+    assert window._scope_hint.accessibleName()
     assert window._source is None
     window.close()
 
@@ -399,6 +410,18 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
         time.sleep(0.01)
     assert window._processed > 0, "3 秒内界面没有处理任何一帧"
     assert window._last_metrics is not None
+
+    # 读数每 ~1 s 刷新一次 (_update_stats); 等到第一次刷新再断言
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and window._ui_fps == 0.0:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    # 读数写进 "信息" 网格的数值列 (不再是 "分辨率: --" 整段文字);
+    # 1 帧平均且未开自动曝光 → 补充说明行收起。
+    assert window._info_values["resolution"].text() != "—"
+    assert window._info_label.isHidden()
+    stats = window._stats_label.text()
+    assert "已处理" in stats and "UI" in stats and "fps" in stats
 
     # 趋势缓冲在同一段时间里也应收到样本 (10 Hz 节流)
     assert len(window._buffer) > 0

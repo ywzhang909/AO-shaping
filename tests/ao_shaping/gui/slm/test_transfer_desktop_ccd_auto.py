@@ -274,3 +274,43 @@ def test_page_without_auto_detect_never_enumerates(app, monkeypatch) -> None:
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_close_waits_for_inflight_detection_and_drops_late_result(
+    app, monkeypatch
+) -> None:
+    """关窗必须等在飞探测落地, 迟到结论不再写控件。
+
+    探测任务在池线程里首次 import 驱动 (原生 SDK); 池是页的子对象, 线程还在跑时
+    页面先被回收 → 本机 CPython 3.13 上的进程级 access violation (dump 停在
+    Garbage-collecting)。所以 ``closeEvent`` 有界等待线程池, 关窗后的结论丢弃。
+    """
+    release = threading.Event()
+    finished = threading.Event()
+    choice = hc.CcdChoice(
+        kind="miicam",
+        cam_id=0,
+        source="switched",
+        daheng_count=0,
+        miicam_count=1,
+        detail="自动探测：已改用 miicam cam_id=0",
+    )
+
+    def _slow(preferred: str, cam_id: int) -> object:
+        release.wait(10.0)
+        finished.set()
+        return choice
+
+    monkeypatch.setattr(hc, "select_ccd", _slow)
+
+    widget = _make_page(app, monkeypatch)
+    assert widget._ccd_task is not None  # 探测确实在飞
+
+    release.set()  # 让工作线程能收尾; 关窗仍必须自己等它
+    widget.close()
+    assert finished.is_set(), "closeEvent 没有等在飞的探测任务落地"
+
+    # 迟到结论: 事件队列里排着 done 信号, 送货时页面已在关闭状态, 不得写控件。
+    app.processEvents()
+    assert widget._probe_text == ""
+    assert widget.ccd_probe_summary() == ""

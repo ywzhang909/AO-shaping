@@ -69,3 +69,15 @@
 - **#235**：三个剩余子项均**零/极低判别力**——`shift_phase` 在归档中与理想无平移编码字节一致（mismatch=0）、`apply_shift` 在 shift 不变时不重写相位、`FrozenDefocusForward` 无该输入；独立 pupil（瞳面）-center 反演分辨率仅 Δx ±20 px / Δy ±30–40 px；物理 LUT 只有 `data/debug/lut_checker_modulation_20261118b/summary.json`（24 cells 棋盘格调制比，全库无消费脚本），且 Q1/Q2 的「实测点状 vs 模型满幅平顶」形态差不可能由逐像元振幅加权产生。**无离线项能改变 OPEN 判定。**
 - **#247**：5 次重复逐帧角度 SD **0.088°**（稳定测量值），标签交换被 `AxisRotationError` 拒绝；但全局翻号给出 **−91.457°** ⇒ 估计量属 **180° 对称族**，符号分支只由 `image_alignment.convention` 钉住。`slm_geometry_calib.npz` 缺 panel/CCD pitch 与焦距放大率。`zero_order_overlay.py` 为死代码，`FrozenDefocusForward` 无零级项，唯一可微零级只在 sim2f 代理且未接入物理预测。梯度单测因缺 checkpoint 被 skip、batch/vmap 一致性无测试。**88.544° 可复现但不可冻结。**
 - 详细记录已写入 `open_issue_offline_followup_20261119.md` 的「2026-11-20 纯离线可执行性复核」、`next_hw_plan_transfer_candidates_issue247_20261117.md` 的任务 B 追加节、`issue_validity_verdict_20261119.md` §7.1。
+
+## 11. 进程级 access violation（GUI 车道，2026-11-20）
+
+- **现象**：间歇性进程级 `access violation`，Python 栈停在 `transfer_desktop/check_task.py` 的 `CcdDetectTask` → `hardware_check` 顶层 `import ao_shaping.drivers`（`drivers.adc` → `nidaqmx`、`drivers.ccd` → `gxipy`），dump 落在 `Garbage-collecting`。同类崩溃在 `docs/dev/todo_archive.md`（tqdm monitor 线程）已有记录：**CPython 3.13.2 的 GC 与后台原生线程**，不是逻辑错误。
+- **爆点路径**：`beam_quality/shell.py` 的 `_transfer()` 用默认 `TransferPage()`（`auto_detect_ccd=True`）→ `_start_ccd_detection()` → `CcdDetectTask` 在页的 `QThreadPool` 线程里首次 import 驱动。窗口/页面先被回收、线程还在 import，就是原生崩溃而不是异常。
+- **处置**（只离线，未碰 SLM/CCD/激光）：
+  1. 外壳里改 `TransferPage(auto_detect_ccd=False)`：光束质量页在同一窗口，`_seed_camera_from_beam_quality` 已给出初值，重复枚举只是重复付原生 import 代价。独立 `transfer_desktop` 应用保留自动探测。
+  2. `page.py`：新增 `_closing`（关窗后迟到探测结论丢弃），`closeEvent` 里 `_pool.clear()` + 有界 `waitForDone`（`_CLOSE_GRACE_S`），保证池线程落地后才让页被回收。
+  3. `shell.py`：`_WarmTask` 改为 `setAutoDelete(False)` + `self._warm_task` 强引用（结论回来再放手），`closeEvent` 有界等待 `_warm_pool`（`_WARM_CLOSE_GRACE_MS = 15 s`）。
+- **回归**：`test_beam_quality_shell.py::test_transfer_page_opens_without_hardware_probe`（外壳一次都不启动探测）；`test_transfer_desktop_ccd_auto.py::test_close_waits_for_inflight_detection_and_drops_late_result`（关窗等在飞任务落地、迟到结论不写控件）。
+- **验证**：5 文件聚焦 `80 passed`；shell+ccd_auto 6 轮压力 27 passed/轮，exit 0，无 access violation；`ruff` 四文件 `All checks passed!`；四文件无 BOM、CRLF 一致。
+- **未解决的环境层**：CPython 3.13.2 上"GC × 后台原生线程"仍可能在别处偶发（整库全量单进程跑约 32% 崩）。本车道做的是**不再无谓制造该路径**，不是修 CPython。
