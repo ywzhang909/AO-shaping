@@ -95,7 +95,7 @@
 
 结论：**88.544° 作为受控脚本口径下的可复现测量值成立，但不是已锚定的物理映射**；不冻结、不写 `ramp_matrix`、不据此开展硬件零级校正。
 
-#### 几何采集脚本（2026-11-20，离线新增，未上机）
+#### 几何采集脚本（2026-11-20，离线新增，未实验）
 
 新增 `scripts/slm/issue247_geometry_capture_20261120.py`（plan-only 默认；`--self-test` 无设备自检；`--execute` 才开设备）+ `tests/ao_shaping/scripts/test_issue247_geometry_capture_20261120.py`。目的：一次采集同时给出（a）已知面板周期 → panel↔CCD 每轴比例，（b）非中心对称靶打破 180° 分支，（c）同场复核 tilt 符号/手性，（d）datasheet 常数与实测值分离。
 
