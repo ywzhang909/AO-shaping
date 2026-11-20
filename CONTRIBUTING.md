@@ -28,6 +28,12 @@ pytest                       # 默认子集；硬件 / ml / 部分 GUI 测试已
 
 - 术语统一：中文叙述必须遵守 `docs/terminology_glossary.md`，提交前运行
   `python3 scripts/_common/term_unify_20261016.py`（dry-run，输出 `0 个文件`）。
+- **push 前自检（#251 P2-A）**：`python scripts/push_preflight.py` —— ruff +
+  术语 + 模块体积棘轮 + 四个静态守卫（repo-root bootstrap / R-25 helper 复发 /
+  dry-run 自包含 / golden 容差），约 60 s。ci169 教训：这四类通道守卫都在，
+  但只在 push 后的完整分片才跑到，每个错误付一整段 CI 红窗口。CI 环境对
+  `data/`、`libs/gxipy`、绝对路径的保证集见
+  [`docs/ci-environment-contract.md`](docs/ci-environment-contract.md)。
 - **census 重钉与特性同 commit（#251 P0-A）**：新增 `Santec(`/`create_camera(`
   构造点或新探针模块的 commit，必须同 commit 内含对应守卫重钉
   （`test_cli_argv_binding` 的 census 字典、`test_probe_flags` 的

@@ -5810,6 +5810,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 约定入册: CONTRIBUTING「本地质量门禁」新增 "**census 重钉与特性同 commit (#251 P0-A)**" —— 黄灯是留痕不是豁免, 下一次触碰该守卫的 commit 必须转绿
 - 载体: issue205 **444 passed**; conventions **73 passed / 1 skipped**; cli_argv+probe_flags **157 passed**; ruff 全仓绿; term 0; modsize `--check` 0
 
+**2026-11-20 · a0adabc5 之后 · 第 172 批: #251 P1-A + P1-B + P2-A —— dry-run 自包含守卫 + golden 容差守卫 + push 前自检**
+- P1-A 守卫: 新增 `tests/ao_shaping/scripts/test_dry_run_self_contained.py` —— 扫 `scripts/**/*.py` 中带 `--dry-run` 的脚本, dry-run 可达函数内对 `data/`/`libs/gxipy` 的读取调用 (open/read_text/np.load/json.load…) 同函数内必须有守卫式回退 (`is_file`/`exists`/`synthetic*`), 否则违规; 豁免清单 `_EXEMPT` 只减不增, 首跑即 0 违规 (第 170 批两处合成回退使被修脚本天然合规); 负样本自测 (裸读打红 / is_file+synthetic 放行)
+- P1-A 契约文档: 新增 `docs/ci-environment-contract.md` —— CI 容器「保证存在 / 保证不存在」两个集合逐条列出 (data/ 全量语料、gxipy、机器绝对路径、clean-process、GPU/设备均不保证), 每条给正确写法先例; README 文档索引 + docs/INDEX.md 挂链
+- P1-B 守卫: 新增 `tests/ao_shaping/test_golden_tolerance_policy.py` —— ≥9 元素且 ≥60% 浮点字面量的 list/tuple (golden 序), 或 `round()` 推导式, 出现在 `==`/`!=` 一侧时必须整体套容差比较器 (approx/allclose/isclose); 三条实测校准的规则边界: (1) golden 名只在 Call 参数外的**直接操作数位**才算断言目标 (`round_to_int(SAMPLE)==ints` 是输入表不误伤), (2) round 推导式单独不是漂移通道, 与 golden 字面量/名**组合**才判 (beam_quality 短确定性表误伤实测后收紧), (3) 纯整数/字符串表不受管; 全树首跑 2 处报警: `test_beam_quality:281` 暴露规则 (2) 过宽 (修守卫), `test_auto_camera_finders:128` 是配置梯原样透传 (入 `TOLERANCE_EXEMPT` 带理由); 负样本 + 短表 + 输入表三向自测
+- P2-A 自检: 新增 `scripts/push_preflight.py` —— ruff + 术语 + modsize + 四静态守卫约 60 s (容器实测 35 s, 436 passed); pytest 段带 `-o addopts=` (容器无 pytest-timeout, pyproject addopts 透传必炸 --timeout 未识别); CONTRIBUTING「本地质量门禁」入册「push 前自检 (#251 P2-A)」并链环境契约
+- 载体: 四守卫文件+preflight 容器内全绿; ruff 全仓绿; term 0; modsize `--check` 0
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
