@@ -5803,6 +5803,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 探针普查重钉 (上游新增两探针的合法 re-baseline): Santec 构造点 36→37 (`transfer/open_loop.py`, ccd_mode=none 开环上屏无相机 —— 物理验证侧新模块), camera 39→40 (`ccd/capture_darks.py` 暗帧采集无 SLM); `PROBE_MODULES` 登记 capture_darks (带 `--no-hw` ✓), golden 经 `AO_PROBE_HELP_UPDATE=1` 重生成, `--cam-type` 12→13 / declared 360→367 / visible 378→386 / PROBES 24→25
 - 载体: root-guards **620 passed / 2 skipped**; scripts **3737 passed** (剩 2 项 = 容器缺 PySide6 既有); tools **1718 passed**; drivers **1406 passed** (daheng discovery 11+1 skip 复验); algorithm 定向 **54 passed**; ruff 全仓绿; term 0; modsize `--check` 0
 
+**2026-11-20 · c8819d6e 之后 · 第 171 批: #251 P0-A + P0-B —— census 黄灯态元守卫 + 守卫表自洽 (#250 5.2 同批)**
+- P0-A 元守卫: 新增 `tests/ao_shaping/census_repin.py` (`yellow_or_red(drift_paths, detail)`) —— census/probe 漂移文件按**路径后缀**在 TODO 台账留痕 → xfail 黄 (不挂 blocking 分片但留痕), 未登记 → 照常红并点名; 裸模块名按 `<name>.py` 匹配 (stem 泛名如 `santec` 在台账里是别的模块路径的子串, 直接匹配会误判已登记)
+- P0-A 接线: `test_cli_argv_binding` census 钉死字典提为 `_PINNED_SANTEC`/`_PINNED_CAMERA` 常量, 四段 assert 收敛为 drift 集合 + 单一 `yellow_or_red` 出口; `test_the_probe_list_matches_the_package` 拆两向 —— declared 缺文件=红 (真删除), 磁盘新增=黄 (登记待重钉); 负样本实测 (临时 `Santec(` 构造点: 未登记红点名 / 加台账行黄 xfail / 删文件回绿; 摘 capture_darks 登记行 → 黄)
+- P0-B (#250 5.2 同文件同批): `test_issue205_function_shape.py` 的 TARGETS 表改经 `_build_targets()` 工厂 + `try/except NameError` 捕获 → `_TABLE_BUILD_ERROR`, 缺常量时 collection 只炸一次且消息点名 (不再 42 条逐个爆); 三条自洽元守卫: 正向缺常量 / 反向僵尸常量 (定义无行) / 负样本自测; **反向守卫首跑即抓到 `_RUNNER_COMMON` 僵尸** (#168 把 4 行改指 `_MODEL_IN_LOOP_IO` 时常量未删 —— 正是该缺陷要拦的分叉)
+- 约定入册: CONTRIBUTING「本地质量门禁」新增 "**census 重钉与特性同 commit (#251 P0-A)**" —— 黄灯是留痕不是豁免, 下一次触碰该守卫的 commit 必须转绿
+- 载体: issue205 **444 passed**; conventions **73 passed / 1 skipped**; cli_argv+probe_flags **157 passed**; ruff 全仓绿; term 0; modsize `--check` 0
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

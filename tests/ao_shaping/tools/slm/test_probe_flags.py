@@ -59,6 +59,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.ao_shaping.census_repin import yellow_or_red
+
 REPO = Path(__file__).resolve().parents[4]
 TOOLS_ROOT = REPO / "src" / "ao_shaping" / "tools"
 GOLDEN = Path(__file__).with_name("probe_help_golden.json")
@@ -256,10 +258,16 @@ def test_the_probe_list_matches_the_package() -> None:
         and "__main__" in p.read_text(encoding="utf-8-sig", errors="replace")
     }
     declared = {mod.rsplit(".", 1)[-1] for mod in PROBE_MODULES.values()}
-    assert declared == on_disk, (
-        f"only in PROBE_MODULES: {sorted(declared - on_disk)}; "
-        f"only on disk: {sorted(on_disk - declared)}"
-    )
+    if declared != on_disk:
+        # #251 P0-A: a probe that exists on disk AND in the TODO ledger is a
+        # registration still pending (merge split across commits) -> yellow;
+        # a declared probe whose file is gone is a real deletion -> red.
+        if declared - on_disk:
+            pytest.fail(f"PROBE_MODULES declares files that no longer exist: {sorted(declared - on_disk)}")
+        yellow_or_red(
+            set(on_disk - declared),
+            f"only on disk: {sorted(on_disk - declared)}",
+        )
 
 
 @pytest.mark.parametrize("probe", PROBES)
