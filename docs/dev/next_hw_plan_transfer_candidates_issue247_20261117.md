@@ -95,6 +95,17 @@
 
 结论：**88.544° 作为受控脚本口径下的可复现测量值成立，但不是已锚定的物理映射**；不冻结、不写 `ramp_matrix`、不据此开展硬件零级校正。
 
+#### 几何采集脚本（2026-11-20，离线新增，未上机）
+
+新增 `scripts/slm/issue247_geometry_capture_20261120.py`（plan-only 默认；`--self-test` 无设备自检；`--execute` 才开设备）+ `tests/ao_shaping/scripts/test_issue247_geometry_capture_20261120.py`。目的：一次采集同时给出（a）已知面板周期 → panel↔CCD 每轴比例，（b）非中心对称靶打破 180° 分支，（c）同场复核 tilt 符号/手性，（d）datasheet 常数与实测值分离。
+
+- **图样表（11 图样 / 44 帧，schema `issue247-geometry-capture/v2`）**：`flat`(4)；`grating_{x,y}_p128`、`grating_{x,y}_p256` 各 4（0/π 二值、50% 占空比、灰阶 `{0,512}`，双周期互检斜率/一致性）；`ladder_x`/`ladder_y` 各 4（两个 600×600 blaze patch，`2π/96` → +1 级、`2π/32` → +3 级，远场 spot 集 `[0,+1,+3]` 单侧、非镜像/非 180° 不变）；`tilt_{x,y}_{plus,minus}` 各 4（真实棱镜斜坡 `2π/period_px`、居中零活塞、逐点反对称）。
+- **tilt 幅度**：旧版 `TILT_AMPLITUDE_RAD=0.5` 全跨仅 1.0 rad（≈ period 12063.7 px），远场位移比可测小约 190 倍，已在 `raw_tilt_feasible` 中记为 `rejected_weak_design`。新版默认 `--tilt-period-px 128.0`（与 11-17 脚本一致）；短轴（1200 行）为保 ≥10 条纹钳到 120 px，plan 同时记 `requested_period_px` 与 `period_px`。
+- **可行性算术（悲观三元组 pitch 20 µm / focal 100 mm / CCD 3.45 µm / λ=1064 nm）**：x 轴 period 128 → 跨度 94.199 rad、15 条纹、12.05 CCD px；y 轴 period 120 → 跨度 62.779 rad、10 条纹、12.85 CCD px；`--self-test` 要求悲观位移 ≥5 px 且条纹 ≥10。
+- **仍缺物理常数**（plan `missing` 明列，未猜测）：`declared.camera_pixel_size_um`、`declared.slm_pixel_pitch_um`、`declared.focal_magnification`；`declared.tilt_expected_ccd_px` / `declared.ladder_expected_ccd_px` 仅以符号公式记录。`--execute` 时从驱动读取 pitch/pixel size，读不到即写 `null` + `missing`，不改 `data/slm_geometry_calib.npz`。
+- **验证（离线）**：`test_issue247_geometry_capture_20261120.py` 16 passed；`test_script_imports_resolve` + `test_script_file_form_imports` 915 passed；`py_compile`/`ruff`/`--self-test`/`--help` 全 0；plan-only 不建目录；无 BOM。
+- **硬件前置**：需单独明确授权；唯一新 `--out`、`mkdir(exist_ok=False)`、`DeviceLock` + `--wait-until-idle`、固定曝光 + 饱和保护（`SaturationAbort` 记录原因后正常释放）、写 `optical_path_record.json`(`ao-optical-path-record/v1`)/`released.json`、`finally` 中 `set_grayscale(0)→cam.close→slm.close→lock.release`。summary 仅描述性统计，不做旋转拟合/阈值判定。
+
 ## 代码准备状态（均已就绪，勿重复造）
 
 | 用途 | 文件 | 状态 |

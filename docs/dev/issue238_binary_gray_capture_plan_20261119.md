@@ -185,3 +185,15 @@
 **为什么没写永久报告（§6.6 门槛未满足）**：脚本显式 `stage="phase1_only"`、`algorithm_benefit_verdict=null`、`verdict_emitted=false`，`m0_m1.implemented=false`。M0/M1 嵌套模型（共享轮廓 + period 相关低维项 + 帧级乘性漂移 + 加性静态项）**未实现**，因此不存在“按时间块验证集的稳定预测改善”这一放行证据；单看上面的描述量 Δ 不满足 §6.6 的“参数不贴边且方向一致”要求，更不构成机制证据。按 §6.6 的约定，此时结论记为**“当前 run4 无法区分机制”**，补数据需求同 §6.5（每周期至少两个独立时段、遮光暗场 + 参考功率监测），且任何采集须用户另行批准。
 
 **对 #238 判定的影响：无变化**。仍为“有效、收益未证明，仍不可定标”：不更新 `docs/slm/slm_lut.md` 工作值、不冻结物理 2π 灰度、不宣称串扰已定标。本轮唯一增量是——run4 全幅原始帧的清单/曝光/饱和一致性得到独立机器核验（960/960 ×2，零丢帧），以及固定 ROI 描述量有了可复现的基线数值。
+
+### 6.8 功率参考（ABBA）与回文周期序已落地（离线，2026-11-20）
+
+针对 §6.7 “period 与束功率漂移共线”这一判读边界，给既有采集链加了**可选**漂移解耦能力（默认关闭，历史 plan 逐字节不变）：
+
+- **采集脚本 `scripts/slm/issue238_gray_phase_probes.py`**：新增 `--power-reference {off,abba}`（默认 `off`）、`--power-reference-frames N`（默认 2）。`abba` 时每个 sweep block 前后各插 `N` 帧 `flat`(φ=0) 参考帧（`role=pre/post`、`block_index`、`ref_slot`、单调 UTC 时间戳、固定曝光、同 uint16+sha256）。**全程单一曝光**，出现第二个曝光立即中止并写 `power_reference_abort.json`（`abort` + 原因 + 观测曝光集）后正常释放。`summary.json` 仅在启用时增 `power_reference` 段：每块 pre/post 原始总计数、`drift_ratio_post_over_pre`、逐帧 `scale`、`descriptive_only: true`、`dark_subtracted: false`；**不在脚本内计算或声明新 g₂π**。
+- **估计器（纯函数，可 import）** `interpolate_power_scale(frame_times, ref_times, ref_totals)`：`r_j = ref_total_j / mean(所有 ref_total)`，帧时刻按括号参考线性插值，返回 1.0 = 全程平均功率；区间外**常数保持**最近一侧比值（不做线性外推，避免无括号处放大噪声）。
+- **窗口封装 `scripts/experiments/run_issue238_period_sweep_20261119.py`**：新增 `--period-order {as-given,palindrome}`（默认 `as-given`）、`--power-reference`、`--power-reference-frames`。`palindrome` 把周期展开为如 `32,48,64,64,48,32`（奇数长度中心周期单份），使 period 与漂移可分离；`validate()` 拒绝 <2 个不同周期的回文、`abba` 下 `--power-reference-frames < 1`；`off` 不转发两旗标，plan-only 无副作用。
+- **验证（离线）**：`test_issue238_power_reference_20261120.py` 14 passed；连带既有 `test_issue238_gray_phase_probes.py` 合计 30 passed；`py_compile`/`ruff`/两脚本 `--help` 全 0；`off` 计划把唯一 `timestamp_utc` 归一后与改前**文本逐字相等**；plan-only 不建目录；无 BOM。`graphify update .` 已跑。
+- **仍未做**：尚未按新口径采数；`power_reference` 只是描述性记录，正式漂移校正与 g₂π 重估须离线完成，且以“每周期≥2 独立时段 + 遮光暗场 + ABBA 参考”为前提。任何采集须用户另行明确批准。
+
+**对 #238 判定的影响：无变化**。仍 OPEN、不升默认、不冻结物理映射；本轮增量是“下一次采集已具备可分离 period/漂移的机制”，而非任何物理结论。

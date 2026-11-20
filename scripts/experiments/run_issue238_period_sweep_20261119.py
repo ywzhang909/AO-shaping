@@ -85,6 +85,27 @@ def purpose_for(period_px: int) -> str:
     )
 
 
+def ordered_periods(
+    periods_px: list[int], order: str = "as-given"
+) -> list[int]:
+    """展开窗口的周期拍摄顺序 (纯函数, 不建目录、不碰设备)。
+
+    * ``as-given``: 原样返回 (历史行为);
+    * ``palindrome``: 先按给定顺序、再反向重复一遍, 即 ``32,48,64`` 展开成
+      ``32,48,64,64,48,32``。这样每个周期在时间上各有前后两个邻段, 周期效应
+      与整段束功率漂移不再共线, 离线可按段块归一。中间周期会出现两次 (两段
+      同为该周期, 时间上仍严格对称)。
+
+    单周期输入无法构成回文, 由 :func:`validate` 拒绝。
+    """
+    base = [int(p) for p in periods_px]
+    if order == "as-given":
+        return base
+    if order != "palindrome":
+        raise ValueError(f"unknown period order {order!r}")
+    return base + base[::-1]
+
+
 def resolve_run_dir(raw: str | None) -> Path | None:
     """``--run-dir`` 解析: 相对路径按仓库根; 缺省返回 ``None`` (交给校验报错)。"""
     if not raw:
@@ -117,6 +138,15 @@ def validate(args: argparse.Namespace) -> list[str]:
         seen.add(period_px)
     if dupes:
         problems.append(f"--periods-px 重复 {dupes}: 同一周期只跑一次")
+    if getattr(args, "period_order", "as-given") == "palindrome":
+        if len(set(args.periods_px)) < 2:
+            problems.append(
+                "--period-order palindrome 至少需要 2 个不同周期 "
+                "(单周期展开后仍只有一个周期, 无法与漂移分离)"
+            )
+    if getattr(args, "power_reference", "off") == "abba":
+        if getattr(args, "power_reference_frames", 2) < 1:
+            problems.append("--power-reference-frames >= 1 (abba 每侧至少 1 帧)")
     return problems
 
 
@@ -124,7 +154,8 @@ def shared_flags(args: argparse.Namespace) -> list[str]:
     """透传给探针脚本的可选项 (只转发显式给出的)。
 
     ``--frames-per-level`` 总是转发 (本窗口默认 20, 与 run2 的口径一致);
-    ``--sweep-step`` 不转发: binary 模式忽略它。
+    ``--sweep-step`` 不转发: binary 模式忽略它。``--power-reference`` 只在
+    非 ``off`` 时转发, 缺省 argv 与历史窗口逐字一致。
     """
     flags: list[str] = ["--frames-per-level", str(args.frames_per_level)]
     for name, value in (
@@ -138,6 +169,15 @@ def shared_flags(args: argparse.Namespace) -> list[str]:
             flags += [name, str(value)]
     if args.exposure_bracket is not None:
         flags += ["--exposure-bracket", *(str(ms) for ms in args.exposure_bracket)]
+    power_reference = getattr(args, "power_reference", "off")
+    if power_reference != "off":
+        # 只在显式启用时转发: 缺省 argv 与历史窗口完全一致。
+        flags += ["--power-reference", str(power_reference)]
+        if power_reference == "abba":
+            flags += [
+                "--power-reference-frames",
+                str(args.power_reference_frames),
+            ]
     return flags
 
 
@@ -146,8 +186,16 @@ def build_segments(args: argparse.Namespace, run_dir: Path) -> list[Segment]:
     probe = ROOT / "scripts" / "slm" / "issue238_gray_phase_probes.py"
     flags = shared_flags(args)
     segments: list[Segment] = []
-    for period_px in args.periods_px:
-        name = f"period{period_px}"
+    occurrences: dict[int, int] = {}
+    ordered = ordered_periods(
+        args.periods_px, getattr(args, "period_order", "as-given")
+    )
+    for period_px in ordered:
+        occurrences[period_px] = occurrences.get(period_px, 0) + 1
+        repeat = occurrences[period_px]
+        # as-given 下 validate() 已拒绝重复周期, 名字仍是 period<P>;
+        # palindrome 第二遍才加 _r2 后缀, 避免同名同目录。
+        name = f"period{period_px}" if repeat == 1 else f"period{period_px}_r{repeat}"
         out = run_dir / name
         segments.append(
             Segment(
@@ -237,6 +285,30 @@ def main(argv: list[str] | None = None) -> int:
         metavar="MS",
         help="[透传] 曝光梯度 (ms), 原样转发 (子脚本要求 >=4 步且全为正)",
     )
+    parser.add_argument(
+        "--period-order",
+        choices=("as-given", "palindrome"),
+        default="as-given",
+        help=(
+            "周期拍摄顺序: as-given = 原样 (默认); palindrome = 先升后降, "
+            "如 32 48 64 -> 32 48 64 64 48 32, 使周期效应与整段漂移可分"
+        ),
+    )
+    parser.add_argument(
+        "--power-reference",
+        choices=("off", "abba"),
+        default="off",
+        help=(
+            "[透传] 束功率参考轨: off = 历史行为 (不转发); "
+            "abba = 每段前后各采一组平场参考 (固定曝光)"
+        ),
+    )
+    parser.add_argument(
+        "--power-reference-frames",
+        type=int,
+        default=2,
+        help="[透传] abba 每侧参考帧数 (默认 2)",
+    )
     add_window_args(parser)
     args = parser.parse_args(argv)
 
@@ -266,6 +338,16 @@ def main(argv: list[str] | None = None) -> int:
             "run_dir": str(run_dir),
             "lock_mode": LOCK_MODE_SEGMENT,
             "periods_px": list(args.periods_px),
+            "period_order": args.period_order,
+            "periods_px_ordered": ordered_periods(
+                args.periods_px, args.period_order
+            ),
+            "power_reference": args.power_reference,
+            "power_reference_frames": (
+                args.power_reference_frames
+                if args.power_reference == "abba"
+                else None
+            ),
             "frames_per_level": args.frames_per_level,
             "exposure_bracket": (
                 list(args.exposure_bracket)

@@ -50,6 +50,7 @@ import hashlib
 import json
 import sys
 import time
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,13 @@ CHECKER_FRAMES = 20
 #: Checkerboard gray levels.
 CHECKER_GRAYS = (480, 496, 992, 1023)
 CHECKER_CHECK_GRAY = 993
+#: Beam-power reference track: ``off`` keeps archived plans reproducible; ``abba``
+#: brackets every sweep block with a flat (phi=0) reference set before and after.
+POWER_REFERENCE_MODES = ("off", "abba")
+#: Plan-item ``kind`` used for reference frames (renders as flat gray 0).
+POWER_REFERENCE_KIND = "power_ref"
+#: Default frames per reference side (pre / post) when ``abba`` is enabled.
+DEFAULT_POWER_REFERENCE_FRAMES = 2
 #: Crosstalk grid sizes and center gray.
 CROSSTALK_GRIDS = (3, 5)
 CROSSTALK_CENTER_GRAY = 993
@@ -153,6 +161,88 @@ def binary_sweep_levels(
         levels.update(range(lo, hi + 1, dense_step))
     levels.add(MAX_GRAYSCALE)
     return tuple(sorted(levels))
+
+
+def abba_schedule(
+    block_sizes: Sequence[int], frames_per_side: int
+) -> list[dict[str, Any]]:
+    """Pure ABBA reference slot schedule for contiguous measurement blocks.
+
+    Each block is ``frames_per_side`` reference slots, then ``block_sizes[b]``
+    measurement slots, then ``frames_per_side`` reference slots again::
+
+        pre_0 .. pre_{k-1}, sweep_0 .. sweep_{n-1}, post_0 .. post_{k-1}
+
+    Blocks are concatenated in order, so a post reference always belongs to the
+    block it closes and two blocks never share a reference frame.  Returns one
+    dict per slot with ``block_index``, ``role`` (``pre`` / ``sweep`` / ``post``)
+    and ``ref_slot`` (index within the side, ``None`` for sweep slots).  No
+    device access and no I/O: the plan builder and the tests share this.
+    """
+    k = int(frames_per_side)
+    if k < 1:
+        raise ValueError("frames_per_side >= 1 required")
+    if len(block_sizes) < 1:
+        raise ValueError("abba_schedule requires at least one block")
+    slots: list[dict[str, Any]] = []
+    for block_index, size in enumerate(block_sizes):
+        n = int(size)
+        if n < 0:
+            raise ValueError("block sizes must be >= 0")
+        for slot in range(k):
+            slots.append(dict(block_index=block_index, role="pre", ref_slot=slot))
+        for _ in range(n):
+            slots.append(dict(block_index=block_index, role="sweep", ref_slot=None))
+        for slot in range(k):
+            slots.append(dict(block_index=block_index, role="post", ref_slot=slot))
+    return slots
+
+
+def sweep_block_id(block_index: int, period_px: int) -> str:
+    """Stable block identifier used in plan items and frame metadata."""
+    return f"block{int(block_index)}_p{int(period_px)}"
+
+
+def interpolate_power_scale(
+    frame_times: Sequence[float],
+    ref_times: Sequence[float],
+    ref_totals: Sequence[float],
+) -> np.ndarray:
+    """Interpolate a dimensionless beam-power scale at ``frame_times`` (pure).
+
+    Each reference total is divided by the arithmetic mean of **all** reference
+    totals in the run, giving ``r_j = total_j / mean(total)``; ``r`` is then
+    linearly interpolated between the bracketing references at every requested
+    time.  The returned scale is therefore 1.0 at the run-average power, so
+    multiplying a frame's counts by its scale removes first-order power drift.
+
+    Edge policy: outside ``[min(ref_times), max(ref_times)]`` the nearest edge
+    ratio is held **constant** (flat extrapolation).  Linear extrapolation is
+    deliberately avoided: beyond the last reference there is no bracketing
+    evidence and a slope fitted to noisy totals amplifies error exactly where
+    the drift track is least constrained.
+
+    ``ref_times`` must be strictly increasing (ABBA capture order guarantees
+    it) and every reference total must be a positive finite number.
+    """
+    times = np.asarray(frame_times, dtype=np.float64)
+    ref_t = np.asarray(ref_times, dtype=np.float64)
+    ref_v = np.asarray(ref_totals, dtype=np.float64)
+    if ref_t.size != ref_v.size:
+        raise ValueError("ref_times and ref_totals must have equal length")
+    if ref_t.size < 1:
+        raise ValueError("at least one reference is required")
+    if np.any(~np.isfinite(ref_t)) or np.any(~np.isfinite(ref_v)):
+        raise ValueError("reference times and totals must be finite")
+    if np.any(np.diff(ref_t) <= 0):
+        raise ValueError("ref_times must be strictly increasing")
+    if np.any(ref_v <= 0):
+        raise ValueError("reference totals must be positive")
+    if times.size and np.any(~np.isfinite(times)):
+        raise ValueError("frame times must be finite")
+    normaliser = float(np.mean(ref_v))
+    ratios = ref_v / normaliser
+    return np.interp(times, ref_t, ratios)
 
 
 def choose_exposure(
@@ -333,6 +423,10 @@ def pattern_array(item: dict, shape: tuple[int, int]) -> np.ndarray:
     kind = item["kind"]
     if kind == "flat":
         return flat_gray(shape, item["gray"])
+    if kind == POWER_REFERENCE_KIND:
+        # ABBA beam-power reference: same full-aperture flat (phi=0) pattern as
+        # the brightness reference, at the run's single fixed exposure.
+        return flat_gray(shape, item.get("gray", 0))
     if kind == "blaze":
         return blaze_gray(
             shape,
@@ -421,6 +515,17 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
         dense_step=dense_step,
     )
 
+    ref_mode = str(getattr(args, "power_reference", "off"))
+    if ref_mode not in POWER_REFERENCE_MODES:
+        raise ValueError(
+            f"power_reference must be one of {POWER_REFERENCE_MODES}, got {ref_mode!r}"
+        )
+    ref_frames_per_side = int(
+        getattr(args, "power_reference_frames", DEFAULT_POWER_REFERENCE_FRAMES)
+    )
+    if ref_mode == "abba" and ref_frames_per_side < 1:
+        raise ValueError("power_reference_frames >= 1 required")
+
     patterns: list[dict[str, Any]] = []
     add = _materialize_add(patterns)
 
@@ -435,17 +540,86 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     # Binary phase grating sweep (symmetric 0/g square wave), averaged per level.
-    for g in levels:
-        add(
-            kind="binary",
-            group="sweep",
-            gray=int(g),
-            period_px=period,
-            duty=0.5,
-            axis=1,
-            frames=frames_per_level,
-            params={"note": "binary 0/g grating, 50% duty, x-period", "duty": 0.5},
-        )
+    # ``abba`` brackets this contiguous block with flat power references; the
+    # ``off`` branch is byte-for-byte the historical sequence (archived plans).
+    power_reference: dict[str, Any] | None = None
+    if ref_mode == "off":
+        for g in levels:
+            add(
+                kind="binary",
+                group="sweep",
+                gray=int(g),
+                period_px=period,
+                duty=0.5,
+                axis=1,
+                frames=frames_per_level,
+                params={"note": "binary 0/g grating, 50% duty, x-period", "duty": 0.5},
+            )
+    else:
+        block_id = sweep_block_id(0, period)
+        block: dict[str, Any] = {
+            "block_index": 0,
+            "block_id": block_id,
+            "period_px": period,
+            "n_sweep_levels": len(levels),
+            "pre_pattern_indices": [],
+            "post_pattern_indices": [],
+        }
+        sweep_cursor = 0
+        for slot in abba_schedule([len(levels)], ref_frames_per_side):
+            role = slot["role"]
+            if role == "sweep":
+                add(
+                    kind="binary",
+                    group="sweep",
+                    gray=int(levels[sweep_cursor]),
+                    period_px=period,
+                    duty=0.5,
+                    axis=1,
+                    frames=frames_per_level,
+                    block_index=0,
+                    block_id=block_id,
+                    params={
+                        "note": "binary 0/g grating, 50% duty, x-period",
+                        "duty": 0.5,
+                    },
+                )
+                sweep_cursor += 1
+                continue
+            add(
+                kind=POWER_REFERENCE_KIND,
+                group="power_reference",
+                gray=0,
+                period_px=period,
+                frames=1,
+                block_index=0,
+                block_id=block_id,
+                ref_position=role,
+                params={
+                    "note": (
+                        f"ABBA {role}-block beam-power reference "
+                        "(flat, phi=0, fixed exposure)"
+                    ),
+                    "ref_slot": slot["ref_slot"],
+                },
+            )
+            block[f"{role}_pattern_indices"].append(len(patterns) - 1)
+        power_reference = {
+            "mode": "abba",
+            "reference_pattern": "flat",
+            "reference_phase": "phi=0 full aperture",
+            "frames_per_side": ref_frames_per_side,
+            "blocks": [block],
+            "exposure_policy": (
+                "one fixed exposure for the whole run; more than one observed "
+                "exposure aborts the run with the reason recorded"
+            ),
+            "drift_policy": (
+                "descriptive_only: reference totals and post/pre ratios are "
+                "recorded here; formal drift correction and any 2*pi-gray "
+                "re-estimate happen offline"
+            ),
+        }
 
     # Post-sweep flat monitor: detects beam drift over the run.
     add(
@@ -472,6 +646,11 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
         "frames_per_level": frames_per_level,
         "dense_region": {"lo": dense_lo, "hi": dense_hi, "step": dense_step},
         "exposure_bracket_ms": list(bracket),
+        **(
+            {"power_reference": power_reference}
+            if power_reference is not None
+            else {}
+        ),
         "n_patterns": len(patterns),
         "n_frames_expected": n_frames,
         "native_ccd_shape": list(NATIVE_CCD_SHAPE),
@@ -485,8 +664,16 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
 
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     """Build the full acquisition plan; never touches devices or the filesystem."""
+    if getattr(args, "power_reference", "off") not in POWER_REFERENCE_MODES:
+        raise ValueError(
+            f"power_reference must be one of {POWER_REFERENCE_MODES}"
+        )
     if getattr(args, "mode", "blaze") == "binary":
         return _build_binary_plan(args)
+    if getattr(args, "power_reference", "off") != "off":
+        raise ValueError(
+            "power_reference requires --mode binary (a contiguous sweep block)"
+        )
     sweep = gray_sweep(args.sweep_step)
     period = int(getattr(args, "period_px", DEFAULT_PERIOD_PX))
     checker_frames = int(getattr(args, "checker_frames", CHECKER_FRAMES))
@@ -677,6 +864,164 @@ def _stats(frame: np.ndarray, full_scale: float) -> dict[str, Any]:
     }
 
 
+def assert_single_exposure(
+    exposures: Sequence[float], *, digits: int = 6
+) -> float:
+    """Return the one exposure used by a run, else raise ``ValueError`` (pure).
+
+    The power-reference drift track is only meaningful at a fixed exposure: if
+    the capture path silently re-exposed between blocks, a reference ratio would
+    mix drive drift with exposure drift.  Readings are compared after rounding
+    to ``digits`` decimals so float readback noise is not mistaken for a change.
+    """
+    values = sorted({round(float(v), int(digits)) for v in exposures})
+    if len(values) != 1:
+        raise ValueError(
+            "power-reference requires one fixed exposure for the whole run; "
+            f"observed {values}"
+        )
+    return float(values[0])
+
+
+def summarize_power_reference(
+    frame_records: Sequence[dict[str, Any]],
+    *,
+    frames_per_side: int,
+    dark_subtracted: bool = False,
+) -> dict[str, Any]:
+    """Describe the ABBA power track from captured frame records (pure).
+
+    Input rows are the per-frame metadata dicts written to ``frames.jsonl``
+    (``monotonic_ns``, ``frame_total``, ``block_index``, ``ref_position``).
+    Everything here is **descriptive**: per-block pre/post reference totals, the
+    post/pre drift ratio and the interpolated per-frame scale.  No correction is
+    applied, no 2*pi gray is re-estimated, and none is claimed.
+    """
+    refs = sorted(
+        (
+            r
+            for r in frame_records
+            if r.get("ref_position") in ("pre", "post") and "frame_total" in r
+        ),
+        key=lambda r: int(r["monotonic_ns"]),
+    )
+    section: dict[str, Any] = {
+        "mode": "abba",
+        "descriptive_only": True,
+        "note": (
+            "reference totals / drift ratios / per-frame scales are descriptive "
+            "only; formal drift correction and any 2*pi-gray re-estimate happen "
+            "offline, and this script claims no new 2*pi gray"
+        ),
+        "reference_pattern": "flat",
+        "frames_per_side": int(frames_per_side),
+        "dark_subtracted": bool(dark_subtracted),
+        "normaliser": {
+            "definition": "arithmetic mean of all reference totals (raw counts)",
+            "mean_total": None,
+        },
+        "blocks": [],
+        "frames": [],
+    }
+    if not refs:
+        section["note"] += "; no reference frames were recorded"
+        return section
+
+    totals = [float(r["frame_total"]) for r in refs]
+    normaliser = float(np.mean(totals))
+    section["normaliser"]["mean_total"] = normaliser
+    t0 = int(refs[0]["monotonic_ns"])
+    ref_times = [int(r["monotonic_ns"]) / 1e9 - t0 / 1e9 for r in refs]
+
+    block_ids = sorted(
+        {int(r["block_index"]) for r in refs if r.get("block_index") is not None}
+    )
+    measured = [
+        r
+        for r in frame_records
+        if r.get("group") == "sweep" and "frame_total" in r and "monotonic_ns" in r
+    ]
+    measured.sort(key=lambda r: int(r["monotonic_ns"]))
+    if measured:
+        scales = interpolate_power_scale(
+            [int(r["monotonic_ns"]) / 1e9 - t0 / 1e9 for r in measured],
+            ref_times,
+            totals,
+        )
+    else:
+        scales = np.zeros(0, dtype=np.float64)
+
+    for frame_index, (row, scale) in enumerate(zip(measured, scales)):
+        section["frames"].append(
+            {
+                "frame_index": int(row.get("index", frame_index)),
+                "block_index": row.get("block_index"),
+                "scale": float(scale),
+            }
+        )
+
+    for block_index in block_ids:
+        pre = [
+            float(r["frame_total"])
+            for r in refs
+            if r.get("block_index") == block_index and r.get("ref_position") == "pre"
+        ]
+        post = [
+            float(r["frame_total"])
+            for r in refs
+            if r.get("block_index") == block_index and r.get("ref_position") == "post"
+        ]
+        block_scales = [
+            float(s)
+            for r, s in zip(measured, scales)
+            if r.get("block_index") == block_index
+        ]
+        mean_pre = float(np.mean(pre)) if pre else None
+        mean_post = float(np.mean(post)) if post else None
+        ratio = (
+            (mean_post / mean_pre)
+            if mean_pre is not None and mean_post is not None and mean_pre > 0
+            else None
+        )
+        section["blocks"].append(
+            {
+                "block_index": block_index,
+                "block_id": next(
+                    (
+                        r.get("block_id")
+                        for r in refs
+                        if r.get("block_index") == block_index
+                    ),
+                    None,
+                ),
+                "period_px": next(
+                    (
+                        r.get("period_px")
+                        for r in refs
+                        if r.get("block_index") == block_index
+                    ),
+                    None,
+                ),
+                "pre": {
+                    "n": len(pre),
+                    "raw_totals": pre,
+                    "mean_total": mean_pre,
+                },
+                "post": {
+                    "n": len(post),
+                    "raw_totals": post,
+                    "mean_total": mean_post,
+                },
+                "drift_ratio_post_over_pre": ratio,
+                "n_measured_frames": len(block_scales),
+                "per_frame_scale_range": (
+                    [min(block_scales), max(block_scales)] if block_scales else None
+                ),
+            }
+        )
+    return section
+
+
 # ---------------------------------------------------------------------------
 # Hardware execution
 # ---------------------------------------------------------------------------
@@ -797,6 +1142,10 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 **stamp,
             )
             row.update(_stats(frame, full_scale))
+            if plan.get("power_reference"):
+                # Raw sum is the power proxy for reference / drift normalisation;
+                # only recorded when the opt-in track is enabled.
+                row["frame_total"] = int(frame.sum(dtype=np.int64))
             np.savez_compressed(
                 out / row["frame_file"],
                 frame=frame,
@@ -917,6 +1266,15 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                         "label": f"{item['label']}_r{repeat:02d}",
                         "kind": item["kind"],
                         "group": item["group"],
+                        **(
+                            {
+                                "block_index": item.get("block_index"),
+                                "block_id": item.get("block_id"),
+                                "ref_position": item.get("ref_position"),
+                            }
+                            if plan.get("power_reference")
+                            else {}
+                        ),
                         "gray": item["gray"],
                         "period_px": item.get("period_px", 0),
                         "neighbor_gray": item.get("neighbor_gray"),
@@ -933,6 +1291,36 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                         f"{row['label']} saturated {row['saturated_pixels']} pixels "
                         f"at chosen exposure {chosen_exposure_ms} ms"
                     )
+                if plan.get("power_reference") and (
+                    float(row["exposure_ms"]) != float(chosen_exposure_ms)
+                ):
+                    # Never let a re-exposed block silently join the drift track.
+                    raise RuntimeError(
+                        f"{row['label']} exposure {row['exposure_ms']} ms != "
+                        f"chosen {chosen_exposure_ms} ms; power-reference needs "
+                        "one fixed exposure"
+                    )
+
+        power_reference_summary: dict[str, Any] | None = None
+        if plan.get("power_reference"):
+            # Drift decoupling only holds at one fixed exposure: abort (and let
+            # the error path record why) instead of mixing in exposure changes.
+            fixed_exposure_ms = assert_single_exposure(
+                [
+                    float(r["exposure_ms"])
+                    for r in frame_records
+                    if r.get("group") != "bracket"
+                ]
+            )
+            power_reference_summary = summarize_power_reference(
+                frame_records,
+                frames_per_side=int(plan["power_reference"]["frames_per_side"]),
+                dark_subtracted=False,
+            )
+            power_reference_summary["fixed_exposure_ms"] = fixed_exposure_ms
+            power_reference_summary["n_blocks"] = len(
+                power_reference_summary["blocks"]
+            )
 
         # ---- summaries -----------------------------------------------------
         exposure_stats = {
@@ -958,6 +1346,11 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             "two_pi_gray_true": plan.get("two_pi_gray_true", "pending offline fit"),
             "two_pi_gray_note": TWO_PI_GRAY_NOTE,
             "saturated_frames": sum(1 for r in frame_records if r["saturated_pixels"]),
+            **(
+                {"power_reference": power_reference_summary}
+                if power_reference_summary is not None
+                else {}
+            ),
             "clamp_warnings": [
                 {"label": r["label"], "warnings": r["warnings"]}
                 for r in frame_records
@@ -1020,6 +1413,24 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         print(f"ERROR: {error}", file=sys.stderr)
+        if created_out and plan.get("power_reference"):
+            # Record the abort reason next to the frames so an offline reader
+            # never has to guess why the drift track was cut short.
+            try:
+                write_json(
+                    out / "power_reference_abort.json",
+                    {
+                        "aborted": True,
+                        "reason": error,
+                        "power_reference": plan["power_reference"],
+                        "exposures_seen_ms": sorted(
+                            {float(r["exposure_ms"]) for r in frame_records}
+                        ),
+                        **clock(),
+                    },
+                )
+            except Exception:
+                pass
         return 1
     finally:
         # 4) Always release everything, on every exception path.
@@ -1108,6 +1519,22 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--power-reference",
+        choices=POWER_REFERENCE_MODES,
+        default="off",
+        help=(
+            "[binary] beam-power drift track: off = historical plan (no extra "
+            "frames, no power_reference key); abba = flat (phi=0) reference set "
+            "before and after each sweep block at the same fixed exposure"
+        ),
+    )
+    parser.add_argument(
+        "--power-reference-frames",
+        type=int,
+        default=DEFAULT_POWER_REFERENCE_FRAMES,
+        help="[binary] reference frames per side for --power-reference abba (default 2)",
+    )
+    parser.add_argument(
         "--frames-per-level",
         type=int,
         default=16,
@@ -1170,6 +1597,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--sweep-step>0, --period-px>=2, --checker-frames>=1 required")
     if args.wait_until_idle < 0 or args.settle_s < 0:
         parser.error("--wait-until-idle>=0 and --settle-s>=0 required")
+    if args.power_reference != "off":
+        if args.mode != "binary":
+            parser.error("--power-reference requires --mode binary")
+        if args.power_reference_frames < 1:
+            parser.error("--power-reference-frames >= 1 required")
 
     try:
         plan = build_plan(args)
