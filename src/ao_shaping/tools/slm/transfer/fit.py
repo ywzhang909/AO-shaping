@@ -274,8 +274,8 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
     exposure_tensor = torch.as_tensor(comps.exposure_values[:, None, None],
                                      dtype=prediction.dtype, device=prediction.device)
     prediction = prediction * scale + offset + radiometry["bias_counts"] / exposure_tensor
-    p = prediction[model.train]
-    target = model.images[model.train]
+    p = prediction[model.train_mask]
+    target = model.images[model.train_mask]
     target_mean = target.mean((1, 2), keepdim=True).clamp_min(1e-9)
     target_cv = target.std((1, 2), correction=0) / target_mean[:, 0, 0]
     normalized = p / p.mean((1, 2), keepdim=True).clamp_min(1e-9)

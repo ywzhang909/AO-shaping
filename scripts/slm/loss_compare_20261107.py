@@ -199,9 +199,9 @@ class LossFit(PhysicalForwardFit):
 
     def update(self) -> float:
         self.optimizer.zero_grad()
-        pred = self.prediction()[self.train]
-        meas = self.images[self.train]
-        loss = self.loss_terms(pred, meas, self.core_mask[self.train])[self.loss_name]
+        pred = self.prediction()[self.train_mask]
+        meas = self.images[self.train_mask]
+        loss = self.loss_terms(pred, meas, self.core_mask[self.train_mask])[self.loss_name]
         loss.backward()
         self.optimizer.step()
         with torch.no_grad():
@@ -317,8 +317,8 @@ def fit_once(
         # Closed-form gain at the init point: a nuisance scale, not a physical
         # parameter, so every arm starts at the same least-squares scale.
         if loss_name in SCALE_SENSITIVE:
-            p0 = model.prediction()[model.train]
-            t0 = model.images[model.train]
+            p0 = model.prediction()[model.train_mask]
+            t0 = model.images[model.train_mask]
             initial_gain = (p0 * t0).sum() / (p0 * p0).sum().clamp_min(1e-12)
             model.log_gain.fill_(initial_gain.log())
 
@@ -333,10 +333,10 @@ def fit_once(
         history = []
         for _ in range(iterations):
             take = rng.choice(train_index.numpy(), size=min(batch_size, len(train_index)), replace=False)
-            model.train = torch.zeros(len(data["train"]), dtype=torch.bool)
-            model.train[torch.tensor(np.sort(take))] = True
+            model.train_mask = torch.zeros(len(data["train"]), dtype=torch.bool)
+            model.train_mask[torch.tensor(np.sort(take))] = True
             history.append(model.update())
-        model.train = torch.tensor(data["train"], dtype=torch.bool)
+        model.train_mask = torch.tensor(data["train"], dtype=torch.bool)
         raw = model.prediction().detach().cpu().numpy()
         sampled = history
 

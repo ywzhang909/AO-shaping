@@ -6,6 +6,7 @@ from loguru import logger
 from datetime import datetime, timezone
 
 import numpy as np
+import torch
 
 from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
     PANEL_PITCH_PX,
@@ -24,7 +25,7 @@ from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
 )
 
 
-class PhysicalForwardFit:
+class PhysicalForwardFit(torch.nn.Module):
     """Compact shared physical fit with fixed camera geometry.
 
     The panel geometry, Gaussian illumination, camera sampling grids and FFT
@@ -32,6 +33,21 @@ class PhysicalForwardFit:
     bit-for-bit with ``FrozenDefocusForward``; this class keeps only the
     fitting-specific parts (trainable defocus / origin / amplitude, the
     control-grid Zernike basis, batching).
+
+    Converted to :class:`torch.nn.Module` so that standard torch tooling
+    (``named_parameters``, ``state_dict``, ``.to(device)``, ``torchsummary``)
+    works.  Numerical behaviour is unchanged: parameters keep their original
+    dtypes and initial values, the optimiser is still built explicitly, and
+    the fitter is always used in training-compatible mode (no dropout/BN).
+
+    Compatibility notes
+    --------------------
+    * The boolean training-mask tensor is stored as ``self.train_mask`` (it used
+      to be ``self.train``, which shadowed :meth:`torch.nn.Module.train`).  The
+      inherited ``train()`` / ``eval()`` mode switch is therefore usable again;
+      the fit itself has no dropout/BN layers, so the mode never changes numbers.
+    * ``self.propagate`` stays a plain function attribute (not a submodule),
+      keeping the forward pass bit-for-bit identical to the frozen baseline.
     """
 
     def __init__(self, phases, images, camera_xy, matrix, focus_diopter, train_mask,
@@ -42,7 +58,7 @@ class PhysicalForwardFit:
                  monotonic_ccd_h=(), monotonic_ccd_v_max=255., phase_sign=1.,
                  phase_sign_scope="command", focus_phase=None, carrier_phase=None,
                  registration_shift_ccd_px=None, learn_registration=False):
-        import torch
+        super().__init__()
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
@@ -80,7 +96,7 @@ class PhysicalForwardFit:
         self.images = torch.tensor(images, dtype=torch.float32, device=self._device)
         self.xy = torch.tensor(camera_xy, dtype=torch.float32, device=self._device)
         self.inverse = torch.tensor(np.linalg.inv(matrix), dtype=torch.float32, device=self._device)
-        self.train = torch.tensor(train_mask, dtype=torch.bool, device=self._device)
+        self.train_mask = torch.tensor(train_mask, dtype=torch.bool, device=self._device)
         self.z4 = torch.tensor(basis_arrays[4] if basis_arrays is not None else
                                np.nan_to_num(generate_zernike_phase({4: 1.0}, (size, size))),
                                dtype=torch.float32, device=self._device)
@@ -226,8 +242,8 @@ class PhysicalForwardFit:
         started = time.monotonic_ns()
         torch = self.torch
         self.optimizer.zero_grad()
-        pred = self.prediction()[self.train]
-        measured = self.images[self.train]
+        pred = self.prediction()[self.train_mask]
+        measured = self.images[self.train_mask]
         # Shape fit with cosine similarity; shared absolute gain is estimated
         # ONLY on training samples after fitting, never separately on test data.
         p, t = pred.flatten(1), measured.flatten(1)
