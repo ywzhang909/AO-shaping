@@ -37,13 +37,10 @@ from loguru import logger
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-DEFAULT_DATASET = Path(
-    r"D:\Projects\TIFO\AO-shaping\data\debug\slm_transfer\extend_b_20261118"
-)
+DEFAULT_DATASET = ROOT / "data/debug/slm_transfer/extend_b_20261118"
 # Session A full physical fit: authoritative radiometry context only (never modified).
-DEFAULT_BASELINE_FIT = Path(
-    r"D:\Projects\TIFO\AO-shaping\data\debug\slm_transfer"
-    r"\20261118_transfer_mil_zernike_probe_v1\fit_m3_full"
+DEFAULT_BASELINE_FIT = ROOT / (
+    "data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full"
 )
 DEFAULT_OUTPUT = ROOT / "report/shape_trials/physical_refine/poisson_weighted_b_20261119.json"
 

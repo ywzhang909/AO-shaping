@@ -123,7 +123,7 @@
 
 > **2026-11-19 执行补记**：首个窗口 `data/experiments/transfer_window_20261119/` 已尝试，整体退出码 1。k4 在 `config.validate()` 因 `side=1200` 超出默认 `window_span=220` 可容纳的 424 px 而失败（约 2 s），未打开 SLM/CCD，未生成 k4 数据；light/none 未执行。证据为窗口根目录的 `window.json`、`released.json` 和 `segments/k4.log`。锁于 `2026-11-19T07:05:44+00:00` 正常释放，`lock_released=true`、`error=null`，复查 `holder=None`。此为失败尝试，不计为完成采集；后续修正参数须使用全新窗口目录。
 >
-> **科学资格复核（暂缓上机）**：历史 `side=1200` 几何参数可通过离线 `plan`，只代表参数/几何可行。`axis_mismatch_validation_20261118` checkpoint 的方向门未通过；其 `relL2=0.355` 为 in-sample、无 held-out，强度门数值阈值也未预注册。替代 `LocalResponseModel` 的归档 cross-fit 结果仅为诊断（12/14 两折互为镜像、有效 6/7 模式，Z11 不复现；强度 relL2=0.217–0.261 无可用预注册门槛）。因此当前不把 `light/none` 作为科学验收放行段，先冻结独立阈值与联合判据、复核模型/曝光定义；具体结论见 `agent_notes_20261119.md` §Transfer 模型资格复核。
+> **科学资格复核（暂缓实验）**：历史 `side=1200` 几何参数可通过离线 `plan`，只代表参数/几何可行。`axis_mismatch_validation_20261118` checkpoint 的方向门未通过；其 `relL2=0.355` 为 in-sample、无 held-out，强度门数值阈值也未预注册。替代 `LocalResponseModel` 的归档 cross-fit 结果仅为诊断（12/14 两折互为镜像、有效 6/7 模式，Z11 不复现；强度 relL2=0.217–0.261 无可用预注册门槛）。因此当前不把 `light/none` 作为科学验收放行段，先冻结独立阈值与联合判据、复核模型/曝光定义；具体结论见 `agent_notes_20261119.md` §Transfer 模型资格复核。
 
 > 只跑 §3 决策门放行后的段。共用同一份 `--dataset` / `--checkpoint`（光路未动的最新 full run）。
 > 每段独立 `--out` 目录（capture 目录不可复用）；每段自带 finally：cam.close → slm.close →

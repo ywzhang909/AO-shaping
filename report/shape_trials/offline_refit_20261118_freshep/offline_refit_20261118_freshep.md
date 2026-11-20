@@ -104,7 +104,7 @@
 | 相机模糊 sigma_ccd_px 0→8 | `sigma_sweep_20261118.py`（`ca1ceec4`） | fit11 恒 4/7；零残差恒 5/7（Z7 .306→.428、Z11 .222→.280，但未过 0.50） | 细结构衰减有改善，不足以过门 |
 | 离焦 defocus -0.009→0.18 | `defocus_sweep_20261118.py`（`daabdaa9`） | 11 档内通过数封顶 4/7（fit11）/5/7（零残差），只是失败集合换人；Z7 模型预测平移恒 ~0.10 px（实测 1.04 px），直到 d=0.18 才 0.30 px | **排除离焦标尺**（已验证 M3 的 +0.0309 也救不回 Z7） |
 
-差分域重拟合 `diff_domain_refit_20261118.py`（`72e33fac`）把 s 与残差一起放开时，Adam 把 s 推到 17–40（相位多次回绕）、留出相关塌到 ~0，是共线退化而非改进，未采用。选择性残差（只删 Z6/Z9 或 Z6/Z7/Z9）**在 fit 管线里根本不可表示**——`PhysicalForwardFit` 把 `residual_modes` 硬编码为 `range(5,12)`，删项后 `build_fit_model` 抛 `KeyError`，故该路线仅诊断、无强度门数字。
+差分域重拟合 `diff_domain_refit_20261118.py`（`72e33fac`）把 s 与残差一起放开时，Adam 把 s 推到 17–40（相位多次回绕）、验证集相关塌到 ~0，是共线退化而非改进，未采用。选择性残差（只删 Z6/Z9 或 Z6/Z7/Z9）**在 fit 管线里根本不可表示**——`PhysicalForwardFit` 把 `residual_modes` 硬编码为 `range(5,12)`，删项后 `build_fit_model` 抛 `KeyError`，故该路线仅诊断、无强度门数字。
 
 ### 4.2 根因：主导轴符号错配（可证伪核对）
 

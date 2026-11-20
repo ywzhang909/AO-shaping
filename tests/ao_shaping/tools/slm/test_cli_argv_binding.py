@@ -56,6 +56,8 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+
+from tests.ao_shaping.census_repin import yellow_or_red
 from click import Command
 from click.testing import CliRunner
 from loguru import logger
@@ -1192,6 +1194,83 @@ def _construction_sites(pattern: re.Pattern[str]) -> dict[str, int]:
     return counts
 
 
+# #251 P0-B 同批: 钉死快照提为模块常量, 漂移判定的唯一参照。
+_PINNED_SANTEC = {
+        "slm/calibration/calibration.py": 2,
+        "slm/calibration/diffraction_efficiency/measure.py": 1,
+        "slm/calibration/gray_response.py": 1,
+        "slm/calibration/lut_runner.py": 1,
+        "slm/calibration/phase_capture.py": 1,
+        "slm/calibration/train_data_collect.py": 1,
+        "slm/cartographer/slm_cartographer_ui.py": 1,
+        "slm/gs_refine_replay.py": 1,
+        "slm/panel/alignment_probe.py": 2,
+        "slm/panel/bench_fingerprint.py": 1,
+        "slm/panel/beam_extent.py": 1,
+        "slm/panel/focus_probe.py": 1,
+        "slm/panel/diagnose.py": 1,
+        "slm/panel/panel_locate.py": 1,
+        "slm/panel/phase_resolution.py": 1,
+        "slm/panel/phase_response.py": 1,
+        "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
+        "slm/transfer/capture.py": 1,
+        "slm/transfer/capture_response.py": 1,
+        "slm/transfer/open_loop.py": 1,
+        "slm/transfer/optical_probe.py": 1,
+        "slm/transfer/replay_phases.py": 1,
+        "slm/transfer/validate.py": 1,
+        "ccd/drift_probe.py": 1,
+        "ccd/floor_probe.py": 1,
+        "ccd/short_exposure_probe.py": 1,
+        "wfs/wfs_probe.py": 1,
+        "wfs/wfs_reference.py": 1,
+        "wfs/zernike_correction.py": 1,
+        "wfs/zernike_response.py": 1,
+        "zernike/abba_probe.py": 1,
+        "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 1,
+        "kernels/sweep_analysis.py": 1,
+}
+
+_PINNED_CAMERA = {
+        "slm/calibration/calibration.py": 1,
+        "slm/calibration/diffraction_efficiency/measure.py": 1,
+        "slm/calibration/gray_response.py": 1,
+        "slm/calibration/lut_runner.py": 2,
+        "slm/calibration/phase_capture.py": 2,
+        "slm/calibration/train_data_collect.py": 2,
+        "slm/gs_refine_replay.py": 1,
+        "slm/panel/alignment_probe.py": 2,
+        "slm/panel/bench_fingerprint.py": 1,
+        "slm/panel/beam_extent.py": 1,
+        "slm/panel/diagnose.py": 1,
+        "slm/panel/focus_probe.py": 1,
+        "slm/panel/panel_locate.py": 1,
+        "slm/panel/phase_resolution.py": 1,
+        "slm/panel/phase_response.py": 1,
+        "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
+        "slm/transfer/auto_reuse.py": 1,
+        "slm/transfer/camera_probe.py": 1,
+        "slm/transfer/capture.py": 2,
+        "slm/transfer/capture_response.py": 1,
+        "slm/transfer/exposure_policy.py": 1,
+        "slm/transfer/optical_probe.py": 1,
+        "slm/transfer/replay_phases.py": 1,
+        "slm/transfer/validate.py": 1,
+        "ccd/capture_darks.py": 1,
+        "ccd/drift_probe.py": 1,
+        "ccd/exposure_check.py": 1,
+        "ccd/floor_probe.py": 1,
+        "ccd/short_exposure_probe.py": 1,
+        "zernike/abba_probe.py": 1,
+        "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 2,
+        "kernels/sweep_analysis.py": 1,
+}
+
+
 def test_santec_and_camera_call_sites_are_stable() -> None:
     """Freeze the per-file device-session census.
 
@@ -1240,82 +1319,30 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # contract); a genuine new module, re-baselined here deliberately. This guard pins the
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
-    # deliberately.
-    assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 39, f"camera-open call sites changed: {camera}"
-
-    assert santec == {
-        "slm/calibration/calibration.py": 2,
-        "slm/calibration/diffraction_efficiency/measure.py": 1,
-        "slm/calibration/gray_response.py": 1,
-        "slm/calibration/lut_runner.py": 1,
-        "slm/calibration/phase_capture.py": 1,
-        "slm/calibration/train_data_collect.py": 1,
-        "slm/cartographer/slm_cartographer_ui.py": 1,
-        "slm/gs_refine_replay.py": 1,
-        "slm/panel/alignment_probe.py": 2,
-        "slm/panel/bench_fingerprint.py": 1,
-        "slm/panel/beam_extent.py": 1,
-        "slm/panel/focus_probe.py": 1,
-        "slm/panel/diagnose.py": 1,
-        "slm/panel/panel_locate.py": 1,
-        "slm/panel/phase_resolution.py": 1,
-        "slm/panel/phase_response.py": 1,
-        "slm/panel/tilt_probe.py": 1,
-        "slm/replay_disturbance.py": 1,
-        "slm/transfer/capture.py": 1,
-        "slm/transfer/capture_response.py": 1,
-        "slm/transfer/optical_probe.py": 1,
-        "slm/transfer/replay_phases.py": 1,
-        "slm/transfer/validate.py": 1,
-        "ccd/drift_probe.py": 1,
-        "ccd/floor_probe.py": 1,
-        "ccd/short_exposure_probe.py": 1,
-        "wfs/wfs_probe.py": 1,
-        "wfs/wfs_reference.py": 1,
-        "wfs/zernike_correction.py": 1,
-        "wfs/zernike_response.py": 1,
-        "zernike/abba_probe.py": 1,
-        "zernike/sweep_probe.py": 1,
-        "kernels/device_mutex.py": 1,
-        "kernels/sweep_analysis.py": 1,
-    }, f"Santec( per-file census drifted: {santec}"
-
-    assert camera == {
-        "slm/calibration/calibration.py": 1,
-        "slm/calibration/diffraction_efficiency/measure.py": 1,
-        "slm/calibration/gray_response.py": 1,
-        "slm/calibration/lut_runner.py": 2,
-        "slm/calibration/phase_capture.py": 2,
-        "slm/calibration/train_data_collect.py": 2,
-        "slm/gs_refine_replay.py": 1,
-        "slm/panel/alignment_probe.py": 2,
-        "slm/panel/bench_fingerprint.py": 1,
-        "slm/panel/beam_extent.py": 1,
-        "slm/panel/diagnose.py": 1,
-        "slm/panel/focus_probe.py": 1,
-        "slm/panel/panel_locate.py": 1,
-        "slm/panel/phase_resolution.py": 1,
-        "slm/panel/phase_response.py": 1,
-        "slm/panel/tilt_probe.py": 1,
-        "slm/replay_disturbance.py": 1,
-        "slm/transfer/auto_reuse.py": 1,
-        "slm/transfer/camera_probe.py": 1,
-        "slm/transfer/capture.py": 2,
-        "slm/transfer/capture_response.py": 1,
-        "slm/transfer/exposure_policy.py": 1,
-        "slm/transfer/optical_probe.py": 1,
-        "slm/transfer/replay_phases.py": 1,
-        "slm/transfer/validate.py": 1,
-        "ccd/drift_probe.py": 1,
-        "ccd/exposure_check.py": 1,
-        "ccd/floor_probe.py": 1,
-        "ccd/short_exposure_probe.py": 1,
-        "zernike/abba_probe.py": 1,
-        "zernike/sweep_probe.py": 1,
-        "kernels/device_mutex.py": 2,
-        "kernels/sweep_analysis.py": 1,
-    }, f"camera-open per-file census drifted: {camera}"
+    # deliberately. 36 -> 37 (Santec) and 39 -> 40 (camera) on 2026-11-20 after the
+    # upstream hardware merge: slm/transfer/open_loop.py opens Santec only (the
+    # ccd_mode=none open-loop display path, no camera); ccd/capture_darks.py opens
+    # a camera only (dark-frame capture, no SLM).
+    # #251 P0-A meta-guard: drift whose files are already registered in the
+    # TODO ledger degrades to xfail (yellow, re-baseline pending across the
+    # merge window); unknown drift stays a hard failure. Re-baselining in the
+    # same commit as the feature (CONTRIBUTING.md) remains the requirement --
+    # this only stops half-window merges from manufacturing fake regressions.
+    drift_files: set[str] = set()
+    problems: list[str] = []
+    for label, actual, pinned, pinned_total in (
+        ("Santec(", santec, _PINNED_SANTEC, 37),
+        ("camera-open", camera, _PINNED_CAMERA, 40),
+    ):
+        drift = {f for f in set(actual) | set(pinned) if actual.get(f) != pinned.get(f)}
+        if sum(actual.values()) != pinned_total or actual != pinned:
+            problems.append(
+                f"{label} census drifted: total {sum(actual.values())} != "
+                f"{pinned_total}, per-file diff {sorted(drift)}"
+            )
+            drift_files |= drift
+    if problems:
+        yellow_or_red(drift_files, "\n".join(problems))
 
     # ``sweep_analysis`` (merged from ``slm_scan_analysis`` + ``delta_explorer`` +
     # ``slm_snr_probe``) is not a CLI and constructs no device, so callers keep

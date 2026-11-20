@@ -567,8 +567,44 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/evaluate_multiplicative_gain_b.py",
         ),
     ),
+    "report/shape_trials/model_in_loop/model_in_loop_overview.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="历史/归档（离线归纳历史报告与落盘产物；无新测量，不占用设备）",
+        note=(
+            "model-in-loop 优化链移除后的唯一历史总述：合并原先多份 MIL 明细报告的判定性证据——"
+            "所有端到端变体 bake_off_rejected；验证集门槛非限制项；CV 0.5627→0.4454 但未达可验收匀化；"
+            "全频随机相位 holdout 相关性 0.108–0.277 低于 0.5 阈值；固定划分单分数不能当模型属性（K 折）；"
+            "固定相位重复性与历史标定失败/教训；无实测 MIL 优势。代码已移除，不宣称可从已删脚本复现。"
+        ),
+    ),
+    "report/shape_trials/physical_forward_experience.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="历史/归档（离线归纳历史报告；无新测量，不占用设备）",
+        note=(
+            "物理预测经验总结：只压缩已被历史实测支持的移除/放弃路径，保留关键数字"
+            "（M4 相关性 0.8856/0.9474 但 CV 不过 0.05；采样/积分相对 L2 ≤0.7%；"
+            "联合 CV 拟合 0.02558→0.00738、CV 误差 0.0975/0.0888、质心 7.68/4.64 px；"
+            "固定相位重复 CV ±0.01）；明确区分历史证据与当时未成为事实的计划。"
+        ),
+    ),
+    "report/shape_trials/model_in_loop/removal_report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线记录（移除操作当时的边界说明，不占用设备）",
+        note=(
+            "2026-11 model-in-loop 优化链移除（af9a55a0）时的边界记录：保留哪些中立实验系统标定、"
+            "删除哪些实验链、哪些文档引用随之改写。后由 b0108349 恢复优化链，本文仅作历史"
+            "移除边界的事实记录，不代表当前代码状态。人工撰写。"
+        ),
+    ),
     "report/shape_trials/physical_refine/fit_compare_m3_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1 "
+            "--baseline data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_baseline "
+            "--updated data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full "
+            "--out report/shape_trials/physical_refine/fit_compare_m3_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）baseline(iter 0, loss 0.302758) vs updated(iter 17, loss 0.165202)："
@@ -578,6 +614,13 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/fit_compare_m3_z21_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1 "
+            "--baseline data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_baseline "
+            "--updated data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full_z21 "
+            "--out report/shape_trials/physical_refine/fit_compare_m3_z21_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）baseline(iter 0) vs Zernike 5..21 扩展基(iter 5)：检验残差基容量是否提升下限，"
@@ -586,6 +629,13 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/fit_compare_m3_z11_vs_z21_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1 "
+            "--baseline data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full "
+            "--updated data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full_z21 "
+            "--out report/shape_trials/physical_refine/fit_compare_m3_z11_vs_z21_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）Noll 5..11(iter 17) vs Noll 5..21(iter 5)：correlation 0.8814→0.8780（更差）。"
@@ -1117,6 +1167,15 @@ REPORTS: dict[str, ReportProvenance] = {
             "图名统一 `speedup_` 前缀归属本报告。 "
             "负结果保留: 模型内 loss 下降≠光学改善、曝光对齐下原始峰值比无意义、`get_displayed_phase()` "
             "不可作证据"
+        ),
+    ),
+    "report/slm/differentiable_opt/artifacts/stepb_optimizer_lr_20261116/stepb_optimizer_lr.md": ReportProvenance(
+        script="scripts/slm/sweep_stepb_optimizer_lr.py",
+        command="python scripts/slm/sweep_stepb_optimizer_lr.py",
+        environment="离线",
+        note=(
+            "MIL Step B 优化器/学习率/调度扫描 (纯离线仿真, 不碰任何硬件设备): lr 阶梯、"
+            "余弦/阶梯/预热+余弦调度在同等物理光斑质量约束下能否砍迭代预算。"
         ),
     ),
     "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md": ReportProvenance(
@@ -2796,6 +2855,19 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
     ),
+    "report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/ladder_summary.md": ReportProvenance(
+        script="scripts/slm/hw_forward_model_fidelity_ladder.py",
+        command=(
+            "python scripts/slm/hw_forward_model_fidelity_ladder.py "
+            "--execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116"
+        ),
+        environment="离线",
+        note=(
+            "保真度阶梯的逐图案汇总 (metrics.json/csv 同批产物): dry-run 演练写出占位与判据"
+            "说明, 不伪造数字; --execute 后重写为实测对比。主判据 spearman_signal。"
+        ),
+        extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
+    ),
     "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md": ReportProvenance(
         script="scripts/slm/analyze_fwdmodel_fit_20261117.py",
         command=(
@@ -2833,21 +2905,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py",
         ),
     ),
-    "report/shape_trials/ideal_path_static_test_20261117/README.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件（Santec SLM-200 #1 + Daheng MER2-507-23GM，2026-11-17 实验采集；报告本体不占用设备）",
-        note=(
-            "静态整形页同源 generate_phase_radians 模型前向生成相位，SLM 下发 + CCD 全幅采集 5 个图案"
-            "（线性光栅 / 棋盘格 / 透镜聚焦 / 圆形光栅 / 达曼光栅），曝光 0.05 ms，观测来源 model_forward"
-            "（observed=false）。结论：相位与下发链路正确，但实测远场全部塌缩为中心暗弱小斑，模型前向假设"
-            "再次被证伪（透镜方形平顶 vs 实测点状聚焦的证伪结论成立）。"
-            "人工撰写。"
-        ),
-        extra_scripts=(
-            "scripts/slm/ideal_path_static_test_20261117.py",
-            "scripts/slm/render_ideal_path_compare_20261117.py",
-        ),
-    ),
     "report/shape_trials/issue235_model_fill_diagnostic_20261117/issue235_model_fill_diagnostic_20261117.md": ReportProvenance(
         # 人工撰写: 脚本只产出 summary.md 与 diagnostic.json, 中文分析正文不在任何
         # 发射器里 (尾节"复现与产物"同理) —— 判 HANDWRITTEN 而非给脚本塞死代码。
@@ -2878,41 +2935,6 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/square_1000_model_diagnostic_20261030.py",
-        ),
-    ),
-    "report/slm/differentiable_opt/status_20261117.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note=(
-            "跨系列现状总结 (Q1 模型-实测一致性 / Q2 学习率与调度 / 2π 相位标度 / "
-            "原点陈旧根因 / 拟合参数落地)。全部数字可追到 data/debug/differentiable_opt/ 与 "
-            "report/slm/differentiable_opt/artifacts/ 下的落盘产物; 核心新证据是阶梯"
-            "误用存档几何 (data/slm_geometry_calib.npz, center y=962.63) 与同一晚现场"
-            "标定 (y=1104.84) 的 142 px 对照, 只读 pred/frames 的离线原点搜索复核, 以及"
-            "把现场标定写回 npz 的快照动作 (旧值存为 slm_geometry_calib_20261023.npz)"
-        ),
-        extra_scripts=(
-            "scripts/slm/persist_live_geometry.py",
-            "scripts/slm/hw_forward_model_fidelity_ladder.py",
-            "scripts/slm/hw_differentiable_phase_opt.py",
-            "scripts/slm/analyze_fwdmodel_fit.py",
-        ),
-    ),
-    "report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md": ReportProvenance(
-        script="scripts/slm/analyze_fwdmodel_fit_20261117.py",
-        command=(
-            "python scripts/slm/analyze_fwdmodel_fit_20261117.py "
-            "--out report/slm/differentiable_opt/artifacts/fwdmodel_fit_20261117/fwdmodel_fit_20261117.md"
-        ),
-        environment="离线 + CUDA GPU (RTX 5080 Laptop, torch 2.11.0+cu128); 不连接设备",
-        note=(
-            "物理预测模型参数拟合与可微共同优化的离线验证: 阶梯陈旧 y 原点 (存档 962.6 vs 现场 1104.8) 的四列对照, "
-            "gs_init 低相关归因 (GS 未收敛), 轴向口径择优与留一验证, 阶段 B 实测历史对照。"
-        ),
-        extra_scripts=(
-            "scripts/slm/analyze_fwdmodel_fit.py",
-            "scripts/slm/_hw_fidelity_ladder_sections.py",
-            "scripts/slm/hw_differentiable_phase_opt.py",
         ),
     ),
     "report/shape_trials/candidate_parallelism_20261117.md": ReportProvenance(

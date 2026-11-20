@@ -15,6 +15,9 @@ uses, so the invariants below are the ones the report leans on:
 from __future__ import annotations
 
 import math
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -219,7 +222,25 @@ def test_focus_compensation_flags() -> None:
 
 
 def test_assert_no_drivers_passes_in_a_clean_process() -> None:
-    assert_no_drivers()  # must not raise
+    """真起子进程验证"干净进程"契约 (issue #205 第 132 批, 第 139 批重申)。
+
+    进程内调用会被 CI 分片污染: 同 shard 先跑的测试 import 过任何
+    ``ao_shaping.drivers.*`` 后, ``sys.modules`` 检查必然误报。本测试的名字
+    就是 clean process —— 只有独立解释器能证明"导入分析脚本不拖驱动"。
+    """
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    code = (
+        "from scripts.slm.analyze_model_hw_fidelity import assert_no_drivers; "
+        "assert_no_drivers()"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 # ---------------------------------------------------------------------------

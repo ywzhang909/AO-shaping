@@ -90,7 +90,10 @@ writer), `__init__.py`, and `eval_pib_hybrid_sim.py`.
 
 Pre-existing subdirectories keep their original meaning: `_common/` (shared
 report helpers + the provenance registry), `call_graph/` (the `main.py` call-graph
-pipeline), `dm_sim/` (MATLAB DM simulation), `tuning_devices/` (device tuning).
+pipeline, incl. `repin_spans.py` — #249 一次性 span 重钉: 按 (file, qualname) 对拍
+磁盘 AST 把双 JSON 钉回实测行号, `--check` 只报告; 常态防漂移归
+`tests/ao_shaping/test_call_graph_span_drift.py`), `dm_sim/` (MATLAB DM simulation),
+`tuning_devices/` (device tuning).
 
 ### Rules for scripts under `scripts/`
 

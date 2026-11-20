@@ -126,7 +126,7 @@ def main() -> None:
     ap.add_argument("--flat", action="store_true",
                     help="用 _optical_probe_flat.npz 的高频作静态模板（同参考脚本）")
     ap.add_argument("--noise-ddof", type=int, default=1,
-                    help="帧间 std 的自由度修正（默认 1，与 3 帧样本方差一致）")
+                    help="帧间 std 的自由度修正（默认 1，与 3 帧样本文差一致）")
     args = ap.parse_args()
 
     dataset: Path = args.dataset

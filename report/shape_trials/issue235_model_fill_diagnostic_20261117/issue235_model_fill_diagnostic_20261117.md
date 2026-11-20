@@ -1,10 +1,10 @@
 # Issue #235：冻结模型全幅形态诊断（Q1–Q3，整幅面，离线 2026-11-17）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/issue235_model_fill_diagnostic_20261117.py`](../../../scripts/slm/issue235_model_fill_diagnostic_20261117.py)
-> **数据/关联脚本**: [`scripts/slm/square_1000_model_diagnostic_20261030.py`](../../../scripts/slm/square_1000_model_diagnostic_20261030.py)（采集）
-> **运行环境**: 离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话 `data/debug/square1000_model_diag_20261117_140741`；本次分析未占用 SLM/相机/激光）
-> **说明**: 在同一坐标系（整幅原生平面 1944×2592，实测帧与模型预测同公式）上量化冻结 model640 前向与实测的形态差：Q1 集中度是否可预测、Q2 单参数扫描能否复现、Q3 实测光斑是否隐含满口径瞳面。结论：Q1 不能、Q2 不能、Q3 实测光斑隐含有效孔径 ~0.16 px 而非满口径。人工撰写，数字全部由脚本读取同目录 `diagnostic.json` 渲染。
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/square_1000_model_diagnostic_20261030.py`](../../../scripts/slm/square_1000_model_diagnostic_20261030.py)
+> **运行环境**: 离线（回放 2026-11-17 14:07–14:09 已采集的 14 帧会话；本次分析未占用 SLM/相机/激光）
+> **说明**: #235 冻结模型整幅形态诊断（Q1–Q3）：在同一坐标系（整幅原生平面 1944×2592，实测帧与模型预测同公式）量化冻结 model640 前向与实测的形态差。Q1 集中度不可预测（显示相位门禁 0 diff，模型预测满幅平顶、实测点状，整幅 Pearson ≈ −0.010）；Q2 单参数扫描（phase_scale / amplitude_width / sigma_ccd / defocus / 像素尺度）无一能同时复现实测的功率与半高像素数；Q3 反解表明实测光斑隐含有效照明口径 ~363 px，与冻结包络 (352, 133) px 同量级，即问题不在口径量级，而在照明包络→远场的形态映射。数字全部由脚本读取 diagnostic.json 渲染。
 <!-- provenance:end -->
 
 数据：`data/debug/square1000_model_diag_20261117_140741`（SLM #1 + Daheng MER2-507-23GM，base 曝光 0.1 ms，探针幅度 0.03 rad，tilt 周期 64 panel px）。

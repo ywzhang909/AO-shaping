@@ -2,6 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/compare_transfer_fit_runs.py`](../../../scripts/slm/compare_transfer_fit_runs.py)
+> **复现命令**: `python scripts/slm/compare_transfer_fit_runs.py --dataset data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1 --baseline data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_baseline --updated data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full --out report/shape_trials/physical_refine/fit_compare_m3_20261118.md`
 > **运行环境**: 离线对照（同一 dataset 两次 fit 输出；设备未占用）
 > **说明**: M3 dataset（68 行）baseline(iter 0, loss 0.302758) vs updated(iter 17, loss 0.165202)：correlation 0.7867→0.8814。运行一致性断言通过（manifest_sha256/checkpoint/adaptation/radiometry/ramp_matrix 相同，cv_measured 逐行一致）。仅前向预测对照，不是整形验收。
 <!-- provenance:end -->
