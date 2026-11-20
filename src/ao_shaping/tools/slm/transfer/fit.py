@@ -302,6 +302,67 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
     return loss, entry, predicted
 
 
+def _flatten_parameters(parameters):
+    """Flatten one iteration's parameter dict to ``{name: float}`` (debug-weights).
+
+    Gives a stable, plot-friendly key set for the per-iteration weight trace:
+    ``origin`` / ``amplitude_center`` / ``amplitude_width`` are lists and
+    ``residual_noll_radians`` is a dict, so both are expanded to ``name_index``
+    keys. Only numbers are kept.
+    """
+    flat = {
+        "defocus_diopter": float(parameters["defocus_diopter"]),
+        "gain": float(parameters.get("gain", 0.0)),
+        "background": float(parameters.get("background", 0.0)),
+        "sigma_ccd_px": float(parameters.get("sigma_ccd_px", 0.0)),
+    }
+    for key in ("origin", "amplitude_center", "amplitude_width"):
+        values = parameters.get(key) or []
+        for index, value in enumerate(values):
+            flat[f"{key}_{index}"] = float(value)
+    for mode, value in (parameters.get("residual_noll_radians") or {}).items():
+        flat[f"residual_noll_{mode}"] = float(value)
+    return flat
+
+
+def _write_weight_trajectory(debug_dir, trajectory):
+    """Write ``weights_trajectory.npz`` + ``weights_summary.json`` (debug-weights).
+
+    ``trajectory`` is the per-iteration list of :func:`_flatten_parameters`
+    dicts. The summary reports each parameter's first→last change and its
+    largest single-iteration step — the direct answer to "did the weights move
+    during training".
+    """
+    if not trajectory:
+        return
+    keys = sorted({key for row in trajectory for key in row})
+    arrays = {
+        key: np.array([row.get(key, np.nan) for row in trajectory], dtype=float)
+        for key in keys
+    }
+    np.savez_compressed(
+        debug_dir / "weights_trajectory.npz",
+        iterations=np.arange(len(trajectory)),
+        **arrays,
+    )
+    summary = {}
+    for key, values in arrays.items():
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            continue
+        summary[key] = {
+            "first": float(finite[0]),
+            "last": float(finite[-1]),
+            "delta": float(finite[-1] - finite[0]),
+            "max_abs_step": (
+                float(np.max(np.abs(np.diff(finite)))) if finite.size > 1 else 0.0
+            ),
+        }
+    (debug_dir / "weights_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
+
+
 def fit(args):
     adaptation = getattr(args, "adaptation", "full")
     if adaptation == "auto":
@@ -342,6 +403,17 @@ def fit(args):
                                          **clock(), **summarize_response(value)))
 
         comps.model.diagnostic_callback = record_response
+    # Debug-weights: an explicit, opt-in trace of every trainable parameter per
+    # iteration. Off by default and purely additive (three files under
+    # ``<out>/debug_weights``); the canonical ``iterations.pkl`` stays unchanged.
+    debug_weights = bool(getattr(args, "debug_weights", False))
+    debug_dir = None
+    weight_stream = None
+    weight_trajectory: list[dict] = []
+    if debug_weights:
+        debug_dir = args.out / "debug_weights"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        weight_stream = (debug_dir / "weights_history.jsonl").open("w", encoding="utf-8")
     best_loss, history = float("inf"), []
     radiometry_mode = getattr(args, "radiometry", "exposure")
     early_stopper = EarlyStopper(
@@ -349,42 +421,61 @@ def fit(args):
         min_delta=getattr(args, "min_delta", 1e-4),
     )
     stopped_at = None
-    for iteration in range(args.iterations + 1):
-        comps.model.optimizer.zero_grad()
-        loss, entry, predicted = fit_loss(comps.model, comps, radiometry_mode, iteration)
-        if iteration == 0 and entry["parameters"]["gain"] <= 0:
-            raise ValueError(
-                "radiometry gain collapsed to zero at iteration 0: the checkpoint's "
-                "field does not overlap the measured window (origin/geometry mismatch). "
-                "The loss is then independent of the field, so no parameter can move; "
-                "re-anchor the geometry or refit from a fresh capture. "
-                f"(measured origin {np.round(comps.measured_origin, 1).tolist()}, "
-                f"checkpoint origin {np.round(comps.old.origin_xy, 1).tolist()})")
-        if getattr(args, "record_responses", False):
-            entry["responses"] = list(response_records)
-        history.append(entry)
-        np.savez_compressed(args.out / f"iteration_{iteration:04d}.npz", prediction=predicted)
-        with (args.out / "iterations.pkl").open("wb") as stream:
-            pickle.dump(history, stream, protocol=5)
-        if entry["loss"] < best_loss:
-            best_loss = entry["loss"]
-            (args.out / "result.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
-        if early_stopper.update(entry["loss"]):
-            stopped_at = iteration
-            print(
-                f"fit early-stop at iteration {iteration}: loss={entry['loss']:.6f}",
-                flush=True,
-            )
-            break
-        if iteration % 10 == 0:
-            print(f"{iteration}: train loss={entry['loss']:.5f}", flush=True)
-        if iteration < args.iterations:
-            loss.backward()
-            comps.model.optimizer.step()
-            with torch.no_grad():
-                comps.model.d.clamp_(-2, 2)
-                comps.model.center.clamp_(0, 1920)
-                comps.model.log_width.clamp_(float(np.log(80)), float(np.log(800)))
+    try:
+        for iteration in range(args.iterations + 1):
+            comps.model.optimizer.zero_grad()
+            loss, entry, predicted = fit_loss(comps.model, comps, radiometry_mode, iteration)
+            if iteration == 0 and entry["parameters"]["gain"] <= 0:
+                raise ValueError(
+                    "radiometry gain collapsed to zero at iteration 0: the checkpoint's "
+                    "field does not overlap the measured window (origin/geometry mismatch). "
+                    "The loss is then independent of the field, so no parameter can move; "
+                    "re-anchor the geometry or refit from a fresh capture. "
+                    f"(measured origin {np.round(comps.measured_origin, 1).tolist()}, "
+                    f"checkpoint origin {np.round(comps.old.origin_xy, 1).tolist()})")
+            if getattr(args, "record_responses", False):
+                entry["responses"] = list(response_records)
+            history.append(entry)
+            np.savez_compressed(args.out / f"iteration_{iteration:04d}.npz", prediction=predicted)
+            with (args.out / "iterations.pkl").open("wb") as stream:
+                pickle.dump(history, stream, protocol=5)
+            if weight_stream is not None:
+                flat = _flatten_parameters(entry["parameters"])
+                record = {"iteration": iteration, "loss": entry["loss"], "parameters": flat}
+                if weight_trajectory:
+                    previous = weight_trajectory[-1]
+                    record["delta"] = {
+                        key: flat[key] - previous.get(key, flat[key]) for key in flat
+                    }
+                weight_stream.write(json.dumps(record) + "\n")
+                weight_stream.flush()
+                weight_trajectory.append(flat)
+            if entry["loss"] < best_loss:
+                best_loss = entry["loss"]
+                (args.out / "result.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
+            if early_stopper.update(entry["loss"]):
+                stopped_at = iteration
+                print(
+                    f"fit early-stop at iteration {iteration}: loss={entry['loss']:.6f}",
+                    flush=True,
+                )
+                break
+            if iteration % 10 == 0:
+                print(f"{iteration}: train loss={entry['loss']:.5f}", flush=True)
+            if iteration < args.iterations:
+                loss.backward()
+                comps.model.optimizer.step()
+                with torch.no_grad():
+                    comps.model.d.clamp_(-2, 2)
+                    comps.model.center.clamp_(0, 1920)
+                    comps.model.log_width.clamp_(float(np.log(80)), float(np.log(800)))
+    finally:
+        # Close the trace on every exit, including the collapsed-gain raise, so a
+        # Windows run never leaves ``weights_history.jsonl`` locked. The partial
+        # trajectory still lands, which is what a debugging run usually wants.
+        if weight_stream is not None:
+            weight_stream.close()
+            _write_weight_trajectory(debug_dir, weight_trajectory)
     best = json.loads((args.out / "result.json").read_text())
     provenance["early_stopped"] = stopped_at is not None
     provenance["stopped_iteration"] = stopped_at
@@ -475,6 +566,10 @@ def main():
     parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
     parser.add_argument("--record-responses", action="store_true",
                         help="Record detached physical-stage response statistics in every iteration (adds diagnostic overhead)")
+    parser.add_argument("--debug-weights", action="store_true",
+                        help="Debug mode: save every trainable parameter per iteration to "
+                             "<out>/debug_weights (weights_history.jsonl + weights_trajectory.npz "
+                             "+ weights_summary.json). Off by default; purely additive.")
     parser.add_argument("--device", choices=DEVICE_CHOICES, default="auto",
                         help="auto = CUDA when available else CPU; cpu pins the historical numbers")
     args = parser.parse_args()

@@ -92,6 +92,11 @@ class TransferSession:
     #: same keys/content as before, for the offline ``--dataset`` path and the
     #: ``scripts/slm/`` analyses.
     save_dataset: bool = False
+    #: Debug mode: save every trainable parameter per fit iteration under each
+    #: round's ``<fit_out>/debug_weights`` (``weights_history.jsonl`` +
+    #: ``weights_trajectory.npz`` + ``weights_summary.json``). Off by default and
+    #: purely additive; the canonical ``iterations.pkl`` is unchanged.
+    debug_weights: bool = False
     #: Compute device for the torch stages (fit, synthesis, CCD blocks):
     #: ``"auto"`` follows the machine (CUDA when available, else CPU), ``"cpu"``
     #: reproduces the historical numbers, ``"cuda"`` fails loudly if unavailable.
@@ -1193,6 +1198,7 @@ def _run_session_rounds(accepted, checkpoint, config, dataset, device, fit, max_
                     amplitude_center_lr=config.amplitude_center_lr,
                     adaptation=config.adaptation if config.checkpoint else "full",
                     train_all=train_all,
+                    debug_weights=config.debug_weights,
                 )
             ),
         )
@@ -1731,6 +1737,13 @@ def _add_session_commands(commands):
             default="auto",
             help="Compute device for fit/synthesis/CCD blocks: auto = CUDA when "
             "available else CPU; cpu reproduces the historical numbers",
+        )
+        p.add_argument(
+            "--debug-weights",
+            action="store_true",
+            help="Debug mode: save every model weight per fit iteration under "
+            "<out>/fit*/debug_weights/ (weights_history.jsonl + "
+            "weights_trajectory.npz + weights_summary.json). Off by default.",
         )
         p.add_argument("--side", type=float, default=80.0)
         p.add_argument("--period", type=float, default=64.0)
