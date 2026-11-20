@@ -143,6 +143,8 @@ report/**/*.npy
 # Regenerable with AO_GS_REFINE_GOLDEN_UPDATE=1; the shape/sha1 are checked in CI.
 !tests/ao_shaping/optimizer/wfless/gs_refine_target_shapes_golden.npz
 *.log
+# 采集视频体积较大, 由脚本从已落盘实测帧重现; GIF 不忽略, 便于 push 预览。
+*.mp4
 scripts/dev**
 tmp_*
 docs/**/*.pdf
