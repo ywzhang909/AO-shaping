@@ -86,10 +86,10 @@
   },
   "ao_shaping.runners.runner_common.save_best_voltages": {
    "qualname": "save_best_voltages",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 4040,
-   "end": 4060,
+   "module": "ao_shaping.runners.voltage_io",
+   "file": "src/ao_shaping/runners/voltage_io.py",
+   "lineno": 87,
+   "end": 107,
    "args": [
     "records",
     "root_dir",
@@ -103,8 +103,8 @@
    "qualname": "optimizer_rms_dm",
    "module": "ao_shaping.optimizer.wf.rms",
    "file": "src/ao_shaping/optimizer/wf/rms.py",
-   "lineno": 50,
-   "end": 207,
+   "lineno": 116,
+   "end": 214,
    "args": [
     "epochs",
     "wfs_res",
@@ -369,8 +369,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 509,
-   "end": 661,
+   "lineno": 540,
+   "end": 665,
    "args": [
     "center",
     "epochs",
@@ -418,8 +418,8 @@
    "qualname": "get_init_V_by_rms",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 249,
-   "end": 273,
+   "lineno": 250,
+   "end": 274,
    "args": [
     "date"
    ],
@@ -429,10 +429,10 @@
   },
   "ao_shaping.runners.runner_common.load_init_v": {
    "qualname": "load_init_v",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 4018,
-   "end": 4037,
+   "module": "ao_shaping.runners.voltage_io",
+   "file": "src/ao_shaping/runners/voltage_io.py",
+   "lineno": 65,
+   "end": 84,
    "args": [
     "load_file"
    ],
@@ -458,8 +458,8 @@
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 159,
-   "end": 166,
+   "lineno": 160,
+   "end": 167,
    "args": [
     "base_dir"
    ],
@@ -471,8 +471,8 @@
    "qualname": "gen_file_path_uuid",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 137,
-   "end": 147,
+   "lineno": 138,
+   "end": 148,
    "args": [
     "dir",
     "postfix"
@@ -483,10 +483,10 @@
   },
   "ao_shaping.runners.runner_common.plot_pib_debug_grid": {
    "qualname": "plot_pib_debug_grid",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 4063,
-   "end": 4095,
+   "module": "ao_shaping.runners.voltage_io",
+   "file": "src/ao_shaping/runners/voltage_io.py",
+   "lineno": 110,
+   "end": 142,
    "args": [
     "init_img",
     "best_img",
@@ -683,8 +683,8 @@
    "qualname": "resample_on_saturation",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 812,
-   "end": 856,
+   "lineno": 850,
+   "end": 895,
    "args": [
     "img",
     "cam",
@@ -797,7 +797,7 @@
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
    "lineno": 753,
-   "end": 773,
+   "end": 796,
    "args": [
     "img"
    ],
@@ -950,8 +950,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1326,
-   "end": 1492,
+   "lineno": 1406,
+   "end": 1506,
    "args": [
     "ctx",
     "params",
@@ -1107,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 585,
-   "end": 774,
+   "lineno": 676,
+   "end": 812,
    "args": [
     "slm",
     "wfs",
@@ -1177,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 780,
-   "end": 976,
+   "lineno": 929,
+   "end": 1038,
    "args": [
     "slm",
     "wfs",
@@ -1228,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1818,
-   "end": 1970,
+   "lineno": 1965,
+   "end": 1995,
    "args": [
     "ctx",
     "params"
@@ -1249,8 +1249,8 @@
    "qualname": "from_response_matrix",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1394,
-   "end": 1464,
+   "lineno": 1512,
+   "end": 1582,
    "args": [
     "result",
     "config"
@@ -1263,8 +1263,8 @@
    "qualname": "_measure_wfs_step",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1467,
-   "end": 1493,
+   "lineno": 1585,
+   "end": 1611,
    "args": [
     "wfs",
     "mask_indices",
@@ -1280,8 +1280,8 @@
    "qualname": "_expand_to_noll",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1496,
-   "end": 1521,
+   "lineno": 1614,
+   "end": 1639,
    "args": [
     "u",
     "n_max",
@@ -1319,8 +1319,8 @@
    "qualname": "optimizer_rms_slm",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
    "file": "src/ao_shaping/optimizer/wf/rms_by_zernike.py",
-   "lineno": 862,
-   "end": 1016,
+   "lineno": 893,
+   "end": 1047,
    "args": [
     "epochs",
     "init_z",
@@ -1369,8 +1369,8 @@
    "qualname": "build_debug_save_paths",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 215,
-   "end": 245,
+   "lineno": 216,
+   "end": 246,
    "args": [
     "root_dir",
     "context_subdir"
@@ -1410,8 +1410,8 @@
    "qualname": "save_optimization_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1380,
-   "end": 1525,
+   "lineno": 1369,
+   "end": 1514,
    "args": [
     "records",
     "save_dir",
@@ -1471,8 +1471,8 @@
    "qualname": "_validate_frame_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1225,
-   "end": 1238,
+   "lineno": 1214,
+   "end": 1227,
    "args": [
     "mode"
    ],
@@ -1484,8 +1484,8 @@
    "qualname": "_save_data_mode_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 1241,
-   "end": 1377,
+   "lineno": 1230,
+   "end": 1366,
    "args": [
     "data",
     "png_path",
@@ -1508,8 +1508,8 @@
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 159,
-   "end": 166,
+   "lineno": 160,
+   "end": 167,
    "args": [
     "base_dir"
    ],
@@ -1699,8 +1699,8 @@
    "qualname": "optimizer_ga",
    "module": "ao_shaping.optimizer.wf.ga_zernike",
    "file": "src/ao_shaping/optimizer/wf/ga_zernike.py",
-   "lineno": 138,
-   "end": 389,
+   "lineno": 218,
+   "end": 405,
    "args": [
     "n_generations",
     "population_size",
@@ -1816,8 +1816,8 @@
    "qualname": "optimizer_greedy",
    "module": "ao_shaping.optimizer.wf.greedy_zernike",
    "file": "src/ao_shaping/optimizer/wf/greedy_zernike.py",
-   "lineno": 355,
-   "end": 519,
+   "lineno": 416,
+   "end": 534,
    "args": [
     "epochs",
     "n_init",
@@ -2361,8 +2361,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
-   "lineno": 397,
-   "end": 488,
+   "lineno": 421,
+   "end": 512,
    "args": [
     "center",
     "epochs",
@@ -2458,8 +2458,8 @@
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3352,
-   "end": 3420,
+   "lineno": 3505,
+   "end": 3584,
    "args": [
     "params",
     "debug"
@@ -2472,8 +2472,8 @@
    "qualname": "save_gs_refine_results",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3617,
-   "end": 3738,
+   "lineno": 3784,
+   "end": 3916,
    "args": [
     "recorder",
     "params",
@@ -2488,8 +2488,8 @@
    "qualname": "_shape_params_line",
    "module": "ao_shaping.runners.slm.gs_refine_runner",
    "file": "src/ao_shaping/runners/slm/gs_refine_runner.py",
-   "lineno": 87,
-   "end": 109,
+   "lineno": 118,
+   "end": 133,
    "args": [
     "params"
    ],
@@ -2501,8 +2501,8 @@
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3352,
-   "end": 3420,
+   "lineno": 3505,
+   "end": 3584,
    "args": [
     "params",
     "debug"
@@ -2515,8 +2515,8 @@
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3344,
-   "end": 3349,
+   "lineno": 3368,
+   "end": 3373,
    "args": [
     "raw"
    ],
@@ -2564,8 +2564,8 @@
    "qualname": "build_model_in_loop_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3523,
-   "end": 3614,
+   "lineno": 3687,
+   "end": 3781,
    "args": [
     "params",
     "debug"
@@ -2576,10 +2576,10 @@
   },
   "ao_shaping.runners.runner_common.save_model_in_loop_results": {
    "qualname": "save_model_in_loop_results",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3796,
-   "end": 3991,
+   "module": "ao_shaping.runners.model_in_loop_io",
+   "file": "src/ao_shaping/runners/model_in_loop_io.py",
+   "lineno": 211,
+   "end": 346,
    "args": [
     "result",
     "params",
@@ -2593,10 +2593,10 @@
   },
   "ao_shaping.runners.runner_common.save_model_in_loop_config": {
    "qualname": "save_model_in_loop_config",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3741,
-   "end": 3759,
+   "module": "ao_shaping.runners.model_in_loop_io",
+   "file": "src/ao_shaping/runners/model_in_loop_io.py",
+   "lineno": 62,
+   "end": 80,
    "args": [
     "config",
     "save_dir"
@@ -2642,8 +2642,8 @@
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3344,
-   "end": 3349,
+   "lineno": 3368,
+   "end": 3373,
    "args": [
     "raw"
    ],
@@ -2756,10 +2756,10 @@
   },
   "save_model_in_loop_config": {
    "qualname": "save_model_in_loop_config",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3741,
-   "end": 3759,
+   "module": "ao_shaping.runners.model_in_loop_io",
+   "file": "src/ao_shaping/runners/model_in_loop_io.py",
+   "lineno": 62,
+   "end": 80,
    "args": [
     "config",
     "save_dir"
@@ -2770,10 +2770,10 @@
   },
   "_model_in_loop_json_payload": {
    "qualname": "_model_in_loop_json_payload",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3762,
-   "end": 3793,
+   "module": "ao_shaping.runners.model_in_loop_io",
+   "file": "src/ao_shaping/runners/model_in_loop_io.py",
+   "lineno": 83,
+   "end": 114,
    "args": [
     "result"
    ],
@@ -2785,8 +2785,8 @@
    "qualname": "parse_frozen_modes",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3336,
-   "end": 3341,
+   "lineno": 3360,
+   "end": 3365,
    "args": [
     "raw"
    ],
@@ -2798,8 +2798,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.transfer_shapes_runner",
    "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 723,
-   "end": 789,
+   "lineno": 914,
+   "end": 999,
    "args": [
     "out_dir",
     "shapes",
@@ -2975,11 +2975,11 @@
    "decorators": []
   },
   "_measured_peak_rates": {
-   "qualname": "_measured_peak_rates",
-   "module": "ao_shaping.runners.slm.transfer_shapes_runner",
-   "file": "src/ao_shaping/runners/slm/transfer_shapes_runner.py",
-   "lineno": 91,
-   "end": 106,
+   "qualname": "measured_peak_rates",
+   "module": "ao_shaping.tools.slm.transfer.session_record",
+   "file": "src/ao_shaping/tools/slm/transfer/session_record.py",
+   "lineno": 127,
+   "end": 142,
    "args": [
     "runs"
    ],
@@ -2991,8 +2991,8 @@
    "qualname": "derive_replay_exposures",
    "module": "ao_shaping.tools.slm.transfer.protocol",
    "file": "src/ao_shaping/tools/slm/transfer/protocol.py",
-   "lineno": 511,
-   "end": 557,
+   "lineno": 574,
+   "end": 620,
    "args": [
     "observations",
     "fractions"
@@ -3117,8 +3117,8 @@
    "qualname": "run",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 473,
-   "end": 861,
+   "lineno": 585,
+   "end": 913,
    "args": [
     "params"
    ],
@@ -3134,8 +3134,8 @@
    "qualname": "depth_pattern",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 43,
-   "end": 59,
+   "lineno": 65,
+   "end": 81,
    "args": [
     "period",
     "peak_gray",
@@ -3150,8 +3150,8 @@
    "qualname": "stack_halves",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 91,
-   "end": 121,
+   "lineno": 134,
+   "end": 164,
    "args": [
     "ref",
     "test",
@@ -3201,8 +3201,8 @@
    "qualname": "build_inverse_lut",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 248,
-   "end": 275,
+   "lineno": 359,
+   "end": 386,
    "args": [
     "phi",
     "g_values",
@@ -3216,8 +3216,8 @@
    "qualname": "save_lut",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 278,
-   "end": 331,
+   "lineno": 389,
+   "end": 442,
    "args": [
     "dir_path",
     "g_values",
@@ -3281,8 +3281,8 @@
    "qualname": "invert_depth_scan",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 186,
-   "end": 214,
+   "lineno": 229,
+   "end": 257,
    "args": [
     "eta"
    ],
@@ -3294,8 +3294,8 @@
    "qualname": "invert_offset_scan",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 217,
-   "end": 245,
+   "lineno": 260,
+   "end": 288,
    "args": [
     "eta",
     "g_values",
@@ -3309,8 +3309,8 @@
    "qualname": "offset_pattern",
    "module": "ao_shaping.utils.slm.slm_lut",
    "file": "src/ao_shaping/utils/slm/slm_lut.py",
-   "lineno": 62,
-   "end": 88,
+   "lineno": 84,
+   "end": 110,
    "args": [
     "period",
     "peak_gray",

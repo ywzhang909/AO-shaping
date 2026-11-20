@@ -5817,6 +5817,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - P2-A 自检: 新增 `scripts/push_preflight.py` —— ruff + 术语 + modsize + 四静态守卫约 60 s (容器实测 35 s, 436 passed); pytest 段带 `-o addopts=` (容器无 pytest-timeout, pyproject addopts 透传必炸 --timeout 未识别); CONTRIBUTING「本地质量门禁」入册「push 前自检 (#251 P2-A)」并链环境契约
 - 载体: 四守卫文件+preflight 容器内全绿; ruff 全仓绿; term 0; modsize `--check` 0
 
+**2026-11-20 · cb8585e2 之后 · 第 173 批: #249 A+B —— call_graph 双 JSON span 全量重钉 + 漂移守卫入 CI**
+- A 重钉 (先实测再否决 issue 的 str.replace 方案): 磁盘对拍 tip 实测 stale=41 + fn_gone=8 (issue 报 47 是旧 tip, 第 169/170 批改动已顺带修掉几处); **关键实测: `json.dumps(json.loads(raw), ensure_ascii=False, indent=1)+"\\n"` 与原文件逐字节相等** —— 文件就是 finalize_graph.py 该写法的产物, 因此重钉 = 内存改字段后同格式重 dump, diff 天然只含 span 行 (228 行/文件, 逐条核验除 lineno/end/file/module/qualname 外零字段变化), 无需字节手术; 节点数 215/边 290 不变, 双 JSON 保持逐字节一致
+- fn_gone 8 处 = 函数搬移回指 (非 span 问题): 3 → `voltage_io.py`、3 → `model_in_loop_io.py` (第 167/168 批 hoist 的落点), `_measured_peak_rates` → 已改名 `measured_peak_rates` 且搬入 `transfer/session_record.py` (上游物理验证侧重命名); **key 与 edges 一律不动** —— edges 的 `to` 是裸名、`from` 用长 key, 改 key 会级联; B 守卫按 (file, qualname) 匹配, 字段回指后即绿
+- 工具入册: `scripts/call_graph/repin_spans.py` (`--check` 只报告, 存在无法解析节点即退出非 0; `MOVED` 历史迁移表逐条带出处), scripts/README.md 登记
+- B 守卫: `tests/ao_shaping/test_call_graph_span_drift.py` —— 双 JSON 逐字节一致 + 全节点 (file, qualname 末段) 对拍磁盘 AST, **A 清零后基线直接钉 0** (比 issue 设想的棘轮更强), 漂移走 `census_repin.yellow_or_red` (台账留痕→黄, 未登记→红) —— 与 #251 P0-A 同一通道语义; 负样本自测 (span 差一行 + 函数消失都进漂移清单); 守卫并入 `push_preflight.py` 四守卫→五守卫
+- 载体: repin `--check` 退出 0 (stale 0); 守卫 **3 passed**; ruff 全仓绿; term 0; modsize `--check` 0
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

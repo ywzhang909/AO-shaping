@@ -39,6 +39,7 @@ CHECKS: list[tuple[str, list[str]]] = [
             "tests/ao_shaping/scripts/test_common_helpers_not_reintroduced.py",
             "tests/ao_shaping/scripts/test_dry_run_self_contained.py",
             "tests/ao_shaping/test_golden_tolerance_policy.py",
+            "tests/ao_shaping/test_call_graph_span_drift.py",
         ],
     ),
 ]
