@@ -87,7 +87,7 @@ STAGE_LABELS: dict[str, str] = {
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：CCD 配对 ABBA 交错测量 验收 或 模型损失验收（无 CCD 实测））",
+    "CCD_anchored_blocks": "CCD 实测校正迭代（按实测校正，验收：CCD 配对 ABBA 交错测量 验收 或 模型损失验收（无 CCD 实测））",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",

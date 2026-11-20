@@ -2045,7 +2045,7 @@ TRANSFER_STAGE_LABELS: dict[str, str] = {
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正迭代（按实测校正，验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
     "raw_data_audit": "原始数据审计",
@@ -2307,15 +2307,15 @@ class TransferMethod(ShapingMethod):
         )
 
     def render_budget(self, values: dict[str, Any]) -> None:
-        """预算：探针数 / 拟合迭代 / 按实测校正块数 / 每块更新数 / 每点帧数 / 随机种子。"""
+        """预算：探针数 / 拟合迭代 / 实测迭代轮次数 / 每轮更新数 / 每点帧数 / 随机种子。"""
         d = TRANSFER_RECIPE
         for cell, (name, label, lo, hi, step, help_text) in zip(
             _param_cells(4),
             (
                 ("count", "探针数", 6, 96, 6, "分组随机探针数（CLI --count）"),
                 ("iterations", "拟合迭代", 0, 99999, 10, "模型参数拟合迭代（CLI --iterations）；上限由时间预算约束"),
-                ("blocks", "校正块数", 1, 99999, 1, "CCD 按实测校正的短块数，每块一次 A–B–B–A 验收；上限由时间预算约束"),
-                ("updates", "每块更新数", 1, 99999, 1, "每块内的模型更新次数；上限由时间预算约束"),
+                ("blocks", "实测迭代轮次数", 1, 99999, 1, "CCD 按实测校正的迭代轮次数，每轮一次 A–B–B–A 验收；上限由时间预算约束"),
+                ("updates", "每轮更新数", 1, 99999, 1, "每轮内的模型更新次数；上限由时间预算约束"),
             ),
             strict=True,
         ):

@@ -6,7 +6,8 @@ PySide6 桌面页 (``transfer_desktop/page.py``) 与 Streamlit 页
 (``gui/slm/shaping_controls.py``) 必须把同一张表单映射成同一个
 :class:`~ao_shaping.tools.slm.transfer.workflow.TransferSession`，否则两条入口
 会对同一次实验给出不同的默认值、不同的拒绝顺序或不同的会话目录。本模块只用
-标准库与 ``ao_shaping.tools.slm.transfer``，**不 import** Qt / Streamlit /
+标准库与 ``ao_shaping`` 的纯 numpy 模块（``tools.slm.transfer`` /
+``tools.slm.panel.target_size``），**不 import** Qt / Streamlit /
 ``shaping_controls`` / ``transfer_candidates``，因此没有服务器也能单测，也不会
 把 Qt 拖进 ``import ao_shaping.gui.slm``。
 
@@ -32,6 +33,7 @@ from typing import TYPE_CHECKING
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.io.paths import data_dir
 from ao_shaping.utils.io.timestamp import format_ts
+from ao_shaping.tools.slm.panel.target_size import DEFAULT_SYSTEM
 from ao_shaping.tools.slm.transfer.preflight import (
     MIN_SIDE_PX as _MIN_SIDE_PX,
     WINDOW_MARGIN_PX as _WINDOW_MARGIN_PX,
@@ -83,6 +85,36 @@ _TILT_DEPENDENT_CHECK_CODES: frozenset[str] = frozenset(
 #: 矩形长/短比的合理上限（越大越极端，超过它在采样窗里既难容纳也失真）。
 _RECT_ASPECT_MAX = 10.0
 
+#: 自动派生采样窗半跨的物理上限：**相机帧短轴的一半**。由相机光路档案
+#: :data:`ao_shaping.tools.slm.panel.target_size.DEFAULT_SYSTEM` 的
+#: ``camera_shape``（大恒 MER2-507，1944×2592，行×列）取短轴 1944 px，一半即
+#: 972 px —— 半跨再大，采样窗在任何零点位置都不可能完整落在帧内。倾斜相位开启
+#: 时派生最多加到这里，剩下的交给 ``preflight`` 的越界判据报出「减小边长 /
+#: 调大周期」，而不是把窗无声地放大到帧外。
+_MAX_DERIVED_HALF_SPAN_PX: float = min(DEFAULT_SYSTEM.camera_shape) / 2.0
+
+
+def _carrier_offset_px(period: float, tilt: bool) -> float:
+    """倾斜载波把目标推离 0 级的位移（px）：关闭倾斜或周期不合法时为 ``0``。
+
+    与 ``validate.run`` / ``workflow.decide_capture_grid`` / :func:`describe_capture_grid`
+    同一份外推（``carrier_offset_px(period, TILT_SHIFT_SCALE)``），所以 GUI 校验、
+    网格升档与真跑看到的位移永远一致。周期不合法时位移没有物理意义（外推会给出
+    几千 px），此时不参与派生：``period_invalid`` 已经是阻塞错误。
+    """
+    if not tilt:
+        return 0.0
+    from ao_shaping.algorithm.signal_processing.multishape_objective import (
+        carrier_offset_px,
+    )
+    from ao_shaping.tools.slm.transfer.preflight import MIN_PERIOD_PX
+    from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+
+    value = float(period)
+    if not math.isfinite(value) or value < MIN_PERIOD_PX:
+        return 0.0
+    return float(carrier_offset_px(value, TILT_SHIFT_SCALE))
+
 #: 验收阈值循环：相关性（correlation）下界的算法建议值，也是页面控件的默认值。
 #: 与 :class:`TransferFormValues` 里 ``acceptance_lower`` 的默认一致（镜像
 #: ``TransferSession.acceptance_lower``）；页面「算法建议」提示读取这里。
@@ -122,7 +154,7 @@ STAGE_LABELS: dict[str, str] = {
     "exposure_response_capture": "曝光阶梯诊断",
     "exposure_response_analysis": "曝光响应分析",
     "blur_calibration": "有效展宽 / 辐射尺度校准",
-    "CCD_anchored_blocks": "CCD 实测校正优化块（按实测迭代，验收：A–B–B–A 或仅模型损失）",
+    "CCD_anchored_blocks": "CCD 实测校正迭代（按实测校正，验收：A–B–B–A 或仅模型损失）",
     "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
     "transferred_phase_differentiable_synthesis": (
         "历史接受相位迁移 + 可微合成（离线）"
@@ -169,8 +201,10 @@ class TransferFormValues:
         iterations: 模型参数拟合迭代数（最大预算；早停可提前终止）。
         patience: 早停 patience（连续无改进的迭代数）。
         min_delta: 早停最小改进幅度。
-        blocks: 按 CCD 实测校正的短块数。
-        updates: 每块内的模型更新次数。
+        phase_lr: 可微优化（相位合成 Adam）的学习率，对应
+            ``TransferSession.phase_lr``（管线默认 0.30）。
+        blocks: 按 CCD 实测校正的迭代轮次数。
+        updates: 每轮内的模型更新次数。
         frames: 每个测量点的原始帧数。
         seed: 探针/初始化随机种子。
         camera: 相机后端（``CAMERA_CHOICES`` 之一）。
@@ -213,6 +247,8 @@ class TransferFormValues:
     iterations: int = 200
     patience: int = 8
     min_delta: float = 1e-4
+    #: 可微优化（相位合成 Adam）学习率；映射到 ``TransferSession.phase_lr``。
+    phase_lr: float = 0.30
     blocks: int = 4
     # 5: the step_rms_cap saturates after 2-3 updates at phase_lr 0.30 (see
     # tools/slm/transfer/workflow.py:TransferConfig.updates).
@@ -250,6 +286,7 @@ def effective_window_span(
     side: float,
     window_span: float = 0.0,
     aspect_ratio: float = 1.0,
+    offset_px: float = 0.0,
 ) -> float:
     """采样窗**半跨**（px）：显式值优先，否则由目标边长派生。
 
@@ -267,8 +304,13 @@ def effective_window_span(
     * 否则 ``max(220, extent/2 + 8)``：采样窗必须放下整个目标 + 两侧留白。
       ``extent`` 大到接近帧边时，派生出的半跨恰好等于 0 级到帧边的距离，
       窗刚好不越界 —— 这正是「目标边长上限」的物理含义。
+    * 倾斜相位开启时再加 ``offset_px``：窗心仍是 0 级，但目标整体被载波推离
+      0 级 ``offset_px``，窗必须同时放下「位移 + 半个目标 + 留白」。旧口径只按
+      目标派生，于是 period/side 的组合在 GUI 校验里「看着没问题」，直到采集 /
+      拟合之后才被 ``validate.run`` 的硬保护判成「目标与相机窗边界相交」。
 
-    小目标行为不变：``side <= 424`` 时结果仍是 220.0，与管线默认值逐位相同。
+    小目标行为不变：``side <= 424`` 时结果仍是 220.0（倾斜相位关闭、或位移为 0
+    时与旧口径逐位相同），与管线默认值逐位相同。
 
     Args:
         side: 目标边长（CCD px）。
@@ -278,6 +320,10 @@ def effective_window_span(
             目标在轴上占到的**最大跨度** ``side * aspect_ratio`` 来算 —— 只按短边
             派生会让长边溢出窗（短 130 × 比 2 → 长边 260 > 窗 220）。非矩形传
             ``1.0``，此时 ``extent == side``，行为不变。
+        offset_px: 载波把目标推离 0 级的位移（px，见
+            :func:`_carrier_offset_px`）；``0`` = 不加强位（倾斜相位关闭或周期不
+            合法）。派生上限 :data:`_MAX_DERIVED_HALF_SPAN_PX`（半个相机帧）之外
+            的部分不再自动放宽 —— 放不下的组合交给 preflight 报错。
 
     Returns:
         采样窗半跨（px），**不是全宽**。
@@ -290,7 +336,19 @@ def effective_window_span(
     if float(window_span) > 0:
         return float(window_span)
     extent = float(side) * max(float(aspect_ratio), 1.0)
-    return max(HALF_SPAN_PX, extent / 2.0 + WINDOW_MARGIN_PX)
+    base = max(HALF_SPAN_PX, extent / 2.0 + WINDOW_MARGIN_PX)
+    offset = float(offset_px)
+    if not math.isfinite(offset) or offset <= 0.0:
+        return base
+    # 窗心仍是 0 级，目标整体被载波推离 ``offset`` px；窗必须放下「位移 + 半个
+    # 目标 + 留白」，否则 validate.run 的最后一道硬保护必然报「目标与相机窗边界
+    # 相交」（那已经是采集/拟合之后了）。上限是相机帧的半个短轴：再宽的窗已经
+    # 越出帧，物理结论是「这组 period/side 放不下」，由 preflight 的
+    # ``side_offset_overflow`` 报出可执行的改法，而不是把窗无声地放大。
+    return min(
+        base + offset,
+        max(base, _MAX_DERIVED_HALF_SPAN_PX),
+    )
 
 
 def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
@@ -334,6 +392,8 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
     shapes = tuple(values.shapes or ())
     side = float(values.side)
     period = float(values.period)
+    # 倾斜载波的位移（px）：倾斜关闭或周期不合法时为 0，口径与真跑 / 网格升档同一份。
+    offset_px = _carrier_offset_px(period, tilt)
 
     if "rectangle" in shapes:
         aspect_ratio = float(values.aspect_ratio)
@@ -347,13 +407,15 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
                 f"矩形长/短比 {aspect_ratio:g} 超出合理上限 {_RECT_ASPECT_MAX:g}。"
                 "\n    → 太大在采样窗里既难容纳也失真，请调小。"
             ], []
-        window_span = effective_window_span(side, values.window_span, aspect_ratio)
+        window_span = effective_window_span(
+            side, values.window_span, aspect_ratio, offset_px=offset_px
+        )
         long_side = side * aspect_ratio
-        # 采样窗是半跨：两轴各能容纳 ``window_span - 留白`` 的半个目标，故整边能放进
-        # ``2*(window_span - margin)`` —— 与 preflight._max_side_px 同语义。只按半跨
-        # 硬比会把「放得进窗」的目标误判成超窗（如短边 130×比 2，长边 260 落在
-        # 半跨 220 已经派生放大的窗里）。
-        side_limit = 2.0 * (window_span - _WINDOW_MARGIN_PX)
+        # 采样窗是半跨：两轴各能容纳 ``window_span - 留白 - 位移`` 的半个目标，
+        # 故整边能放进 ``2*(window_span - 留白 - 位移)`` —— 与
+        # preflight._max_side_px(offset, span) 同语义。只按半跨硬比会把「放得进窗」
+        # 的目标误判成超窗（如短边 130×比 2，长边 260 落在半跨 220 已经派生放大的窗里）。
+        side_limit = 2.0 * (window_span - _WINDOW_MARGIN_PX - offset_px)
         for label, value in ("短边", side), ("长边", long_side):
             if not math.isfinite(value) or value <= 0:
                 return [f"矩形{label} {value!r} 不是正数。"], []
@@ -381,7 +443,13 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
         updates=int(values.updates),
         frames=int(values.frames),
         shapes=shapes,
-        half_span_px=effective_window_span(side, values.window_span, aspect_ratio),
+        # 已知位移（由周期外推）交给 preflight：「位移 + 目标边长」放不下时给出
+        # 「减小边长 / 调大周期」的可执行结论，而不是等 validate.run 的硬保护在
+        # 采集/拟合之后抛异常。倾斜关闭时传 None —— 那时没有载波位移。
+        offset_px=offset_px if tilt else None,
+        half_span_px=effective_window_span(
+            side, values.window_span, aspect_ratio, offset_px=offset_px
+        ),
     )
     if not tilt:
         problems = [
@@ -421,6 +489,32 @@ def validate_form(values: TransferFormValues) -> tuple[list[str], list[str]]:
                 f"relative_l2 上界 {upper!r} 不是正数（算法建议 {ACCEPTANCE_UPPER_DEFAULT}）。"
                 "\n    → 验收循环会拿它对比模型预测的相对 L2 误差，请填大于 0 的值。"
             )
+    # 可微优化三参数（桌面页可调）：``iterations ≥ 1`` 已由 check_parameters 把关，
+    # 这里补早停与学习率 —— patience < 1 会让拟合在第一次评估就停，学习率非正数
+    # 会让 TransferSession.validate 在点「开始」之后才报错。
+    patience = int(values.patience)
+    if patience < 1:
+        errors.append(
+            f"早停 patience = {patience}，必须 ≥ 1（连续无改进的迭代数）。"
+            "\n    → 填 1 或更大的整数；默认 8。"
+        )
+    delta = float(values.min_delta)
+    if not math.isfinite(delta) or delta < 0.0:
+        errors.append(
+            f"早停最小改进 min_delta = {delta!r}，必须是有限非负数。"
+            "\n    → 默认 1e-4；填 0 表示只要有任何改进就重置 patience。"
+        )
+    lr = float(values.phase_lr)
+    if not math.isfinite(lr) or lr <= 0.0:
+        errors.append(
+            f"可微优化学习率 {lr!r} 必须是有限正数。"
+            "\n    → 常用 0.01–0.30（管线默认 0.30）。"
+        )
+    elif lr > 1.0:
+        warnings.append(
+            f"可微优化学习率 {lr:g} 高于 1.0（管线默认 0.30）。"
+            "\n    → 相位合成的 Adam 步长过大容易发散，请确认这是有意设置。"
+        )
     return errors, warnings
 
 
@@ -586,6 +680,7 @@ def build_session(
         side=float(values.side),
         patience=int(values.patience),
         min_delta=float(values.min_delta),
+        phase_lr=float(values.phase_lr),
         period=float(values.period),
         window_span=effective_window_span(
             float(values.side),
@@ -593,6 +688,11 @@ def build_session(
             float(values.aspect_ratio)
             if "rectangle" in tuple(values.shapes or ())
             else 1.0,
+            # 与 validate_form 同一口径：真跑用的窗必须放下「载波位移 + 半个目标
+            # + 留白」，否则 validate.run 的硬保护会在采集之后才报边界相交。
+            offset_px=_carrier_offset_px(
+                float(values.period), bool(values.tilt)
+            ),
         ),
         seed=int(values.seed),
         camera=str(values.camera),
