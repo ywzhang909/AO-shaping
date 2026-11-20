@@ -19,7 +19,7 @@ AO-Shaping：自适应光学（AO）系统，RL 波前校正与光束整形；�
 
 ## 当日注意事项与历史按日记录
 
-最新：[docs/dev/agent_notes_20261119.md](docs/dev/agent_notes_20261119.md)；历史按日见 `docs/dev/agent_notes_*.md`。
+最新：[docs/dev/agent_notes_20261120.md](docs/dev/agent_notes_20261120.md)；历史按日见 `docs/dev/agent_notes_*.md`。
 
 ## References
 
