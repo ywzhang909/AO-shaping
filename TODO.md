@@ -5824,6 +5824,10 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - B 守卫: `tests/ao_shaping/test_call_graph_span_drift.py` —— 双 JSON 逐字节一致 + 全节点 (file, qualname 末段) 对拍磁盘 AST, **A 清零后基线直接钉 0** (比 issue 设想的棘轮更强), 漂移走 `census_repin.yellow_or_red` (台账留痕→黄, 未登记→红) —— 与 #251 P0-A 同一通道语义; 负样本自测 (span 差一行 + 函数消失都进漂移清单); 守卫并入 `push_preflight.py` 四守卫→五守卫
 - 载体: repin `--check` 退出 0 (stale 0); 守卫 **3 passed**; ruff 全仓绿; term 0; modsize `--check` 0
 
+**2026-11-20 · 54d02a62 之后 · 第 174 批: ci 修复 —— ci172/ci173 scripts 分片红清零 (#251 遗留)**
+- 红因 (annotation 只到分片粒度, 本地整目录复现定位): `test_pytest_workflow_shards_cover_tree.py::test_every_test_area_is_sharded` —— 第 172/173 批新增的**根级**测试模块 `test_golden_tolerance_policy.py` / `test_call_graph_span_drift.py` 未登记进 pytest.yml 的 root-guards 分片 (根级无区域目录可覆盖, 必须逐文件名列); 该守卫正是设计来拦「作业绿灯但测试根本没跑」的形态, 首跑即抓到自己的漏登记
+- 修法: 两文件追加进 `run_shard "root-guards"` 行 (blocking), 守卫文件 12/12 复绿
+- 本地 scripts 分片其余 2 红 = `test_script_imports_resolve[gui_entry.py/capture_transfer_desktop_screens.py]` 经 PySide6 依赖链 —— **仅本地轻量容器缺 PySide6 的既有噪音** (第 170 批已记录"剩 2 项 = 容器缺 PySide6 既有"; CI 镜像含 PySide6, ci170/ci171 同文件全绿为证), 不修不豁免
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
