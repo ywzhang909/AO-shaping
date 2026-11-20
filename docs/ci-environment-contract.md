@@ -13,7 +13,7 @@
 | `src/`、`scripts/`、`tests/`、`docs/`、`report/` | 全部 git 跟踪内容；测试可自由读取 |
 | `libs/` 目录本身 | git 跟踪（驱动 SDK 说明），但**内容见下** |
 | `data/`（仅分片脚本 staging 注入的） | `scripts/build/run_pytest_ci.sh` 的 staging 机制按需复制白名单产物；测试只应依赖 `AO_PYTEST_ROOT` 下已注入的样本，不得假设整棵 `data/` 在场 |
-| 依赖组 | CI 镜像按 `pyproject.toml`  extras 安装，含 PySide6 / torch-cpu（本地轻量容器**没有** PySide6，收集错误以 CI 为准） |
+| 依赖组 | CI 测试镜像按 `docker/Dockerfile.test.cpu` 内的显式依赖集安装（含 PySide6 与 CPU torch）；**本地轻量容器没有** PySide6，收集错误以 CI 为准 |
 
 ## 保证不存在
 
