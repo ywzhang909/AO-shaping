@@ -381,6 +381,8 @@ class ClosedLoopShapingPage(QWidget):
                 return f"检查点文件应为 JSON：{checkpoint}"
             try:
                 json.loads(checkpoint.read_text(encoding="utf-8"))
+            # policy: 这是表单预检；异常文本原样拼进返回的错误串，操作员看得到失败原因，
+            # 所以宽泛捕获不会让失败变成静默的通过。
             except Exception as exc:
                 return f"检查点 JSON 读取失败：{exc}"
         elif checkpoint.is_dir():
@@ -393,6 +395,7 @@ class ClosedLoopShapingPage(QWidget):
             if standalone.is_file():
                 try:
                     json.loads(standalone.read_text(encoding="utf-8"))
+                # policy: 同上一条检查点预检；解析失败原样回报，不存在被吞掉的失败。
                 except Exception as exc:
                     return f"frozen_parameters.json 读取失败：{exc}"
         else:
@@ -418,6 +421,7 @@ class ClosedLoopShapingPage(QWidget):
             return f"{source} 缺 manifest.json，不是采集数据集。"
         try:
             rows = json.loads(manifest.read_text(encoding="utf-8"))
+        # policy: 数据集预检；解析失败的消息直接返回给操作员，不静默继续。
         except Exception as exc:
             return f"manifest.json 无法解析：{exc}"
         if not isinstance(rows, list):
@@ -481,6 +485,8 @@ class ClosedLoopShapingPage(QWidget):
                 if isinstance(row, dict) and row.get("label") == "reference_start"
             )
             spot = _spot_of(reference)
+        # policy: 这是「提示型」检查——读不到数据集里的 reference_start 只是没有可提示的
+        # 内容，返回 None 让检查静默跳过；它不产出任何实验数值，跳过不会让数字变错。
         except Exception:
             return None
         if spot is None:
