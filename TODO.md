@@ -5794,6 +5794,15 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - provenance: 合并双方各自追加致 3 对重复键 (dict 后键覆盖前键 = 截断版胜出) 去重保留完整版; 新登记 4 项 (removal_report/ladder_summary/stepb_optimizer_lr HANDWRITTEN/生成) + 找回两被引文档登记; `sync_report_provenance.py` 重渲染, 233 登记项
 - 载体: conventions+provenance **1013 passed / 1 skipped**; shape **441 passed**; transfer **484 passed**; runners **647 passed / 25 skipped**; MIL+scripts **493**; gui/slm 子集 88; gui/ccd 4 项 PySide6 收集错误为 master 既有 (CI 镜像有); ruff 全仓绿; term 0; modsize `--check` 0 (workflow −45 收紧; ccd_analyzer +162 / bench_settings +5 为硬件侧功能性抬高)
 
+**2026-11-20 · 9a311725 之后 · 第 170 批: ci169 五分片红灯分诊清零 (合并吃回的守卫债, 按 `pytest.yml` 分片同款本地复现)**
+- 分诊方法: ci169 Pytest 红 = scripts/root-guards/tools/drivers/algorithm 五分片; 逐分片按 workflow 同款目录级单进程复现, 每片修到只剩已知环境项。**root-guards 与 algorithm 由并行会话先行修复** (ba53b69d 8 处行锚 + 7433754e module_inventory 四新模块; test_none_schedule 恢复 P2 的 `pytest.approx(abs=5e-6)` —— 逐位 1e-6 圆整钉跨 torch 构建 1 ULP 漂移), 本批 rebase 收下并复验
+- R-25 `_fmt` 二次清零 (b132/b139 同型): 上游把 7 个脚本的本地 `_fmt` 重新内联回来 —— 5 个逐字命中 P2 已证的规范别名直接移植 (`fmt_g_or_dash`/`fmt_spec_or_text`/`fmt_general`/`fmt_fixed_or_text` 电池全等系 P2 实测), 2 个用户新增脚本语义本就不同**改名而非收口** (issue237 列表连接 → `_fmt_list`, sweep_stepb 单元格格式化 → `_fmt_cell`, 恢复它们=复活漂移源); `scripts/_common/__init__.py` 补回合并中丢失的 `fmt_g_or_dash`+`fmt_spec_or_text` 两本体 (调用点在, 本体没了 = a60a87ca 同型病); issue235 补仓库根 sys.path 引导 (P2 既定约定, 文件形式启动 import scripts._common 的前提)
+- dry-run 自包含三件套按 P2 重申 (CI 容器无 data/): `analyze_fwdmodel_fit.py` 的 `synthetic_frozen_parameters` + 检查点缺失回退; ladder `run_dry_run` 的 `synthetic_geometry` 回退 + sections 本体补回 (用户侧删了回退分支 → 无标定 npz 必红); `analyze_model_hw_fidelity` 的 clean-process 测试恢复**独立子进程**形态 (进程内 `sys.modules` 检查在单进程分片里必被前序测试污染 —— 测试名就是 clean process, 只有独立解释器能证明)
+- 机器绝对路径 4 处改 `__file__`/ROOT 派生 (absolute_fidelity_probe×2 含 pythonpath_note、diagnose_complex_illumination_b、diagnose_transfer_poisson_weighting、evaluate_multiplicative_gain_b 的 parents[1].parent→parents[2]); issue247 docstring 同改
+- drivers 唯一红 = 用户侧删了 `libs/gxipy` 的 gitignore skip 守卫: 该厂商绑定被 `.gitignore` 排除, 只存在于开发机, **用户本机恒绿而 CI 全新 checkout 恒红**; 恢复 P2 的条件 skip (断言"仓库并不保证的事实"正是守卫文档点名的反模式)
+- 探针普查重钉 (上游新增两探针的合法 re-baseline): Santec 构造点 36→37 (`transfer/open_loop.py`, ccd_mode=none 开环上屏无相机 —— 物理验证侧新模块), camera 39→40 (`ccd/capture_darks.py` 暗帧采集无 SLM); `PROBE_MODULES` 登记 capture_darks (带 `--no-hw` ✓), golden 经 `AO_PROBE_HELP_UPDATE=1` 重生成, `--cam-type` 12→13 / declared 360→367 / visible 378→386 / PROBES 24→25
+- 载体: root-guards **620 passed / 2 skipped**; scripts **3737 passed** (剩 2 项 = 容器缺 PySide6 既有); tools **1718 passed**; drivers **1406 passed** (daheng discovery 11+1 skip 复验); algorithm 定向 **54 passed**; ruff 全仓绿; term 0; modsize `--check` 0
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

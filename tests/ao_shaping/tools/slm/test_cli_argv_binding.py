@@ -1240,9 +1240,12 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # contract); a genuine new module, re-baselined here deliberately. This guard pins the
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
-    # deliberately.
-    assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 39, f"camera-open call sites changed: {camera}"
+    # deliberately. 36 -> 37 (Santec) and 39 -> 40 (camera) on 2026-11-20 after the
+    # upstream hardware merge: slm/transfer/open_loop.py opens Santec only (the
+    # ccd_mode=none open-loop display path, no camera); ccd/capture_darks.py opens
+    # a camera only (dark-frame capture, no SLM).
+    assert sum(santec.values()) == 37, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 40, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1265,6 +1268,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/replay_disturbance.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/open_loop.py": 1,
         "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
@@ -1307,6 +1311,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
+        "ccd/capture_darks.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/exposure_check.py": 1,
         "ccd/floor_probe.py": 1,

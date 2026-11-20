@@ -77,6 +77,7 @@ PROBE_MODULES: dict[str, str] = {
     "slm_beam_extent": "ao_shaping.tools.slm.panel.beam_extent",
     "slm_bench_fingerprint": "ao_shaping.tools.slm.panel.bench_fingerprint",
     "slm_diagnose": "ao_shaping.tools.slm.panel.diagnose",
+    "slm_capture_darks": "ao_shaping.tools.ccd.capture_darks",
     "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
     "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
     "slm_floor_probe": "ao_shaping.tools.ccd.floor_probe",
@@ -386,7 +387,8 @@ def test_both_camera_flag_spellings_survive() -> None:
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
     # 10 -> 12 on 2026-10-19: alignment_probe and bench_fingerprint take --cam-type.
-    assert len(short) == 12, f"--cam-type lost a probe: {sorted(short)}"
+    # 12 -> 13 on 2026-11-20 (upstream hardware merge): ccd/capture_darks takes --cam-type.
+    assert len(short) == 13, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -472,9 +474,9 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 360, f"declared flag inventory is {declared}, expected 360"
-    assert visible == 378, f"help-visible flag inventory is {visible}, expected 378"
-    assert len(PROBES) == 24
+    assert declared == 367, f"declared flag inventory is {declared}, expected 367"
+    assert visible == 386, f"help-visible flag inventory is {visible}, expected 386"
+    assert len(PROBES) == 25
 
 
 # ---------------------------------------------------------------------------

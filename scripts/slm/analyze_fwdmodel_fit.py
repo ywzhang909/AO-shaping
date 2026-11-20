@@ -1393,6 +1393,31 @@ def _noll_phase(grid: int, nm: tuple[int, int], amplitude: float) -> np.ndarray:
     )
 
 
+def synthetic_frozen_parameters() -> FrozenDefocusParameters:
+    """dry-run 基线冻结参数 (检查点缺失时用, 不碰真实数据)。
+
+    形状沿 ``differentiable_defocus_uniformity`` 单测先例, 尺度对齐
+    :func:`make_synthetic_dataset` 默认窗 (grid=128, step=2 px, 光斑 1224/1105);
+    合成与拟合走**同一个前向**, 真值回收不依赖参数物理真实性。
+    增益/模糊取值 (gain=250, sigma_ccd_px=1) 让残差降幅稳过 50% 自检门槛
+    (gain=25/sigma=2 时基线失配主导不足, 降幅仅 25.6%)。
+    """
+    return FrozenDefocusParameters(
+        defocus_diopter=-0.1,
+        origin_xy=(1224.0, 1105.0),
+        amplitude_center_xy=(960.0, 600.0),
+        amplitude_width_xy=(400.0, 300.0),
+        residual_noll_radians={5: 0.3},
+        gain=250.0,
+        background=1.0,
+        sigma_ccd_px=1.0,
+        ramp_matrix=((8000.0, 0.0), (0.0, -8000.0)),
+        fft_size=256,
+        pixel_samples=1,
+        grid_size=128,
+    )
+
+
 def _synthetic_build(
     params: FrozenDefocusParameters,
     *,
@@ -2415,7 +2440,13 @@ def main(argv: list[str] | None = None) -> int:
         logger.info(message)
 
     log("开始: " + " ".join(sys.argv))
-    params = load_frozen_parameters(args.checkpoint)
+    if args.dry_run and not Path(args.checkpoint).exists():
+        # dry-run 的语义就是"合成数据自检 (不碰真实数据)": CI 容器没有 data/,
+        # 检查点缺失时用合成基线参数 (issue #205 第 132 批修复, 第 139 批重申)。
+        params = synthetic_frozen_parameters()
+        log("dry-run: 冻结参数存档缺失, 使用合成基线参数")
+    else:
+        params = load_frozen_parameters(args.checkpoint)
     log(
         f"冻结参数: defocus={params.defocus_diopter:.6g} D, gain={params.gain:.6g}, "
         f"background={params.background:.6g}, sigma_ccd_px={params.sigma_ccd_px:g}, "
