@@ -39,6 +39,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     refresh_phase_preview,
 )
 from ao_shaping.gui.slm.ccd_live import render_ccd_live
+from ao_shaping.gui.slm.diagnostics_tab import render_diagnostics_tab
 from ao_shaping.gui.slm.helper_tab import render_pattern_helper_tab
 from ao_shaping.gui.slm.shaping_controls import render_closed_loop_shaping
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
@@ -477,6 +478,7 @@ def main():
         tab_labels.append(f"SLM {slm_num} 相位控制")
         tab_labels.append(f"SLM {slm_num} PatternHelper")
     tab_labels.append("实时 CCD 画面")
+    tab_labels.append("设备诊断")
 
     tabs = st.tabs(tab_labels)
     tab_iter = iter(tabs)
@@ -492,6 +494,8 @@ def main():
             render_pattern_helper_tab(slm_num)
     with next(tab_iter):
         render_ccd_live()
+    with next(tab_iter):
+        render_diagnostics_tab()
 
 
 def _safe_set_state(key: str, value: Any) -> None:
