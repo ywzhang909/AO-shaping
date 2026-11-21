@@ -37,6 +37,10 @@ from ao_shaping.utils.cli.params import option, with_params
 
 ROOT = Path(__file__).resolve().parents[4]
 
+#: 光学系统种子 (与 ``slm_pib_sim_run.SYSTEM_SEED`` 同值同语义: 固定光学底座,
+#: 扰动序列的可复现性由 ``dist_seed`` 决定)。
+SYSTEM_SEED = 42
+
 
 
 @dataclass
@@ -47,10 +51,24 @@ class TurbShapingParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(["spgd", "square"]),
-            help="整形变体: spgd=Zernike PIB shape 目标; square=方形综合质量分",
+            type=click.Choice(["spgd", "square", "heuristic"]),
+            help=(
+                "整形变体: spgd=Zernike PIB shape 目标; square=方形综合质量分; "
+                "heuristic=黑盒搜索 (ga/pso/sa/hc/rs/cem/de, 经 --search-algorithm)"
+            ),
         ),
     ] = "square"
+    search_algorithm: Annotated[
+        str,
+        option(
+            "--search-algorithm",
+            type=click.Choice(["ga", "pso", "sa", "hc", "rs", "cem", "de"]),
+            help="heuristic 变体的搜索算法",
+        ),
+    ] = "pso"
+    pop_size: Annotated[
+        int, option("--pop-size", type=int, help="heuristic 变体种群规模")
+    ] = 16
     turb_mode: Annotated[
         str,
         option(
@@ -133,6 +151,21 @@ def build_click_args(params: TurbShapingParams) -> list[str]:
             "--w-uniformity", "2.0",
             "--w-peak", "0.5",
         ]
+    if params.algorithm == "heuristic":
+        # heuristic 与 spgd 共用 _execute 会话 (同一 patch_sim_pib_shaping 挂具
+        # 路径, 干扰包装同样生效); 搜索算法/种群走 HeuristicParams。
+        return [
+            "heuristic", "-d", str(params.out_dir), "--debug", *common,
+            "--exposure-time-ms", str(params.exposure_ms),
+            "-c", "shape",
+            "--slm-number", "1",
+            "--slm-wavelength", "1064",
+            "--objective", "shape",
+            "--target-shape", "square",
+            "--target-size", str(int(params.target_side)),
+            "--algorithm", params.search_algorithm,
+            "--pop-size", str(params.pop_size),
+        ]
     return [
         "--debug", "-d", str(params.out_dir),
         "square", *common,
@@ -189,7 +222,10 @@ def run_arm(params: TurbShapingParams) -> dict:
         seed=params.dist_seed,
     )
     disturbance = SimDisturbance(config, (SLM_H, SLM_W))
-    install_disturbance_system(disturbance)
+    # seed 必须显式给: 挂具若只装包装不重建系统, get_system 的惰性首建**不带**
+    # 扰动 (heuristic/spgd 走 patch_sim_pib_shaping, 它刻意不 reset —— 实测
+    # disturbance.stats().calls=0, 运行与自己的伴随清单矛盾)。
+    install_disturbance_system(disturbance, seed=SYSTEM_SEED)
 
     click_args = build_click_args(params)
     logger.info("slm-pib argv: {}", click_args)

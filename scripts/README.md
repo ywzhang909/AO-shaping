@@ -91,7 +91,9 @@ Offline generator for the #253 turbulence-shaping experiments:
 `slm/generate_turbulence_shaping_report.py` reads one `slm-turb-shaping` run
 directory (recorder pkl + `run.json` + `disturbance.json`) and writes
 `report.md` + spot/phase evolution GIFs + metric curves — pure offline, no
-drivers, no `data/` reads outside `--run-dir`.
+drivers, no `data/` reads outside `--run-dir`. Its comparison-best sweep is
+`slm/run_turb_shaping_matrix.py` (variants × cn2 grid, fixed seeds, `--dry-run`
+prints the 9-cell plan with zero side effects).
 
 Pre-existing subdirectories keep their original meaning: `_common/` (shared
 report helpers + the provenance registry), `call_graph/` (the `main.py` call-graph

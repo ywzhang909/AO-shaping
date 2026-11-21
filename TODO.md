@@ -5858,6 +5858,13 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 命令登记五源一致 (EXPECTED_COMMANDS/main.py docstring/entry_points.md 树/README 表+计数/cli-reference 表+§23) + `scripts/call_graph/gen_wiki_pages.py` CMD_ORDER/CMD_SYMS + wiki `slm-turb-shaping.md` 页; **wiki 全量再生成会缩水 call_graph 资产** (实测节点 215→157 打红 #249 守卫地板 180) → 回退改**最小 cmd_entries 补丁** + 增量 gen; `gen_wiki_pages`/`finalize_graph` 写 JSON 补尾换行 (缺了它一跑双 JSON 分叉, 正是 span 守卫抓的形态); main.py::cli 位移经 repin 重钉
 - 顺带收复 (176 漏网): `test_analyze_model_hw_fidelity` 的 clean-process **测试文件**版本也被并行合并回滚成进程内 sys.modules 检查 (被 imports_resolve 先行污染必误报) → 取回 4eb37504 子进程版; 上游新测试 `test_issue238_power_reference` 同型缺陷 (进程内驱动扫描) 按同先例**子进程化**; term --apply 本批新文 13 行 (口语词→规范词 等); CLI golden `AO_UPDATE_HELP_GOLDEN=1` 两轮重生成 (注册后 + docstring 改后)
 - 载体: runners 649 全绿 / scripts 3725 (+2 本地 PySide6 既有噪音) / conventions+span+provenance+doc-paths 1025 全绿 / ruff 0 / term 0 / modsize 0 / repin --check 0 / preflight 五通道绿; CI 交验 (--pinn-shapre checkout 修复生效与否看 ci178)
+**2026-11-21 · 86c95547 之后 · 第 178 批: #253 M2 —— heuristic 入矩阵 + 挂具静默说谎修根 + 对比择优扫掠**
+- 实测抓到**挂具静默说谎**: `install_disturbance_system(disturbance)` 不带 seed 时只装包装不重建系统, `get_system` 惰性首建**无扰动** —— heuristic smoke 实测 `measured.calls=0`, 运行与自己的 disturbance.json 矛盾 (spgd 同路径同病, 此前只被 square 的补丁 reset 掩盖)。修法: runner 显式 `seed=SYSTEM_SEED(42)` (与 `slm_pib_sim_run` 同约定); 回归钉: spgd/heuristic smoke 都断言 `calls>=N`
+- 第三变体 `--algorithm heuristic` (slm-pib heuristic 子命令, `--search-algorithm ga|pso|sa|hc|rs|cem|de` + `--pop-size`): 与 spgd 共用 `_execute` 会话与 `patch_sim_pib_shaping` 挂具路径, 零接线复制; smoke 实测 `turb heuristic ... -> slm_pib_shape/<ts>` 产物齐全
+- MIL / GS-refine **不入矩阵** (实测口径): 二者 sim 孪生没有湍流通道 —— `_SimBench` 钉死 cn2=0, `slm_shaping_bench.forward_intensity` 的 cn2 为实测死配置 (该文件 docstring 自证); 给孪生开扰动通道是独立改造, 已在矩阵报告口径节留注记
+- `scripts/slm/run_turb_shaping_matrix.py`: 冻结 3 变体 × 3 档 cn2 = 9 单元 (dist_seed=BASE+slot), 单元经 `run_arm` + `build_report` (不复制实现), 汇总矩阵报告 = 实测 σ 表 + 逐单元 GIF 报告链接 + 对比择优口径; `--dry-run` 只打印计划零副作用 (CI 环境契约)
+- 测试 3 项 (axes 冻结 / 9 单元 plan 可构造 `TurbShapingParams` 且目录互不撞 / dry-run 零写入) 全绿; scripts README 登记
+- 载体: turb 套件 **7 passed** (spgd calls 回归钉同时证明 177 前 spgd 也在说谎); ruff 0 / term 0 / modsize 0
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

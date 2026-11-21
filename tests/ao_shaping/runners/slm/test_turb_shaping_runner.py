@@ -117,6 +117,19 @@ def test_spgd_arm_smoke(tmp_path: Path) -> None:
     assert (run_dir / "disturbance.json").is_file()
     meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert meta["arm"] == "spgd" and meta["exit_code"] == 0
+    # 挂具静默说谎回归: 扰动必须真的在光路上被求值 (惰性首建不带扰动的缺陷)。
+    assert meta["measured"]["calls"] >= 9, meta["measured"]
+
+
+def test_heuristic_arm_smoke(tmp_path: Path) -> None:
+    _run_arm(
+        tmp_path, "heuristic", epochs=2,
+        extra=("--search-algorithm", "pso", "--pop-size", "6"),
+    )
+    (run_dir,) = _run_dirs(tmp_path)
+    meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert meta["arm"] == "heuristic" and meta["exit_code"] == 0
+    assert meta["measured"]["calls"] >= 6, meta["measured"]
 
 
 def test_report_rendered_after_experiment(tmp_path: Path) -> None:
