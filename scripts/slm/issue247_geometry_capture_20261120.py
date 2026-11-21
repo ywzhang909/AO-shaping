@@ -29,6 +29,13 @@ offline fit the inputs it needs:
   genuine prismatic ramp (``2*pi`` every ``--tilt-period-px``, default 128 px as
   in ``issue247_capture_tilt_20261117.py``), not a small phase amplitude: a
   0.5 rad peak phase would deflect by < 1 CCD pixel and be unmeasurable.
+* a **full-panel 2D diagonal blaze** -> a *single* off-axis far-field spot at
+  ``(fy, fx) = (sign_y/period_y_px, sign_x/period_x_px)``.  One frame therefore
+  encodes both panel axes at once, which is the decisive test for a 2x2
+  panel->CCD map: a physically impossible (non-invertible) map must leave a
+  non-trivial residual.  Two period pairs (128/192 and 192/128) are used because
+  sign flips alone are linearly dependent (flipping both signs gives ``-M v``),
+  so a degenerate design set could hide an inconsistent map.
 
 Nothing here fits a rotation, applies a threshold, or writes a calibration
 constant.  Every measurement written to ``summary.json`` is explicitly
@@ -132,6 +139,25 @@ LADDER_PATCH_ORIGINS: tuple[tuple[int, int], ...] = (
     (300, 1080),
 )
 
+# ---------------------------------------------------------------------------
+# 2D diagonal blaze: one full-panel linear ramp -> a SINGLE off-axis far-field
+# spot, so one frame encodes both panel axes at once.
+# ---------------------------------------------------------------------------
+#: Reuse the grating frame count: same pattern family, same per-pattern budget.
+BLAZE2D_FRAMES = GRATING_FRAMES
+#: Frozen probe designs.  The two period pairs (128/192 and 192/128) are both
+#: needed: sign flips alone are linearly dependent -- flipping both signs gives
+#: exactly ``-M v``, i.e. the same axis directions -- so only designs whose
+#: periods differ per axis give two independent directions, and only then can a
+#: least-squares fit of the four predicted frequencies leave a non-trivial
+#: residual (an inconsistent 2x2 map cannot hide inside a degenerate design set).
+BLAZE2D_DESIGNS: tuple[dict[str, float | int], ...] = (
+    {"period_x_px": 128.0, "period_y_px": 192.0, "sign_x": 1, "sign_y": 1},
+    {"period_x_px": 128.0, "period_y_px": 192.0, "sign_x": 1, "sign_y": -1},
+    {"period_x_px": 192.0, "period_y_px": 128.0, "sign_x": 1, "sign_y": 1},
+    {"period_x_px": 192.0, "period_y_px": 128.0, "sign_x": 1, "sign_y": -1},
+)
+
 DEFAULT_EXPOSURE_MS = 0.05
 DEFAULT_SATURATION_FRACTION = 0.9
 DEFAULT_SETTLE_S = 0.8
@@ -154,6 +180,8 @@ PLAN_KEYS: tuple[str, ...] = (
     "missing",
     "grating_periods_px",
     "grating_duty",
+    "blaze2d_designs",
+    "blaze2d_frames",
     "tilt",
     "ladder",
     "encoding_max_gray",
@@ -377,6 +405,48 @@ def spots_invariant_under_rot180(spots: list[tuple[int, int]]) -> bool:
     return spots_invariant_under_sign_flip(spots)
 
 
+def blaze2d_freq(
+    *, period_x_px: float, period_y_px: float, sign_x: int, sign_y: int
+) -> dict[str, float]:
+    """Predicted far-field spot frequency (cycles/panel-pixel) of one blaze2d."""
+    return {
+        "fy": float(sign_y) / float(period_y_px),
+        "fx": float(sign_x) / float(period_x_px),
+    }
+
+
+def blaze2d_phase(
+    shape: tuple[int, int],
+    *,
+    period_x_px: float,
+    period_y_px: float,
+    sign_x: int = 1,
+    sign_y: int = 1,
+) -> np.ndarray:
+    """Full-panel 2D linear phase ramp (a 2D prism / blaze).
+
+    The far field of ``exp(i*phi)`` under a pure linear ramp is the aperture
+    diffraction pattern shifted to a **single** spot at frequency
+    ``(fy, fx) = (sign_y / period_y_px, sign_x / period_x_px)`` -- no orders
+    ladder, no on-axis zero order.  One capture therefore encodes both axes' sign
+    *and* magnitude at once: with ``period_x != period_y`` the spot sits off-axis
+    diagonally, so axis swap, sign flip and rot180 each send it somewhere else.
+    Raw radians (zero piston not enforced); ``phase_to_gray`` is the only wrap.
+    """
+    if sign_x not in (-1, 1) or sign_y not in (-1, 1):
+        raise ValueError("signs must be -1 or +1")
+    if float(period_x_px) <= 0 or float(period_y_px) <= 0:
+        raise ValueError("periods must be positive")
+    height, width = int(shape[0]), int(shape[1])
+    cols = np.arange(width, dtype=np.float64)
+    rows = np.arange(height, dtype=np.float64)
+    ramp_x = float(sign_x) * TWO_PI * cols / float(period_x_px)
+    ramp_y = float(sign_y) * TWO_PI * rows / float(period_y_px)
+    return (ramp_y.reshape(height, 1) + ramp_x.reshape(1, width)).astype(
+        np.float64
+    )
+
+
 def phase_to_gray(phase: np.ndarray, encoding_max_gray: int = G_REF) -> np.ndarray:
     """Rad -> uint16 panel gray using the declared rad->gray encoding scale.
 
@@ -405,6 +475,14 @@ def pattern_phase(item: dict[str, Any], shape: tuple[int, int]) -> np.ndarray:
         )
     if kind == "ladder":
         return ladder_phase(shape, axis=int(item["axis"]), sign=1)
+    if kind == "blaze2d":
+        return blaze2d_phase(
+            shape,
+            period_x_px=float(item["period_x_px"]),
+            period_y_px=float(item["period_y_px"]),
+            sign_x=int(item["sign_x"]),
+            sign_y=int(item["sign_y"]),
+        )
     raise ValueError(f"unknown pattern kind {kind!r}")
 
 
@@ -425,6 +503,7 @@ def rot180(array: np.ndarray) -> np.ndarray:
 # Deterministic plan (pure)
 # ---------------------------------------------------------------------------
 def build_patterns() -> list[dict[str, Any]]:
+    """Build the complete frozen descriptive probe plan."""
     patterns: list[dict[str, Any]] = []
 
     def add(pid: str, kind: str, frames: int, **params: Any) -> None:
@@ -464,6 +543,31 @@ def build_patterns() -> list[dict[str, Any]]:
                 period_px=geometry["period_px"],
                 requested_period_px=geometry["requested_period_px"],
             )
+    # One full-panel 2D blaze per frozen design -> a single off-axis spot each.
+    # ``expected_freq`` is NOT ``spots``: a blaze2d has exactly one far-field
+    # spot, while ``spots`` carries (row, col) ladder orders and would be
+    # meaningless (and silently misread) here.
+    for design in BLAZE2D_DESIGNS:
+        period_x = float(design["period_x_px"])
+        period_y = float(design["period_y_px"])
+        sign_x = int(design["sign_x"])
+        sign_y = int(design["sign_y"])
+        add(
+            f"blaze2d_px{int(period_x)}_py{int(period_y)}"
+            f"_sx{sign_x:+d}_sy{sign_y:+d}",
+            "blaze2d",
+            BLAZE2D_FRAMES,
+            period_x_px=period_x,
+            period_y_px=period_y,
+            sign_x=sign_x,
+            sign_y=sign_y,
+            expected_freq=blaze2d_freq(
+                period_x_px=period_x,
+                period_y_px=period_y,
+                sign_x=sign_x,
+                sign_y=sign_y,
+            ),
+        )
 
     for item in patterns:
         item["phase_sha256"] = digest(pattern_phase(item, DEFAULT_PANEL_SHAPE))
@@ -564,6 +668,37 @@ def build_ladder_plan() -> dict[str, Any]:
     }
 
 
+def build_blaze2d_designs() -> list[dict[str, Any]]:
+    """Self-describing record of the frozen 2D blaze probes (id + geometry)."""
+    designs: list[dict[str, Any]] = []
+    for design in BLAZE2D_DESIGNS:
+        period_x = float(design["period_x_px"])
+        period_y = float(design["period_y_px"])
+        sign_x = int(design["sign_x"])
+        sign_y = int(design["sign_y"])
+        designs.append(
+            {
+                "id": (
+                    f"blaze2d_px{int(period_x)}_py{int(period_y)}"
+                    f"_sx{sign_x:+d}_sy{sign_y:+d}"
+                ),
+                "kind": "blaze2d",
+                "frames": int(BLAZE2D_FRAMES),
+                "period_x_px": period_x,
+                "period_y_px": period_y,
+                "sign_x": sign_x,
+                "sign_y": sign_y,
+                "expected_freq": blaze2d_freq(
+                    period_x_px=period_x,
+                    period_y_px=period_y,
+                    sign_x=sign_x,
+                    sign_y=sign_y,
+                ),
+            }
+        )
+    return designs
+
+
 def build_declared_constants(
     resolved: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
@@ -589,6 +724,7 @@ def build_declared_constants(
         "ladder_base_period_px": LADDER_BASE_PERIOD_PX,
         "ladder_patch_size_px": LADDER_PATCH_SIZE_PX,
         "ladder_orders": list(LADDER_ORDERS),
+        "blaze2d_designs": build_blaze2d_designs(),
         "bit_depth_required": BIT_DEPTH_REQUIRED,
         "full_scale_required": FULL_SCALE_REQUIRED,
         "camera_pixel_size_um": None,
@@ -651,6 +787,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "missing": missing,
         "grating_periods_px": list(GRATING_PERIODS_PX),
         "grating_duty": 0.5,
+        "blaze2d_designs": build_blaze2d_designs(),
+        "blaze2d_frames": int(BLAZE2D_FRAMES),
         "tilt": build_tilt_plan(tilt_period),
         "ladder": build_ladder_plan(),
         "encoding_max_gray": G_REF,
@@ -756,6 +894,61 @@ def run_self_test() -> int:
             5e-3 * TWO_PI * (n - 1) / period
         ), name
 
+    # 3b) 2D diagonal blaze: exact per-axis ramp slope on the RAW phase, four
+    #     designs spanning two independent frequency directions, and a probe set
+    #     that is distinguishable under axis swap / sign flip / rot180.
+    blazes = [p for p in build_patterns() if p["kind"] == "blaze2d"]
+    assert len(blazes) == len(BLAZE2D_DESIGNS) == 4, len(blazes)
+    for item in blazes:
+        px = float(item["period_x_px"])
+        py = float(item["period_y_px"])
+        raw = blaze2d_phase(
+            DEFAULT_PANEL_SHAPE,
+            period_x_px=px,
+            period_y_px=py,
+            sign_x=int(item["sign_x"]),
+            sign_y=int(item["sign_y"]),
+        )
+        # Raw (unwrapped) phase: a full-panel linear ramp, so the per-pixel step
+        # is constant and equals 2*pi/period on each axis exactly.
+        row_steps = np.diff(raw[0, :])
+        col_steps = np.diff(raw[:, 0])
+        assert np.allclose(row_steps, row_steps[0], rtol=0, atol=1e-9), item["id"]
+        assert np.allclose(col_steps, col_steps[0], rtol=0, atol=1e-9), item["id"]
+        expected_fx_step = float(item["sign_x"]) * TWO_PI / px
+        expected_fy_step = float(item["sign_y"]) * TWO_PI / py
+        assert abs(row_steps[0] - expected_fx_step) <= 1e-9 * TWO_PI, item["id"]
+        assert abs(col_steps[0] - expected_fy_step) <= 1e-9 * TWO_PI, item["id"]
+        # The declared expected frequency must match the measured ramp slope.
+        freq = item["expected_freq"]
+        assert abs(freq["fx"] - row_steps[0] / TWO_PI) <= 1e-12, item["id"]
+        assert abs(freq["fy"] - col_steps[0] / TWO_PI) <= 1e-12, item["id"]
+
+    freq_vecs = [
+        (float(p["expected_freq"]["fx"]), float(p["expected_freq"]["fy"]))
+        for p in blazes
+    ]
+    assert len(set(freq_vecs)) == 4, freq_vecs
+    # Rank 2: at least two linearly independent directions (designs span 2D).
+    rank = np.linalg.matrix_rank(np.asarray(freq_vecs, dtype=np.float64))
+    assert int(rank) == 2, (rank, freq_vecs)
+    freq_set = set(freq_vecs)
+    assert {(-fx, -fy) for fx, fy in freq_vecs} != freq_set, "sign flip must move spots"
+    assert {(fy, fx) for fx, fy in freq_vecs} != freq_set, "axis swap must move spots"
+    assert {(-fy, -fx) for fx, fy in freq_vecs} != freq_set, "rot180 must move spots"
+    # The two period pairs must differ in BOTH components, otherwise the design
+    # set would collapse onto one line in frequency space.
+    pair_a = (1.0 / 128.0, 1.0 / 192.0)
+    pair_b = (1.0 / 192.0, 1.0 / 128.0)
+    assert pair_a[0] != pair_b[0] and pair_a[1] != pair_b[1], (pair_a, pair_b)
+    assert [p["id"] for p in blazes] == [
+        "blaze2d_px128_py192_sx+1_sy+1",
+        "blaze2d_px128_py192_sx+1_sy-1",
+        "blaze2d_px192_py128_sx+1_sy+1",
+        "blaze2d_px192_py128_sx+1_sy-1",
+    ]
+    assert all("spots" not in p for p in blazes), "blaze2d must not reuse ladder spots"
+
     # 4) Plan / summary schema keys exist; frame counts satisfy the table.
     assert all(key in plan for key in PLAN_KEYS)
     assert all(key in summary_skeleton() for key in SUMMARY_KEYS)
@@ -774,6 +967,10 @@ def run_self_test() -> int:
         "tilt_x_minus",
         "tilt_y_plus",
         "tilt_y_minus",
+        "blaze2d_px128_py192_sx+1_sy+1",
+        "blaze2d_px128_py192_sx+1_sy-1",
+        "blaze2d_px192_py128_sx+1_sy+1",
+        "blaze2d_px192_py128_sx+1_sy-1",
     }
     assert set(plan["pattern_ids"]) == expected_ids
     assert plan["declared_constants"]["focal_magnification"] is None
