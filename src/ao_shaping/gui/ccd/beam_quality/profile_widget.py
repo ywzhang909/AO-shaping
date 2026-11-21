@@ -2,6 +2,7 @@
 
 上半部分/左右两个 ``QChart`` 各画一条剖面: 散点是实测数据, 虚线是高斯拟合,
 图下方是四格读数 (σ / FWHM / 中心 / R²); 拟合失败时四格留 "—", 下面一行写原因。
+整个组件顶部有一行"显示高斯拟合曲线"开关, 只切虚线, 不影响散点与读数。
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import numpy as np
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
 from PySide6.QtCore import QMargins, QPointF, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
     FrameMetrics,
@@ -62,21 +63,21 @@ class _ProfilePanel(QWidget):
         self._axis_y.setTitleText("灰度")
         self._axis_y.setLabelFormat("%.1f")
 
-        chart = QChart()
-        chart.addSeries(self._data)
-        chart.addSeries(self._fit)
-        chart.addAxis(self._axis_x, Qt.AlignmentFlag.AlignBottom)
-        chart.addAxis(self._axis_y, Qt.AlignmentFlag.AlignLeft)
+        self._chart = QChart()
+        self._chart.addSeries(self._data)
+        self._chart.addSeries(self._fit)
+        self._chart.addAxis(self._axis_x, Qt.AlignmentFlag.AlignBottom)
+        self._chart.addAxis(self._axis_y, Qt.AlignmentFlag.AlignLeft)
         self._data.attachAxis(self._axis_x)
         self._data.attachAxis(self._axis_y)
         self._fit.attachAxis(self._axis_x)
         self._fit.attachAxis(self._axis_y)
-        chart.setTitle(title)
-        chart.legend().setVisible(True)
-        chart.setMargins(QMargins(2, 2, 2, 2))
-        chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
+        self._chart.setTitle(title)
+        self._chart.legend().setVisible(True)
+        self._chart.setMargins(QMargins(2, 2, 2, 2))
+        self._chart.setAnimationOptions(QChart.AnimationOption.NoAnimation)
 
-        self._view = QChartView(chart)
+        self._view = QChartView(self._chart)
         self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._view.setMinimumHeight(150)
 
@@ -170,19 +171,75 @@ class _ProfilePanel(QWidget):
             value.setText(_FIT_PLACEHOLDER)
         self._note.clear()
 
+    def set_fit_visible(self, visible: bool) -> None:
+        """只切高斯拟合虚线的可见性。
+
+        散点、坐标轴、四格读数和失败提示都是实测结果, 一律不受影响; 曲线数据
+        留在 series 里, 重新显示时直接恢复最近一次拟合, 不用等下一帧。
+        """
+        visible = bool(visible)
+        self._fit.setVisible(visible)
+        # 图例项不跟随 series 可见性, 需单独同步, 否则关掉曲线后图例还挂着"高斯拟合"
+        for marker in self._chart.legend().markers(self._fit):
+            marker.setVisible(visible)
+
+    def fit_visible(self) -> bool:
+        """拟合虚线当前是否可见 (与散点是否为空无关)。"""
+        return self._fit.isVisible()
+
 
 class ProfileWidget(QWidget):
-    """X / Y 两条剖面的并列图。"""
+    """X / Y 两条剖面的并列图, 顶部一行放"显示高斯拟合曲线"开关。
+
+    开关只控制两条虚线; 散点、坐标轴、σ / FWHM / 中心 / R² 读数与拟合失败
+    提示始终可见。默认勾选 (与加开关之前的表现一致)。
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._x_panel = _ProfilePanel("X 剖面", QColor(90, 190, 255))
         self._y_panel = _ProfilePanel("Y 剖面", QColor(120, 230, 150))
-        layout = QHBoxLayout(self)
+
+        # 显式保留控件对象: 离屏测试和调用方可以直接点它
+        self.fit_toggle = QCheckBox("显示高斯拟合曲线")
+        self.fit_toggle.setChecked(True)
+        self.fit_toggle.setToolTip(
+            "虚线是按当前帧剖面的高斯拟合补出来的, 只影响显示; "
+            "关掉后 σ / FWHM / R² 仍照常计算并显示"
+        )
+        self.fit_toggle.toggled.connect(self.set_fit_curve_visible)
+
+        # 顶部一行只占一个控件高度, 两条剖面仍在下面平分宽度;
+        # 左侧 6px 让勾选框与下方图表卡片的左边缘对齐
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(6, 0, 6, 0)
+        toggle_row.addWidget(self.fit_toggle, 0)
+        toggle_row.addStretch(1)
+
+        panels_row = QHBoxLayout()
+        panels_row.setContentsMargins(0, 0, 0, 0)
+        panels_row.setSpacing(4)
+        panels_row.addWidget(self._x_panel)
+        panels_row.addWidget(self._y_panel)
+
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(self._x_panel)
-        layout.addWidget(self._y_panel)
+        layout.addLayout(toggle_row, 0)
+        layout.addLayout(panels_row, 1)
+
+    def set_fit_curve_visible(self, visible: bool) -> None:
+        """显示/隐藏两条高斯拟合虚线 (幂等; 不会重新拟合, 也不清数据)。"""
+        visible = bool(visible)
+        if self.fit_toggle.isChecked() != visible:
+            # 同步勾选框, toggled 信号会再回来应用一次
+            self.fit_toggle.setChecked(visible)
+        self._x_panel.set_fit_visible(visible)
+        self._y_panel.set_fit_visible(visible)
+
+    def fit_curve_visible(self) -> bool:
+        """高斯拟合虚线当前是否显示。"""
+        return self._x_panel.fit_visible() and self._y_panel.fit_visible()
 
     def update_metrics(self, metrics: FrameMetrics | None) -> None:
         """按最新分析结果刷新两条剖面。"""

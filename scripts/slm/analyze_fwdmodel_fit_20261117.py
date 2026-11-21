@@ -91,7 +91,6 @@ for _p in (
 
 import torch
 from loguru import logger
-from scripts._common import fmt_g_or_dash
 
 EXIT_NO_DRIVER_CONTRACT = 3
 EXIT_NO_GPU = 4
@@ -999,9 +998,12 @@ def replay_hw_and_optimize(data: LabData, device: torch.device, geom: dict[str, 
     }
 
 
-# R-25 反漂移 (issue #205 第 132 批): 本地 _fmt 收口为规范 formatter 的直接别名
-# (逐字节移植, 120 输入电池全等)。
-_fmt = fmt_g_or_dash
+def _fmt(value: Any, digits: int = 4) -> str:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{f:.{digits}g}" if np.isfinite(f) else "—"
 
 
 def generate_report(result: dict[str, Any], out_path: Path) -> None:

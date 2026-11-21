@@ -157,8 +157,8 @@ class MyDriver(Device):
 
 | 设备 | 确认信息 |
 |------|---------|
-| Santec SLM200 SLM#1 (1064nm) | 序列号 22030108; 1920×1200; 10-bit; 内部内存模式; @1064nm 2π=993 灰度 (设备动态查询) |
-| Santec SLM200 SLM#2 (532nm) | 序列号 23020026 (2026-09-16 起权威); 1920×1200; @532nm 2π=998 灰度 (设备动态查询); 与 SLM#1 为**两台独立设备** (见下方 #58 收口结论) |
+| Santec SLM200 SLM#1 (1064nm) | 序列号 22030108; 1920×1200; 10-bit; 内部内存模式; @1064nm 2π 灰度典型读数 993 (`Santec.get_wavelength_info()[1]` 设备动态查询, 非冻结常量) |
+| Santec SLM200 SLM#2 (532nm) | 序列号 23020026 (2026-09-16 起权威); 1920×1200; @532nm 2π 灰度典型读数 998 (`Santec.get_wavelength_info()[1]` 设备动态查询); 与 SLM#1 为**两台独立设备** (见下方 #58 收口结论) |
 | Daheng MER2-507-23GM NIR CCD | 序列号 FJB24112232; 2592×1944; uint8; 像元 **2.2 µm** (用户 2026-09-21 权威确认, 现登记在型号级配置 `data/ccd_configs/ccd/models.json` 的 `MER2-507-23GM` 下, 驱动经 `cam.pixel_size_um` 暴露); 地址 **169.254.220.100** (2026-11-16 由官方 SDK `update_device_list()` 子网枚举所得, 链接本地直连网卡; 在线检查一律走 SDK 枚举, **不依赖固定 IP、不 ping**) —— 全部 SLM-PIB 硬件数据都依赖此相机, 2026-10-01 补录 |
 | MiiCam 相机 | 序列号 TP2408221418059418FD83E3A448D82; 2688×1520; MONO8; 像元 **2.9 µm** (该后端只支持一款相机, `MIICamera.pixel_size_um` 写死); `reset_exposure_time()` 修改曝光必须 Stop→设置→重启拉流 |
 | 2f Fourier 光路 | SLM 前焦面 125mm → f=125mm 透镜 → CCD 后焦面; CCD 坐标=空间频率; 0 级=帧全局最大 (argmax), 非相机几何中心 |
@@ -166,10 +166,10 @@ class MyDriver(Device):
 > ✅ **SLM 序列号三路冲突已收口 (2026-10-25, #58 已关闭)**：仓库中三个
 > 序列号 `22030108` / `22030102` / `23020026` 对应**两台 SLM**（用户 2026-10-05 定论，
 > "实验室有 532/1064 两台"）。
-> - **SLM#1 = 22030108 @1064nm, 2π=993**（`report/slm/bench/bench_calibration_20261001.md`、
->   `daily_2026-09-08.md`、`model_in_loop` runbook 一致）—— 1064nm 台唯一读数，权威。
-> - **SLM#2 (532nm) = 23020026 @532nm, 2π=998**（`report2.md`/`report3.md`/`zernike_linearity`/
->   `zernike_wfs_report`，2026-09-16 起）—— 532nm 台权威读数。
+> - **SLM#1 = 22030108 @1064nm, 2π 典型读数 993**（`report/slm/bench/bench_calibration_20261001.md`、
+>   `daily_2026-09-08.md`、`model_in_loop` runbook 一致；运行时经 `Santec.get_wavelength_info()[1]` 读取，不冻结）—— 1064nm 台读数，权威。
+> - **SLM#2 (532nm) = 23020026 @532nm, 2π 典型读数 998**（`report2.md`/`report3.md`/`zernike_linearity`/
+>   `zernike_wfs_report`，2026-09-16 起；同样设备动态查询）—— 532nm 台读数。
 > - **22030102** 是 532nm 台的**早期读数**（`slm/AGENTS.md` shift 标定与
 >   `daily_2026-09-15.md` 09-15 session 用）；`daily_2026-09-15.md` §9 明文"⚠️ 与前几轮
 >   22030102 **不同**"，09-16 起该 532nm 台统一为 23020026。2π=998 在两个读数下一致，
@@ -178,7 +178,9 @@ class MyDriver(Device):
 > **引用规则**：1064nm 数据一律写 `22030108`；532nm 数据一律写 `23020026`（09-16 前的
 > 532nm 历史报告保留原 22030102 不改，属历史记录）。代码侧 `slm-gs-refine` 的
 > `--slm_wavelength` 默认 0 = 询问设备实际编程的波长，不假设某台 SLM，已满足"保留
-> 配置文件默认行为"。所有 `2π=993`/`2π=998` 常数在运行时经设备动态查询，不硬编码。
+> 配置文件默认行为"。`993`/`998` 只是 1064/532 nm 的**典型设备读数**，运行时一律经
+> `Santec.get_wavelength_info()[1]` 动态查询，不作为冻结常量硬编码；两个概念（物理
+> 2π 灰度 vs rad→gray 编码标度 1023）的区分见 [决策记录](../../../docs/dev/two_pi_grayscale_source_decision_20261119.md)。
 
 ### SLM 故障排查 (详细见 [slm/AGENTS.md](slm/AGENTS.md))
 

@@ -255,7 +255,7 @@ ALIAS = {
     "ao_shaping.runners.runner_common.build_gs_refine_config": "functions/runner-common",
     "ao_shaping.runners.runner_common.build_model_in_loop_config": "functions/runner-common",
     "ao_shaping.runners.runner_common.save_gs_refine_results": "functions/runner-common",
-    "ao_shaping.runners.model_in_loop_io.save_model_in_loop_results": "functions/runner-common",
+    "ao_shaping.runners.runner_common.save_model_in_loop_results": "functions/runner-common",
 }
 qual2slug.update(ALIAS)
 

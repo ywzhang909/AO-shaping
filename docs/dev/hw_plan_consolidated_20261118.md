@@ -20,6 +20,15 @@
 > 设备纪律见 [hardware_discipline.md](hardware_discipline.md)；六步光路探测见
 > [ao-optical-path-calibration SKILL](../../libs/skills/ao-optical-path-calibration/SKILL.md)。
 > 任何实验动作前后必须在回复中明确报告：占用设备、做了什么、何时释放、是否正常关闭。
+>
+> **📌 2026-11-20 状态更新**：本文件的 §2 状态表已按当日证据刷新（transfer 双门 fail → light/none 暂停；
+> #238 11-20b 低漂移复采完成但不达标；P1 四口径对账落盘）。当日另有两条**新工作线**，结果不入本合并版执行队列：
+> - 动态整形速度解耦采集（30/30 ok，实测约 2.3 fps，瓶颈 SLM 写入+换槽）：
+>   `report/shape_trials/speed_decouple_capture_20261120.md`，冻结方案见
+>   `dynamic_decoupling_experiment_plan_20261120.md`；后续 GUI 接入见 issue #252。
+> - #247/#238 硬件窗口 b（11-20b）与下一步编排：`docs/dev/hw_window_20261120b_issue247_238_results.md`、
+>   `docs/dev/next_experiment_plan_and_capture_20261120.md`。两 issue 均维持 OPEN（轴映射矛盾未解；
+>   #238 无暗场+4 帧/灰度不达 §6.6 永久报告门槛）。
 
 ---
 
@@ -49,7 +58,7 @@
 
 | # | 任务 | 状态 | 证据 / 产物 | 占设备？ |
 |---|------|------|-------------|---------|
-| P1 | 零级定心差分刀口（#235） | ✅ 采集完成；⚠️ 四口径离线对账未落盘 | `data/debug/issue235_center_20261117/`（`flat.npy`/`summary.json`）；刀口中心 x≈889, y≈590 | 否（数据已在盘） |
+| P1 | 零级定心差分刀口（#235） | ✅ 采集完成；✅ 四口径离线对账已落盘（2026-11-20） | `data/debug/issue235_center_20261117/`（`flat.npy`/`summary.json`）；刀口中心 x≈889, y≈590；对账见 `report/shape_trials/issue235_zero_order_four_method_20261120/` | 否（数据已在盘） |
 | P2a | 方向门槛 14 帧基线（0.03 rad） | ✅ 采集 + 分析完成 | `report/shape_trials/model_direction_hw_20261117/`；锚点相关 −0.16、N4 预测 4.4e-5 vs 实测 3.68 counts | 否 |
 | P2b | 方向门槛 amp03 / amp10 + 新 checkpoint 注入回放 | ✅ **离线判读完成：fresh fit 方向失败** | `report/shape_trials/fresh_checkpoint_direction_gate_20261118/fresh_checkpoint_direction_gate_20261118.md`；新 checkpoint amp03/amp10 各 0/3 ≥0.50；11/07 单模屏上的合成 hybrid 未通过每档 10/14 标准且跨 epoch，不作为 checkpoint 通过证据 | 否 |
 | — | 真线性 ±tilt 补采（#247） | ✅ 采集完成并释放 | `data/debug/issue247_tilt_20261117/`（13 组 Mono12，0 饱和，22:06:10 释放） | 否 |
@@ -59,9 +68,9 @@
 | K | `--candidates K` 代码 + K=1 逐位一致 | ✅ 完成 | `differentiable_candidates.py`、`n_candidates` 主战场、golden「ALL IDENTICAL」；ruff 绿 | 否 |
 | K | GPU 微基准（grid×形状×K） | ✅ 完成 | `report/shape_trials/transfer_candidates_timing_20261117/`；单步 7–51 ms、K=8 为 2.45–4.53× | 否 |
 | K | K>1（K=4）真闭环验证 | 🔶 **脚本就绪、结果缺** | 采集入口 `scripts/experiments/run_transfer_window_20261119.py --segments k1 k4`；仍无 `transfer_k4` 目录；优化器占端到端 <0.5%，只验「在线实现」 | **是** |
-| C | ccd_mode light 验证 | 🔶 **脚本就绪、结果缺** | 同一脚本 `--segments light`（必须显式 `--dataset/--checkpoint`）；实现 + 13 测试已就绪（`test_transfer_ccd_mode.py`） | **是** |
-| C | ccd_mode none 验证 | 🔶 **脚本就绪、结果缺** | 同一脚本 `--segments none`；无实测帧，需 N2 对照段 | **是**（+可选 N2） |
-| C | #238 二值光栅周期扫描（run3） | 🔶 **脚本就绪、结果缺** | 采集入口 `scripts/experiments/run_issue238_period_sweep_20261119.py`（32/48 px 周期）；详见 `issue238_binary_gray_capture_plan_20261119.md` §6.1 | **是** |
+| C | ccd_mode light 验证 | ⛔ **上游双门 fail，科学验收暂停**（不进 P5） | 2026-11-20 P4 双门均有效 fail（强度 `relL2=0.8849`≫δ=0.20；方向 4/14<10），见 `transfer_upstream_qualification_plan_20261119.md` §8；实现 + 13 测试就绪但不启动其 `--execute` | 否（暂停） |
+| C | ccd_mode none 验证 | ⛔ **上游双门 fail，科学验收暂停**（不进 P5） | 同 light；无实测帧、需 N2 对照段，双门通过前不采 | 否（暂停） |
+| C | #238 二值光栅周期扫描 | ✅ **run4 采集完成；11-20b 低漂移复采完成（非正式）** | `data/experiments/issue238_binary_phase_20261119/run4_period_sweep/`；11-20b ABBA 回文 4 段全 ok、段内前后参考变化<0.1%，但仅 4 帧/灰度、无暗场 ⇒ 不发布新 g₂π（见 `docs/dev/hw_window_20261120b_issue247_238_results.md` §3） | 是（已释放） |
 | P3 | #234 结构化探针（逐模 Jacobian） | ⏸️ **条件待定**（见 §3 决策门） | 计划见 `hw_direction_test_plan_20261117.md` §3；R=1→176 帧 | 是（可能推迟） |
 | P4 | #233 非线性取证（编码台阶） | ⏸️ **条件待定**（随 P3） | 计划见 §3；可与 P3 同 session 插入 | 是（可能推迟） |
 | — | 相差光路六方案对比 v1.0（远期总方案） | 📋 规划中，非本次窗口 | `docs/相差光路多方案整形对比实验方案_v1.0.md`；20+4 run、约 2 工作日 | 是（另立窗口） |
@@ -123,7 +132,7 @@
 
 > **2026-11-19 执行补记**：首个窗口 `data/experiments/transfer_window_20261119/` 已尝试，整体退出码 1。k4 在 `config.validate()` 因 `side=1200` 超出默认 `window_span=220` 可容纳的 424 px 而失败（约 2 s），未打开 SLM/CCD，未生成 k4 数据；light/none 未执行。证据为窗口根目录的 `window.json`、`released.json` 和 `segments/k4.log`。锁于 `2026-11-19T07:05:44+00:00` 正常释放，`lock_released=true`、`error=null`，复查 `holder=None`。此为失败尝试，不计为完成采集；后续修正参数须使用全新窗口目录。
 >
-> **科学资格复核（暂缓实验）**：历史 `side=1200` 几何参数可通过离线 `plan`，只代表参数/几何可行。`axis_mismatch_validation_20261118` checkpoint 的方向门未通过；其 `relL2=0.355` 为 in-sample、无 held-out，强度门数值阈值也未预注册。替代 `LocalResponseModel` 的归档 cross-fit 结果仅为诊断（12/14 两折互为镜像、有效 6/7 模式，Z11 不复现；强度 relL2=0.217–0.261 无可用预注册门槛）。因此当前不把 `light/none` 作为科学验收放行段，先冻结独立阈值与联合判据、复核模型/曝光定义；具体结论见 `agent_notes_20261119.md` §Transfer 模型资格复核。
+> **科学资格复核（暂缓实验）**：`side=1200` 是历史遗留参数，**离线 `plan` 同样在 `validate()` 失败**（`目标边长 1200 px 超出采样窗能容纳的 424 px`，2026-11-19 复核），并非「可行」。`axis_mismatch_validation_20261118` checkpoint 的方向门未通过；其 `relL2=0.355` 为 in-sample、无 held-out，强度门数值阈值也未预注册。替代 `LocalResponseModel` 的归档 cross-fit 结果仅为诊断（12/14 两折互为镜像、有效 6/7 模式，Z11 不复现；强度 relL2=0.217–0.261 无可用预注册门槛）。因此当前不把 `light/none` 作为科学验收放行段，先冻结独立阈值与联合判据、复核模型/曝光定义；具体结论见 `agent_notes_20261119.md` §Transfer 模型资格复核。
 
 > 只跑 §3 决策门放行后的段。共用同一份 `--dataset` / `--checkpoint`（光路未动的最新 full run）。
 > 每段独立 `--out` 目录（capture 目录不可复用）；每段自带 finally：cam.close → slm.close →
@@ -145,7 +154,7 @@
 | S0 | 光路探测 + 曝光标定 | 六步 SKILL，0.05 ms 基线 | ~5 min | 无（必跑） |
 | S1 | Transfer K=4 闭环验证 | `--candidates 4 --execute`（K=1 基线可复用既有，不必重跑） | ~5 min | 无 |
 | 冷却 | — | SLM 关闭 ≥200 s，确认锁空 | 200 s | — |
-| S2 | ccd_mode light | `--ccd-mode light --dataset <latest>/capture --checkpoint <latest>/fit/frozen_parameters.json --shapes square --side 1200` | ~3 min | 无 |
+| S2 | ccd_mode light | `--ccd-mode light --dataset <latest>/capture --checkpoint <latest>/fit/frozen_parameters.json --shapes square --side 80`（≤424；旧写 `--side 1200` 已证超窗） | ~3 min | 无 |
 | 冷却 | — | ≥200 s，锁空 | 200 s | — |
 | S3 | ccd_mode none | `--ccd-mode none --dataset <同上> --checkpoint <同上>`（不开相机） | ~2 min | 无 |
 | 冷却 | — | ≥200 s，锁空 | 200 s | — |
@@ -166,7 +175,7 @@
 - 若 D1 未放行且 S7b 也不跑，本次窗口只剩 S0→S4（约 20 min 设备 + 冷却）。
 - 每段记录：SLM/CCD 打开/关闭时间、`slm_closed/camera_closed/lock_released`、exit code、峰值不饱和。
 
-### 执行入口（2026-11-19：脚本已就绪，尚未采集）
+### 执行入口（2026-11-19：transfer 尚未采集；#238 run4 已成功采集）
 
 S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段间冷却 200 s、每段独立 `--out`、
 释放与 `released.json`/`window.json` 证据）；**不要**手敲逐段 `transfer run`，那会漏掉锁与冷却：
@@ -176,13 +185,20 @@ S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段�
 .venv\Scripts\python.exe scripts/experiments/run_transfer_window_20261119.py `
   --window data/experiments/transfer_window_<date> `
   --dataset <latest>/capture --checkpoint <latest>/fit/frozen_parameters.json `
-  --segments k1 k4 light none --shapes square --side 1200
+  --segments k1 k4 light none --shapes square
+
+# 说明：`--side` 不给就沿用 transfer 默认 80 px；采样窗半跨 220 px 只容得下 ≤424 px，
+# 不要再写历史的 `--side 1200`（会在子段 validate 直接失败）。要更大目标须同时
+# 加大 `--window-span`（如 640）并升 `--capture-grid`（如 384）与 `--control-grid`（如 640），
+# 否则 FFT 可达窗 / 导出分辨率够不着。
 
 # 获用户授权 + 六步光路探测通过后，再追加 --execute
 ```
 
-#238 的周期增量走另一个窗口脚本（32/48 px，各约 10 min，段间同样冷却）：
-`scripts/experiments/run_issue238_period_sweep_20261119.py --run-dir data/experiments/issue238_binary_phase_20261119/run3_period_sweep`。
+#238 的周期增量走另一个窗口脚本（32/48 px，各约 10 min，段间同样冷却，
+`lock_mode="segment"` 由子段各自取放锁）：
+`scripts/experiments/run_issue238_period_sweep_20261119.py --run-dir data/experiments/issue238_binary_phase_20261119/run4_period_sweep`。
+**run3 因抢锁失败、无数据且目录不可复用，不得引用；已成功采集的是 run4**（见 §7.3）。
 
 两个脚本都只在 `--execute` 下占用设备；无 `--execute` 时只打印计划（不建目录、不导入设备模块）。
 数据落盘与采集状态的完整对照见 §7。
@@ -228,13 +244,13 @@ S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段�
   `segments/<name>.{json,log}`（起止 UTC / 墙钟 / 退出码 / 子段产物清单）、
   `released.json`（锁释放回读）、`window.json`（总表 + `stopped_after` + `all_ok`）。
 
-### 7.2 脚本清单（已就绪，均**未执行**）
+### 7.2 脚本清单（transfer 未执行；#238 run4 已执行）
 
 | 脚本 | 覆盖段 | 数据落盘 | 状态 |
 |---|---|---|---|
-| `scripts/experiments/_window.py` | 共用信封：`wait_until_idle` → 持锁 → 段间冷却 → 每段独立 `--out` → 释放 → 证据 | — | 就绪（ruff clean；dry-run 通过，未建目录） |
+| `scripts/experiments/_window.py` | 共用信封：`wait_until_idle` → 段间冷却 → 每段独立 `--out` → 证据；锁归属由 `lock_mode` 决定（`window` 全程持锁 / `segment` 子段各自取放） | — | 就绪（ruff clean；dry-run 通过，未建目录） |
 | `scripts/experiments/run_transfer_window_20261119.py` | S1（`k1`/`k4`）、S2（`light`）、S3（`none`） | `data/experiments/transfer_window_<date>/{k1,k4,light,none}/` | 就绪；**未采集** |
-| `scripts/experiments/run_issue238_period_sweep_20261119.py` | #238 run3：32/48 px 二值光栅周期扫描 | `data/experiments/issue238_binary_phase_20261119/run3_period_sweep/period{32,48}/` | 就绪；**未采集** |
+| `scripts/experiments/run_issue238_period_sweep_20261119.py` | #238 run4：32/48 px 二值光栅周期扫描（`lock_mode="segment"`） | `data/experiments/issue238_binary_phase_20261119/run4_period_sweep/period{32,48}/` | ✅ **已执行成功**（见 §7.3）；run3 因抢锁失败、目录不可复用 |
 
 两者都是 `--execute` 门控，且**只做采集不做判读**：
 
@@ -253,17 +269,18 @@ S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段�
 
 | 段 | 状态 | 数据路径 | 备注 |
 |---|------|---------|------|
-| P1 零级定心（#235） | ✅ 已采集 | `data/debug/issue235_center_20261117/`（`flat.npy`/`summary.json`） | 四口径离线对账仍未落盘（§3） |
+| P1 零级定心（#235） | ✅ 已采集 | `data/debug/issue235_center_20261117/`（`flat.npy`/`summary.json`） | ✅ 四口径离线对账已落盘（2026-11-20，`report/shape_trials/issue235_zero_order_four_method_20261120/`） |
 | P2a 方向门槛 14 帧 | ✅ 已采集 + 已判读 | 报告 `report/shape_trials/model_direction_hw_20261117/` | — |
 | P2b amp03/amp10 | ✅ 已采集 + 已判读 | `data/debug/square1000_model_diag_20261117b_amp10/` 等；判读 `report/shape_trials/fresh_checkpoint_direction_gate_20261118/` | 方向失败，D1 未放行 P3/P4 |
 | 真线性 ±tilt（#247） | ✅ 已采集 | `data/debug/issue247_tilt_20261117/`（13 组 Mono12，0 饱和） | 已判读，报告 `report/shape_trials/issue247_zero_order_20261117/` |
 | S7b 轴失配独立采集 | ✅ 已采集 + 已回验 | `data/debug/slm_transfer/axis_mismatch_validation_20261118/`（`capture`/`initial`/`fit`）；回验 `data/debug/deswivel_forward_inverse_20261118/independent_20261118/` | 结论「无收益」，不再重跑 |
 | #238 run1（16 px） | ✅ 已采集 + 已判读 | `data/debug/issue238_binary_phase_20261119/run1/` | g₂π≈964 ±13 系统 |
 | #238 run2_period32 | ⚠️ 中止、数据退化 | `data/debug/issue238_binary_phase_20261119/run2_period32/` | 725/969 帧（gray 0..928）后 USB `-10032` 中止；缺 936..1023，**不得**用于收紧 |
+| #238 run3（32/48 px） | ❌ 抢锁失败、无数据 | `data/experiments/issue238_binary_phase_20261119/run3_period_sweep/` | 子段与父窗口抢同一把锁，0.4 s 拒绝启动、未开设备/未采帧；目录不可复用 |
+| #238 run4（32/48 px） | ✅ 已采集 + 已离线拟合（不采纳为标定） | `data/experiments/issue238_binary_phase_20261119/run4_period_sweep/period{32,48}/` | 两段各 969 帧、ok、设备与锁正常释放；fold g₂π=952.6 [948,956] / 946.9 [945,950]，均低于回读 993；漂移 13–32%、残差高、CI 只含帧噪声，不改 LUT/#238 仍 OPEN；判读见 `issue238_binary_gray_capture_plan_20261119.md` §6.5 |
 | S1 K=1/K=4 闭环 | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/{k1,k4}/` | 脚本就绪 |
-| S2 ccd_mode light | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/light/` | 脚本就绪 |
-| S3 ccd_mode none | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/none/` | 脚本就绪 |
-| #238 run3（32/48 px） | ⬜ 未采集 | 计划 `data/experiments/issue238_binary_phase_20261119/run3_period_sweep/` | 脚本就绪 |
+| S2 ccd_mode light | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/light/` | 脚本就绪；强度门 δ=0.20 已预注册，硬件验证仍暂停 |
+| S3 ccd_mode none | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/none/` | 脚本就绪；硬件验证仍暂停 |
 
 ### 7.4 仍未准备脚本的段
 

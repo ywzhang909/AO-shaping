@@ -1136,6 +1136,32 @@ def test_run_session_hands_capture_samples_to_the_fit(tmp_path, monkeypatch):
     assert frames == []
 
 
+def test_a_fitted_ramp_that_hits_the_window_edge_stops_before_shaping(tmp_path):
+    """拟合斜面把目标推到窗边 ⇒ 整形前就抛错（不是等到 CCD 分块）。
+
+    参数级预检只看名义位移；这里走的是实测 ``ramp_matrix`` 的同一把尺子，
+    与 ``validate.run`` 的硬保护同判据。原来 ``side_offset_overflow`` 只是
+    warning，会被 ``_round_geometry_preflight`` 过滤掉，一直走到整形才炸。
+    """
+    from ao_shaping.tools.slm.transfer.workflow import _round_geometry_preflight
+
+    dataset = tmp_path/"dataset"
+    dataset.mkdir()
+    (dataset/"manifest.json").write_text(json.dumps([dict(
+        label="reference_start", file="sample_0000.npz", split="calibration",
+        exposure_ms=1., peak=10., spot_xy=[1225., 959.8],
+        exposure_setting=dict(status="ok"))]))
+    checkpoint = tmp_path/"frozen_parameters.json"
+    checkpoint.write_text(json.dumps(dict(
+        ramp_matrix=[[0., 0.], [4000., 0.]],   # period=16 ⇒ 250 px 位移
+        grid_size=8, fft_size=16, pixel_samples=3)))
+    config = SimpleNamespace(side=80.0, period=16.0, shapes=("square",),
+                             window_span=220.0, window_step=2.0, tilt=True)
+
+    with pytest.raises(ValueError, match="采样窗边界"):
+        _round_geometry_preflight(config, dataset=dataset, checkpoint=checkpoint)
+
+
 # ---------------------------------------------------------------------------
 # device: the stages take the resolved device, and the artefacts record it
 # ---------------------------------------------------------------------------

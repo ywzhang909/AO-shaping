@@ -223,3 +223,18 @@ top 级零引用清单由 `scripts/_common/data_reference_inventory.py --tops` �
    本轮改动的受跟踪文件为 `report/data_reference_inventory.md`（自动重生成，1 079 条唯一引用 / 256 文件 /
    零引用 top 13）与 `scripts/_common/data_debug_cleanup.py`（新增上述 `PROTECTED_RUNS` 豁免）。
 6. 2026-11-01 的 ~109 GB 历史归档仍不可恢复（见上节），本轮未再尝试。
+
+## 2026-11-21 · model-in-loop 移除后的三份历史总结报告归档
+
+本轮把工作树中已 `git rm` 但尚未归入 `dump/` 的三份 MIL 历史报告，从 HEAD blob **逐字节**恢复到
+`dump/report/` 对应原相对路径（已校验与 blob SHA-256 一致，LF 未被改写）：
+
+| 原路径（已在 HEAD 删除） | dump 路径 |
+|---|---|
+| `report/shape_trials/model_in_loop/model_in_loop_overview.md` | `dump/report/shape_trials/model_in_loop/model_in_loop_overview.md` |
+| `report/shape_trials/model_in_loop/removal_report.md` | `dump/report/shape_trials/model_in_loop/removal_report.md` |
+| `report/shape_trials/physical_forward_experience.md` | `dump/report/shape_trials/physical_forward_experience.md` |
+
+三份均为「历史总述 / 移除边界 / 放弃路径」类压缩结论，无当前代码或报告引用依赖；
+保留字节正本供跨实验追溯，不参与 `report/` 索引。恢复方式：把对应目录搬回原相对路径即可。
+此轮只归档报告文本；其引用的图片/JSON 产物已在更早批次移入 `dump/`。

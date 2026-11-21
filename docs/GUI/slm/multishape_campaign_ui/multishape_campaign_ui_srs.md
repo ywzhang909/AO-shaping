@@ -63,7 +63,7 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
 |---|---|---|
 | ① | 目标（唯一必填） | 是 |
 | ② | 自动辅助设置 | 是 |
-| ③ | 计划预览 | 是 |
+| ③ | 落盘目录 | 是 |
 | ④ | 模型目录（自动匹配） | 是 |
 | ⑤ | 运行前检查 | 是 |
 | ⑥ | 运行 / 逐块进度 | 部分（未连接 SLM 时「开始」禁用） |
@@ -85,21 +85,22 @@ streamlit run src/ao_shaping/gui/slm/multishape_campaign_ui.py
   口径推出，蓝）、**默认**（runner 的 CLI 默认，灰）、**手工**（人改过，黄，说明里必须记下
   被替换掉的原值）。
 - FR-7：只暴露几个值得人改的旋钮（采样窗半跨 `window_span`、载波周期 `period`、探针
-  采样网格 `capture_grid`）；其余只读展示。手工值存 `msc_overrides`。
+  采样网格 `capture_grid`）；其余只读展示。手工值存 `msc_overrides`。尺寸 → 采样窗半跨取
+  `SIZE_WINDOWS`：200 → 420、600 → 620、1200 → 900（px）；手工覆盖时表里标「手工」并记原值。
 - FR-8：「按尺寸重新推导（清空全部手工覆盖）」按钮一次性清空 `msc_overrides`，表回到全派生。
 - FR-9：派生表**只**含 `campaign.RUNNER_CLI_DEFAULTS` 与形状/尺寸能推出来的字段；
   `model_dir` / `resume` 不在表里，由 ④ 与 ⑥ 单独给出，开跑前显式补齐——少了它们
   `execute_campaign` 会安静地取 click 默认（从零重训 + 重跑已完成段），两种都是
   "看起来在续跑、其实白跑几小时"。
 
-### 2.3 ③ 计划预览
+### 2.3 ③ 落盘目录
 
-- FR-10：按当前形状集合列出 `campaign_matrix` 的行（形状 × 阶段 → 块数、位深、updates），
-  合计 `矩阵 totals`（默认 16 段 / 112 块）。
-- FR-11：给出时间与磁盘估算（`estimate_seconds` / `estimate_disk_gb`，含 `ESTIMATE_SPREAD`
-  区间），并注明 **capture / fit / 重放不计入**该估算。
-- FR-12：尺寸 → 采样窗半跨取 `SIZE_WINDOWS`：200 → 420、600 → 620、1200 → 900（px）；
-  手工覆盖时表里标「手工」并记原值。
+- FR-10：`--out` 默认 `<campaign 根>/multishape_<YYYYMMDD_HHMM>/s<边长>`，边长取当前档位；
+  换尺寸时把控件值重置成新档位的默认路径，避免跑 s200 时覆盖上一档 s1200 的产物。
+- FR-11：控件 `msc_out_text` 的值就是本场的落盘根目录：每个阶段写它下面的子目录，父目录由
+  runner 自建；⑤ 的磁盘 / 时间判据与 ⑥ 的运行都按它算。
+- FR-12：矩阵表与时长 / 磁盘估算**不在页面展示**（2026-11-20 按需求移除，与桌面页的
+  计划预览一并删除）；同样的口径只在 ⑤ 的「磁盘预算」「时间预算」两项判据里给出。
 
 ### 2.4 ④ 模型目录（自动匹配）
 

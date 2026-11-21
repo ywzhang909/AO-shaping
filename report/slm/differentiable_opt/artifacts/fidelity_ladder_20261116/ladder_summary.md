@@ -1,13 +1,5 @@
 # 物理预测模型保真度阶梯 (execute)
 
-<!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/hw_forward_model_fidelity_ladder.py`](../../../../../scripts/slm/hw_forward_model_fidelity_ladder.py)
-> **复现命令**: `python scripts/slm/hw_forward_model_fidelity_ladder.py --execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116`
-> **数据/关联脚本**: [`scripts/slm/_hw_fidelity_ladder_sections.py`](../../../../../scripts/slm/_hw_fidelity_ladder_sections.py)
-> **运行环境**: 离线
-> **说明**: 保真度阶梯的逐图案汇总 (metrics.json/csv 同批产物): dry-run 演练写出占位与判据说明, 不伪造数字; --execute 后重写为实测对比。主判据 spearman_signal。
-<!-- provenance:end -->
-
 - 时间戳 (UTC): 2026-11-17T02:26:47.446174+00:00
 - 模式: execute (硬件实测)
 - 几何标定: D:\Projects\TIFO\AO-shaping\data\slm_geometry_calib.npz (k_mean=7511 px/panel-px, rotation=-89.061°)

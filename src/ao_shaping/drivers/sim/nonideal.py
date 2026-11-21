@@ -7,7 +7,8 @@
   仿真的瞳面只有一路光 ⇒ 「框外功率占比」的来源构成不对 (实测含零级晕, 仿真只有
   边瓣与焦外弥散)。见 :class:`ZeroOrderModel`。
 * **SLM LUT 非线性 + 灰度量化** —— 仿真原来假设理想的「弧度→灰度→远场」线性映射
-  (``two_pi_gray = 993``), 没有 Gamma/LUT 曲线、没有量化误差 ⇒ CV 比实测低 ~40%。
+  (``two_pi_gray = 993``, 为仿真默认值, 非设备读数), 没有 Gamma/LUT 曲线、
+  没有量化误差 ⇒ CV 比实测低 ~40%。
   见 :class:`SlmLutModel`。
 * **探测器非理想性 (PRNU / 暗电流 FPN)** —— 真实 sCMOS 有像素响应非均匀 (PRNU) 与
   固定模式噪声 (FPN); 仿真只有逐像元高斯白噪声 ⇒ 噪声地板的 σ(CV)/σ(复合分数)
@@ -38,7 +39,10 @@ from typing import Any
 
 import numpy as np
 
-#: 设备动态: 1064 nm 下 2π 弧度对应的灰度 (见 ``slm_pib_sim.TWO_PI_GRAY``)。
+#: 仿真默认值, **不是设备读数**: 1064 nm 下 2π 弧度对应的灰度 (见
+#: ``slm_pib_sim.TWO_PI_GRAY``)。仿真无真实 SLM, 无法查询 Santec 相位表; 993
+#: 只是历史设备回报的典型值, 固定它以保证仿真重现性。真实设备的物理 2π 灰度
+#: 一律经 ``Santec.get_wavelength_info()[1]`` 读取。
 #: 这里独立定义一份, 避免与 ``slm_pib_sim`` 形成循环 import。
 SLM_TWO_PI_GRAY = 993
 

@@ -334,9 +334,6 @@ python -m ao_shaping.tools.slm.transfer run \
 ```bash
 # Replay archived phases
 python -m ao_shaping.tools.slm.transfer replay --run-dir <run_dir>
-
-# Generate report
-python scripts/slm/generate_model_in_loop_cv_report.py  # if applicable
 ```
 
 ---

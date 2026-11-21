@@ -91,17 +91,26 @@ class _Bench:
         self._frames = frames
         self._frame_id = 0
         self.closed = False
+        self.opened = 0
+        self.calls: list[str] = []
         self.exposure_ms = 1.0
         self.full_scale = 255.0
 
+    def open(self) -> None:
+        self.opened += 1
+        self.calls.append("open")
+
     def describe(self) -> dict:
+        self.calls.append("describe")
         return {"name": "fake", "sensor": _SENSOR}
 
     def apply_phase(self, phase: np.ndarray) -> str:
+        self.calls.append("apply_phase")
         self.applied.append(np.array(phase, dtype=np.float64, copy=True))
         return f"phase-{len(self.applied)}"
 
     def capture(self) -> CapturedFrame:
+        self.calls.append("capture")
         self._frame_id += 1
         return CapturedFrame(
             frame=np.asarray(self._frames(len(self.applied)), dtype=np.float64),
@@ -346,6 +355,45 @@ def test_runner_accepts_only_a_measured_improvement() -> None:
     assert round_one.measured_score < baseline.measured_score
     assert round_one.predicted_score is not None  # 模型估计与实测分开留档
     assert summary.applied_score == pytest.approx(round_one.measured_score)
+    assert bench.closed
+
+
+def test_runner_opens_the_bench_before_any_device_call() -> None:
+    """设备必须先 open 再 describe/下发/采集: 真实 HardwareBench 的硬契约。"""
+    bench = _Bench(lambda n: _embed(_good()))
+    runner = ClosedLoopRunner(
+        bench, config=_config(max_rounds=1), forward=_SquareForward(_target())
+    )
+    summary = runner.run()
+
+    assert summary.state is LoopState.STOPPED
+    assert bench.opened == 1
+    assert bench.calls[0] == "open"
+    assert bench.calls.count("open") == 1
+    # 所有设备调用都排在 open 之后 (没有第二次 open 混在中间)。
+    assert bench.calls.index("describe") > bench.calls.index("open")
+    assert bench.closed
+
+
+def test_runner_reports_a_failed_open_without_touching_the_device() -> None:
+    """open 失败要落成可读故障, 且不得再下发相位或采集。"""
+
+    class _NoDeviceBench(_Bench):
+        def open(self) -> None:
+            super().open()
+            raise RuntimeError("SLM 驱动板无应答")
+
+    bench = _NoDeviceBench(lambda n: _embed(_good()))
+    runner = ClosedLoopRunner(
+        bench, config=_config(max_rounds=1), forward=_SquareForward(_target())
+    )
+    summary = runner.run()
+
+    assert summary.state is LoopState.FAULT
+    assert "SLM 驱动板无应答" in summary.reason
+    assert bench.applied == []
+    assert "apply_phase" not in bench.calls
+    assert "capture" not in bench.calls
     assert bench.closed
 
 

@@ -70,6 +70,7 @@ class AcquisitionPlan:
     cam_id: int
     serial: str | None
     target_dir: Path | None
+    bit_depth: int | None = None
 
 
 def build_plan(
@@ -80,12 +81,15 @@ def build_plan(
     cam_id: int,
     serial: str | None = None,
     config_root: str | Path | None = None,
+    bit_depth: int | None = None,
 ) -> AcquisitionPlan:
     """Resolve the target directory (via :func:`dark_frames_dir`) for a run."""
     if frames <= 0:
         raise ValueError(f"--frames 必须 > 0, 收到 {frames!r}")
     if not exposures_ms:
         raise ValueError("曝光列表不能为空")
+    if bit_depth is not None and int(bit_depth) <= 0:
+        raise ValueError(f"--bit-depth 必须为正数, 收到 {bit_depth!r}")
     resolved_serial = str(serial).strip() if serial is not None and str(serial).strip() else None
     target = dark_frames_dir(resolved_serial, root=config_root) if resolved_serial else None
     return AcquisitionPlan(
@@ -95,6 +99,7 @@ def build_plan(
         cam_id=cam_id,
         serial=resolved_serial,
         target_dir=target,
+        bit_depth=None if bit_depth is None else int(bit_depth),
     )
 
 
@@ -106,6 +111,7 @@ def format_plan(plan: AcquisitionPlan) -> str:
         "暗帧采集计划 (不打开设备):",
         f"  相机        : {plan.cam_type}#{plan.cam_id}",
         f"  序列号      : {serial}",
+        f"  位深        : {plan.bit_depth if plan.bit_depth is not None else '<相机配置/回读>'}",
         f"  曝光阶梯 ms : {', '.join(f'{ms:g}' for ms in plan.exposures_ms)}",
         f"  每档平均帧数: {plan.frames}",
         f"  目标目录    : {target}",
@@ -214,6 +220,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--cam-type", default=DEFAULT_CAM_TYPE, help="相机后端类型")
     parser.add_argument("--cam-id", type=int, default=DEFAULT_CAM_ID, help="相机 id")
+    parser.add_argument(
+        "--bit-depth", type=int, default=None,
+        help="请求的输出位深 (8/12/16); 必须经相机回读校验, 缺省沿用相机配置",
+    )
     parser.add_argument("--config-root", default=None, help="CCD 配置根目录 (覆盖默认解析)")
     parser.add_argument(
         "--serial", default=None,
@@ -235,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         exposures, args.frames,
         cam_type=args.cam_type, cam_id=args.cam_id,
         serial=args.serial, config_root=args.config_root,
+        bit_depth=args.bit_depth,
     )
 
     if args.no_hw:
@@ -259,9 +270,19 @@ def main(argv: list[str] | None = None) -> int:
             "[capture_darks] 设备占用开始: 打开相机 {}#{} 采暗帧 (不碰 SLM/激光)",
             args.cam_type, args.cam_id,
         )
-        with create_camera(
-            args.cam_type, args.cam_id, exposure_time_ms=exposures[0]
-        ) as cam:
+        camera_kwargs: dict[str, Any] = {"exposure_time_ms": exposures[0]}
+        if plan.bit_depth is not None:
+            camera_kwargs["bit_depth"] = plan.bit_depth
+        with create_camera(args.cam_type, args.cam_id, **camera_kwargs) as cam:
+            # 位深是设备回读真值才可信: 请求 12-bit 若静默落到 Mono8, 满量程不同,
+            # 暗帧与 12-bit 配对曝光不可减, 必须在这里拦下 (ccd/AGENTS.md 位深契约)。
+            if plan.bit_depth is not None:
+                actual = getattr(cam, "bit_depth", None)
+                if actual is None or int(actual) != plan.bit_depth:
+                    raise RuntimeError(
+                        f"位深回读校验失败: 请求 {plan.bit_depth}-bit, 设备报告 {actual}; "
+                        "拒绝写入位深不符的暗帧"
+                    )
             serial = (
                 getattr(cam, "serial_number", None)
                 or getattr(cam, "sn", None)

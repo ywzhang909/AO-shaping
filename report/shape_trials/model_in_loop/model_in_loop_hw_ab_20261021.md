@@ -1,8 +1,7 @@
 # model-in-loop 实验系统 A/B campaign 报告 (20261021)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/generate_model_in_loop_hw_ab_report.py`](../../../scripts/slm/generate_model_in_loop_hw_ab_report.py)
-> **复现命令**: `python scripts/slm/generate_model_in_loop_hw_ab_report.py --session data/debug/model_in_loop_hw_ab/20261021_172236 --stamp 20261021`
+> **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/model_in_loop_hw_ab.py`](../../../scripts/slm/model_in_loop_hw_ab.py)
 > **数据/关联脚本**: [`scripts/slm/diagnose_light_level.py`](../../../scripts/slm/diagnose_light_level.py)
 > **运行环境**: 离线+硬件

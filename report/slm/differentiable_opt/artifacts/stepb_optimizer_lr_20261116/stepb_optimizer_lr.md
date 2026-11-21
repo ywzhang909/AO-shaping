@@ -1,12 +1,5 @@
 # Step B 优化器 / 学习率 / 调度扫描（MIL Step B, 纯离线仿真）
 
-<!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/sweep_stepb_optimizer_lr.py`](../../../../../scripts/slm/sweep_stepb_optimizer_lr.py)
-> **复现命令**: `python scripts/slm/sweep_stepb_optimizer_lr.py`
-> **运行环境**: 离线
-> **说明**: MIL Step B 优化器/学习率/调度扫描 (纯离线仿真, 不碰任何硬件设备): lr 阶梯、余弦/阶梯/预热+余弦调度在同等物理光斑质量约束下能否砍迭代预算。
-<!-- provenance:end -->
-
 口径: Level 1 与 `stepb_budget_sweep_20261116` 完全一致（region 64、无噪声、1 帧、Step A 500 步、6 轮、像差 {4:0.35, 5:0.30, 8:0.20}、seed 0）。Level 2 为单次 `train_beam_shaping` 调用（fft 前向, 64×64, 像差写入初始相位, 原生高斯振幅, 方斑边长 6, 权重 0.4/0.6/0/0, seed 0, CPU）。
 
 ## Level 1 — MIL 仿真学习率阶梯（150 步 / 轮）

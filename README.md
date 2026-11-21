@@ -224,7 +224,6 @@ CLI (src/ao_shaping/main.py)
 | [`docs/user/cli-reference.md`](docs/user/cli-reference.md) | CLI 正式参考：全部 flag、取值域、默认值 |
 | [`docs/dev/extension_guide.md`](docs/dev/extension_guide.md) | **二次开发指南**：分层、扩展点、最小模板、测试与文档门禁 |
 | [`docs/dev/coding_conventions.md`](docs/dev/coding_conventions.md) | 编码规范、测试规范、贡献流程 |
-| [`docs/ci-environment-contract.md`](docs/ci-environment-contract.md) | CI 环境契约：容器保证/不保证的外部文件（dry-run 自包含与合成回退的判据） |
 | [`docs/dev/call_graph_wiki/index.md`](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：逐命令 + 逐函数文档（AST 静态分析，可重跑） |
 | [`docs/architecture.md`](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 实验系统唯一入口约定 |
 | [`docs/drivers_architecture.md`](docs/drivers_architecture.md) | 驱动分层架构、设备注册表、惰性加载契约 |

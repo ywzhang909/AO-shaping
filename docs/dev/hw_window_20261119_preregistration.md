@@ -8,13 +8,13 @@
 |---|---|
 | 预注册写入时刻（UTC） | 2026-11-19T11:04:55Z |
 | 依据用户授权 | 本窗口采集范围「全包一次窗口」；阈值口径「配对改善 + 报绝对值」 |
-| git HEAD | `adcdb50bc5652477551e748297c68f73c284f77a` |
-| `validate_transfer_shapes_hardware.py` SHA256(前16) | `19947B714C8A3986` |
-| `replay_transfer_shapes_hardware.py` SHA256(前16) | `25DB72439891A98E` |
-| `run_transfer_window_20261119.py` SHA256(前16) | `79E76137B6DB4065`（原 `A406D6220E1A3FDC`，见 §0.2 重签记录） |
-| `run_issue238_period_sweep_20261119.py` SHA256(前16) | `4CA2762FB25ABAB2`（原 `25508186A97DD926`，见重签记录） |
-| `scripts/experiments/_window.py` SHA256(前16) | `808BFAAB0976526D`（初签未列，见重签记录） |
-| `protocol.py` SHA256(前16) | `49CBA3A62DADC8ED`（初签与重签一致，评分口径未变） |
+| git HEAD | `5545d579ff820722a04eb966531584726c939da6`（原 `adcdb50b…`，见 §0.3 重签记录） |
+| `validate_transfer_shapes_hardware.py` SHA256(前16) | `7EF7F25A121E8824`（原 `19947B714C8A3986`，见 §0.3） |
+| `replay_transfer_shapes_hardware.py` SHA256(前16) | `5727FD8F459E5FCB`（原 `25DB72439891A98E`，见 §0.3） |
+| `run_transfer_window_20261119.py` SHA256(前16) | `39C3E00D51FCC0E4`（原 `79E76137B6DB4065`，见 §0.3） |
+| `run_issue238_period_sweep_20261119.py` SHA256(前16) | `48BBF7198FC3C691`（原 `4CA2762FB25ABAB2`，见 §0.3） |
+| `scripts/experiments/_window.py` SHA256(前16) | `AA098F72A30F2AB8`（原 `808BFAAB0976526D`，见 §0.3） |
+| `protocol.py` SHA256(前16) | `32078F78F45905AC`（原 `49CBA3A62DADC8ED`；评分函数逐位复现，见 §0.3） |
 | 写文件时设备状态 | `device_lock.json` 不存在；未占用 SLM / CCD / 激光 |
 
 > 上表哈希只标识评分所用的冻结脚本版本；若本窗口使用不同版本，须在此登记新哈希并重签，否则评分作废。
@@ -35,6 +35,14 @@
   2. 新增 `--window-span` / `--capture-grid` / `--control-grid` 透传，以及 dry-run 阶段按 `2*(window-span-8)` 提前拒绝超窗 `--side` 的守卫；只影响 argv 构造与预检，不改变任何指标计算。
 - 评分口径实现 `protocol.py::target_intensity_rmse` 哈希仍为 `49CBA3A62DADC8ED`，§2 判据（2.3 配对主门 / 2.4 绝对值仅报告 / 2.5 归因边界）**不变**；`validate_transfer_shapes_hardware.py`、`replay_transfer_shapes_hardware.py` 哈希未变。
 - 结论：该变更属采集入口层，不改评分口径。按 §0 登记新哈希并重签后可用其评分；执行前请再次复核此哈希。
+
+### 0.3 重签记录（2026-11-19T15:46:32Z，全窗口评分完成后）
+
+- 复核时刻 `2026-11-19T15:46:32Z`。`git rev-parse HEAD` 由 `adcdb50bc…` 经上游合并推进至 `5545d579ff820722a04eb966531584726c939da6`（`3d0fe7f2` 合并 53 个上游提交 + `5545d579` 应用本窗口 issue 判定与评分结果）。该合并重构了源码模块布局（CCD/GUI 叶子模块归并回调用方），使 §0 表内全部脚本的 blob 哈希发生变化。
+- 复核当时 `device_lock.json` 不存在，未占用 SLM/CCD/激光；本窗口全部采集与 §6 离线评分**均已完成**，本次重签发生在评分之后（区别于 §0.1/§0.2 的事前重签），故以「逐位复现已落盘评分」为放行条件。
+- 表内六个脚本哈希全部变化：`validate` `19947B71…→7EF7F25A…`、`replay` `25DB7243…→5727FD8F…`、`run_transfer_window` `79E76137…→39C3E00D…`、`run_issue238_period_sweep` `4CA2762F…→48BBF719…`、`_window.py` `808BFAAB…→AA098F72…`、`protocol.py` `49CBA3A6…→32078F78…`。
+- **评分口径未变的关键证据**：在合并后的当前工作树上用同一评分脚本 `C:/Users/.../hw_window_score_20261119.py`（哈希 `496BDCBC…`，未变）重跑 §6 评分，`RECIPE_SELFCHECK_MAX_ABS_DIFF_vs_manifest = 0.000e+00`，六个 capture 的 `rel_l2/efrac/cv/ee_roi/target_pearson` 与 §6.1 表逐位一致；落盘 `hw_window_20261119_score.json` 重算后 SHA256 仍为 `B92934B649DEA786…`（与 §6 登记完全一致）。即 `protocol.py::target_intensity_rmse` 虽因模块归并改了文件哈希，但对本次评分的函数语义逐位等价，§2 全部判据（2.3 配对主门 / 2.4 绝对值仅报告 / 2.5 归因边界）与 §6 主门结论（不通过、方向为负）**均不变、不重算、不作废**。
+- 结论：本次变化属上游合并的模块布局重构，不改评分口径。按 §0 登记新哈希并重签后，`§6` 已落盘评分继续有效；后续若脚本哈希再次变化须再次重签。
 
 
 ## 1. 本窗口范围（用户授权）

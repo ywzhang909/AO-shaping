@@ -330,7 +330,7 @@ score = 0.6 · EE + 0.4 / (1 + CV)
 |---|---|
 | 损失审计 | `logs/mil_loss_audit/20261022_100603/summary.md`、`audit.json`、`candidates.json`、`candidates/`（相位数组）；生成脚本 `scripts/slm/analyze_model_in_loop_loss.py` |
 | 离焦 + 泽尼克 | [hw_defocus_zernike_20261022.md](hw_defocus_zernike/hw_defocus_zernike_20261022.md)（§0、§0.3、§1.2 噪声地板、§2 离焦扫描、§5 限制）；生成脚本 `scripts/slm/generate_hw_defocus_zernike_report.py` |
-| MIL 单次运行记录 | [model_in_loop_record_20261021_172309.md](model_in_loop/model_in_loop_record_20261021_172309.md)；生成脚本 `scripts/slm/generate_model_in_loop_record_report.py` |
+| MIL 单次运行记录 | [model_in_loop_record_20261021_172309.md](model_in_loop/model_in_loop_record_20261021_172309.md) |
 | campaign 失败现场 | `data/debug/model_in_loop_hw_ab/20261022_133250/`、`.../20261022_135318/`、`.../20261022_153356/`、`.../20261022_164859/`（`summary.md` / `manifest.json` / `baseline_*/stage.log`；**15:33 那轮连 `summary.md` 都没落**，只有 `light.log` + `baseline_a/panel_scan/`，因为 campaign 在变体阶段就中止了） |
 | 光路有效性探针 | `data/debug/optical_path_probe/20261022_084725Z/optical_path_probe.json`（判定 ok 的那一轮）与 `.../20261022_{062235Z,063917Z,064720Z,081646Z}/`（驱动板不应答的四轮）；生成脚本 `scripts/slm/probe_optical_path_validity.py` |
 | 2026-10-19 的焦面 + 彗差组合校正 | [model_in_loop_live_20261019.md](model_in_loop/model_in_loop_live_20261019.md) §10:23 / §11:01 |

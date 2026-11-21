@@ -2,11 +2,11 @@
 
 > 按日追加；过期条目迁入 `docs/dev/` 对应专题。
 
-## 实验采集（全部完成并释放）
+## 上机采集（全部完成并释放）
 
 - 光路探针 ok（0.05 ms 不饱和），三段链式采集（P1 定心 / P2 amp03 / P2 amp10）与真线性 ±tilt 补采
   全部 exit 0、正常释放。SLM #1 + CCD #0 最后 22:06:10 关闭，锁空，激光未由脚本开关。
-- 设备将下线；剩余实验任务编排见 `docs/dev/next_hw_plan_transfer_candidates_issue247_20261117.md`。
+- 设备将下线；剩余上机任务编排见 `docs/dev/next_hw_plan_transfer_candidates_issue247_20261117.md`。
 - 采集期**不要**跑含 `Santec SLM` / `tilt` / `defocus` 关键词的长查询——graphify 命令行曾被误判为
   硬件进程致 census 延迟 84 s。
 
@@ -18,7 +18,7 @@
   目标沿 CCD-y（−54.50 px）、panel-y 斜坡→CCD-x（+59.19 px），即轴交换；两轴实测位移矢量经 Kabsch
   得 **correction=+88.544°**（orthogonality error 0.24°、scale ratio 1.086、max residual 2.34 px）。
   逐帧按此旋转对齐后，panel-x 位移落到 CCD-x（+54.54 px）、panel-y 落到 CCD-y（+59.28 px），
-  跨轴串扰 ≤0.12 px——轴交换完全由旋转解释。物理预测模型必须匹配该映射（含轴间尺度比），否则
+  跨轴串扰 ≤0.12 px——轴交换完全由旋转解释。前向模型必须匹配该映射（含轴间尺度比），否则
   零级校正会越校越偏。**本轮不启用硬件零级校正**（数值比例因子待离线标定）。
 - 旧 P2 数据不能用：RX/RY 是 64 px 余弦探针非 tilt；标准 analyzer 的 camera_xy 网格（x∈[1300,2536]）
   落在光束（x≈1227）之外，测的是背景，其"模型不匹配"是假象。
@@ -31,7 +31,7 @@
 - K 候选已落地，K=1 逐位一致（golden + 独立脚本双证）；`--candidates K` 端到端贯通。
 - 离线 GPU 微基准（真实 FrozenDefocusForward + update()，grid 32/64/128 × 4 形状 × K=1/2/4/8）：
   单步 7–51 ms，K=8 相对 K=1 为 2.45–4.53×（次线性），K=8 显存 ≤54 MiB。
-- 端到端闭环 301 s 中优化器本体 <0.5%，K 加速会被 I/O 抖动淹没 → 实验只验证"能否在线实现"，
+- 端到端闭环 301 s 中优化器本体 <0.5%，K 加速会被 I/O 抖动淹没 → 上机只验证"能否跑通"，
   代价以 GPU 微基准为准。报告：`report/shape_trials/transfer_candidates_timing_20261117/`。
 - 与 `report/shape_trials/candidate_parallelism_20261117.md`（`train_beam_shaping` 的另一模块）区分。
 

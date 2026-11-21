@@ -631,7 +631,8 @@ def render_progress_panel(out_dir: Path, *, running: bool,
 
     分母的优先级：目录 journal 里的 ``plan.shapes``（那是这份目录**实际按什么计划**跑的，
     换过勾选之后也仍然是对的）→ 传入的 ``shapes``（页面当前选择，新目录还没有 plan 时）
-    → 目录里出现过的形状。
+    → 目录里出现过的形状。三者都为空（旧 journal 没有 plan 条目、目录里也还没有段）时
+    **不建矩阵**，分母退到读取器自己的合计 —— 空计划是正常历史态，不该让整页抛异常。
 
     这一处同时是 ⑥ 运行中/空闲、⑦ 历史三处视图的唯一渲染体，所以 ``key_prefix`` 由
     调用方给：⑥ 的空闲面板与 ⑦ 可能同时在看同一个目录，不带前缀的同名控件会让 Streamlit
@@ -642,7 +643,15 @@ def render_progress_panel(out_dir: Path, *, running: bool,
     progress = collect_campaign_progress(out_dir)
     planned = (journal_plan_shapes(progress) or tuple(shapes or ())
                or plan_shapes(progress))
-    rows = campaign_matrix(list(planned))
+    # 没有计划的目录（plan 条目出现之前的旧 journal、刚建的空目录）不建矩阵：
+    # ``campaign_matrix`` 对空形状集合是 ValueError（它的契约是校验 CLI 入参，不是
+    # 给渲染兜底），而这里空计划是**正常**历史态，不是错误。分母退到读取器合计。
+    rows = ()
+    if planned:
+        try:
+            rows = campaign_matrix(list(planned))
+        except ValueError as exc:  # 旧 journal 里的形状名本版不认：同样退到读取器合计
+            logger.warning("计划矩阵不可用（形状 {}）：{}", list(planned), exc)
     plan = matrix_totals(rows)
     planned_blocks = {(row.shape, row.stage): row.blocks for row in rows}
     done_blocks = progress.totals["blocks_done"]

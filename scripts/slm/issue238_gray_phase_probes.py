@@ -18,6 +18,17 @@ as uint16 npz; nothing is cropped):
 * 3x3 and 5x5 center-cell crosstalk grids (center g = 993 grating, neighbors 0
   or 993), one frame per condition.
 
+Optional (binary mode only):
+
+* ``--dark-frames N`` captures N dark frames at the ``pre`` / ``post`` point of
+  each sweep block (``--dark-at``) at the same fixed sweep exposure, tagged
+  ``role="dark"``.  Dark frames are **recorded, never subtracted**: they are
+  excluded from sweep and power-reference analysis and summarised only in
+  ``summary.json.dark``.  This script has no illumination-off control, so a
+  dark request needs an illumination-blocking hook supplied by a hardware
+  lane (``_run(dark_capture_hook=...)``); without one it fails fast rather
+  than pretending to have captured a dark frame.
+
 ``G_ref = 1023`` is the *encoding* reference used to build the patterns.  The
 true physical 2*pi gray is deliberately **pending offline fit**: issue #238
 historically assumed 993 while the 2026-11-18 ``optical_path_record.json``
@@ -108,6 +119,29 @@ POWER_REFERENCE_MODES = ("off", "abba")
 POWER_REFERENCE_KIND = "power_ref"
 #: Default frames per reference side (pre / post) when ``abba`` is enabled.
 DEFAULT_POWER_REFERENCE_FRAMES = 2
+#: Dark-frame capture: ``0`` keeps archived plans / frame counts reproducible.
+DEFAULT_DARK_FRAMES = 0
+#: Points inside a sweep block where dark frames may be taken (``both`` = pre+post).
+DARK_AT_CHOICES = ("pre", "post", "both")
+#: Plan-item kind / group / per-frame role used for dark frames.  ``role`` is the
+#: tag offline readers use to keep darks out of every sweep / power analysis.
+DARK_KIND = "dark"
+DARK_GROUP = "dark"
+DARK_ROLE = "dark"
+#: Why ``--dark-frames`` cannot make the scene dark by itself: this bench path has
+#: no illumination-off control (no laser shutter, SLM blank or camera-shutter API
+#: anywhere under ``ao_shaping.drivers`` used here).  Rather than invent a hardware
+#: call, ``_run(dark_capture_hook=...)`` is the seam a hardware-enabled lane fills:
+#: the hook must return a context manager that blocks the laser / closes the shutter
+#: for the ``with`` block.  Sweep exposure is unchanged and frames are tagged
+#: ``role="dark"``; nothing is ever subtracted from sweep or power-reference data.
+DARK_HOOK_GAP_NOTE = (
+    "dark frames requested but no illumination-off hook was supplied: this script "
+    "has no laser-shutter / SLM-blank / camera-shutter API, so it cannot create a "
+    "dark scene by itself. Pass _run(dark_capture_hook=<callable returning a "
+    "context manager that blocks illumination>) from a hardware-enabled lane; the "
+    "sweep exposure stays fixed and the frames are tagged role='dark'"
+)
 #: Crosstalk grid sizes and center gray.
 CROSSTALK_GRIDS = (3, 5)
 CROSSTALK_CENTER_GRAY = 993
@@ -201,6 +235,111 @@ def abba_schedule(
 def sweep_block_id(block_index: int, period_px: int) -> str:
     """Stable block identifier used in plan items and frame metadata."""
     return f"block{int(block_index)}_p{int(period_px)}"
+
+
+def dark_positions(at: str) -> tuple[str, ...]:
+    """Return the sweep-block points where dark frames are requested (pure)."""
+    at = str(at)
+    if at == "both":
+        return ("pre", "post")
+    if at in ("pre", "post"):
+        return (at,)
+    raise ValueError(f"dark_at must be one of {DARK_AT_CHOICES}, got {at!r}")
+
+
+def dark_plan_section(args: argparse.Namespace) -> dict[str, Any] | None:
+    """Describe the requested dark-frame capture, or ``None`` when disabled (pure).
+
+    ``--dark-frames 0`` (the default) returns ``None``, so archived plans keep
+    their byte-for-byte frame sequence and no ``dark`` key appears.
+    """
+    frames = int(getattr(args, "dark_frames", DEFAULT_DARK_FRAMES))
+    if frames < 0:
+        raise ValueError("dark_frames >= 0 required")
+    if frames == 0:
+        requested_at = getattr(args, "dark_at", None)
+        if requested_at is not None:
+            raise ValueError("dark_at requires dark_frames >= 1")
+        return None
+    at = getattr(args, "dark_at", None)
+    # Default when the caller did not pick a point: bracket the block on both sides.
+    at = "both" if at is None else str(at)
+    return {
+        "enabled": True,
+        "frames_per_point": frames,
+        "at": at,
+        "positions": list(dark_positions(at)),
+        "role": DARK_ROLE,
+        "dark_subtracted": False,
+        "capture": (
+            "same fixed exposure and the same uint16 Mono12 checks / frames.jsonl "
+            "manifest fields as sweep frames, captured while illumination is "
+            "blocked; no SLM pattern is written, so no panel digest is claimed"
+        ),
+        "illumination_control": {
+            "status": "gap",
+            "detail": DARK_HOOK_GAP_NOTE,
+            "seam": "_run(dark_capture_hook=...)",
+        },
+        "analysis_policy": (
+            "excluded from sweep and power-reference analysis; summarised only in "
+            "summary.json.dark"
+        ),
+        "note": (
+            "dark frames are recorded, never subtracted: dark_subtracted stays "
+            "false and no sweep/power-reference value is corrected"
+        ),
+    }
+
+
+def summarize_dark(
+    frame_records: Sequence[dict[str, Any]],
+    *,
+    frames_per_point: int,
+    positions: Sequence[str],
+) -> dict[str, Any]:
+    """Summarise captured dark frames; no dark row enters sweep analysis (pure).
+
+    Input rows are the ``frames.jsonl`` dicts.  Only rows tagged
+    ``role='dark'`` are read, so this can never launder a sweep frame into the
+    dark statistics (or the reverse).
+    """
+    darks = sorted(
+        (r for r in frame_records if r.get("role") == DARK_ROLE),
+        key=lambda r: int(r["monotonic_ns"]),
+    )
+    totals = [float(r["frame_total"]) for r in darks if "frame_total" in r]
+    section: dict[str, Any] = {
+        "enabled": True,
+        "role": DARK_ROLE,
+        "frames_per_point": int(frames_per_point),
+        "positions": [str(p) for p in positions],
+        "n_frames": len(darks),
+        "totals": totals,
+        "median_total": float(np.median(totals)) if totals else None,
+        "sigma_total": float(np.std(totals, ddof=0)) if totals else None,
+        "sigma_definition": "population standard deviation (ddof=0) of frame totals",
+        "dark_subtracted": False,
+        "frames": [
+            {
+                "label": r.get("label"),
+                "frame_file": r.get("frame_file"),
+                "frame_total": int(r["frame_total"]) if "frame_total" in r else None,
+                "exposure_ms": r.get("exposure_ms"),
+                "block_index": r.get("block_index"),
+                "dark_position": r.get("dark_position"),
+                "timestamp_utc": r.get("timestamp_utc"),
+            }
+            for r in darks
+        ],
+        "note": (
+            "dark frames are recorded only and are excluded from sweep and "
+            "power-reference analysis; no subtraction was applied"
+        ),
+    }
+    if not darks:
+        section["note"] += "; no dark frames were recorded"
+    return section
 
 
 def interpolate_power_scale(
@@ -427,6 +566,11 @@ def pattern_array(item: dict, shape: tuple[int, int]) -> np.ndarray:
         # ABBA beam-power reference: same full-aperture flat (phi=0) pattern as
         # the brightness reference, at the run's single fixed exposure.
         return flat_gray(shape, item.get("gray", 0))
+    if kind == DARK_KIND:
+        # Dark frames measure the scene with illumination blocked, so the panel
+        # content is irrelevant; keep a flat frame only so the plan stays
+        # renderable.  ``_run`` never writes this pattern for a dark item.
+        return flat_gray(shape, item.get("gray", 0))
     if kind == "blaze":
         return blaze_gray(
             shape,
@@ -526,6 +670,9 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
     if ref_mode == "abba" and ref_frames_per_side < 1:
         raise ValueError("power_reference_frames >= 1 required")
 
+    dark_plan = dark_plan_section(args)
+    dark_pos = list(dark_plan["positions"]) if dark_plan else []
+
     patterns: list[dict[str, Any]] = []
     add = _materialize_add(patterns)
 
@@ -538,6 +685,43 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
         frames=len(args.exposure_bracket),
         params={"note": "flat/zero-order = brightest pattern for exposure bracket"},
     )
+
+    block_id = sweep_block_id(0, period)
+
+    def add_dark(position: str) -> None:
+        """Append one dark-frame group.
+
+        No SLM pattern is written for these frames, so the plan item carries
+        ``panel_gray_* = None``: claiming a panel digest here would be false
+        provenance for a scene that must be dark anyway.
+        """
+        index = len(patterns)
+        patterns.append(
+            {
+                "index": index,
+                "label": f"{index:04d}_{DARK_KIND}_{position}",
+                "kind": DARK_KIND,
+                "group": DARK_GROUP,
+                "role": DARK_ROLE,
+                "dark_position": position,
+                "block_index": 0,
+                "block_id": block_id,
+                "frames": int(dark_plan["frames_per_point"]),
+                "gray": 0,
+                "period_px": 0,
+                "params": {
+                    "dark": True,
+                    "note": "illumination blocked; no SLM pattern written",
+                },
+                "panel_gray_max": None,
+                "panel_gray_sha256": None,
+                "clamp_warning": None,
+                "warnings": [],
+            }
+        )
+
+    if "pre" in dark_pos:
+        add_dark("pre")
 
     # Binary phase grating sweep (symmetric 0/g square wave), averaged per level.
     # ``abba`` brackets this contiguous block with flat power references; the
@@ -556,7 +740,6 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
                 params={"note": "binary 0/g grating, 50% duty, x-period", "duty": 0.5},
             )
     else:
-        block_id = sweep_block_id(0, period)
         block: dict[str, Any] = {
             "block_index": 0,
             "block_id": block_id,
@@ -621,6 +804,9 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
             ),
         }
 
+    if "post" in dark_pos:
+        add_dark("post")
+
     # Post-sweep flat monitor: detects beam drift over the run.
     add(
         kind="flat",
@@ -651,6 +837,7 @@ def _build_binary_plan(args: argparse.Namespace) -> dict[str, Any]:
             if power_reference is not None
             else {}
         ),
+        **({"dark": dark_plan} if dark_plan is not None else {}),
         "n_patterns": len(patterns),
         "n_frames_expected": n_frames,
         "native_ccd_shape": list(NATIVE_CCD_SHAPE),
@@ -673,6 +860,10 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "power_reference", "off") != "off":
         raise ValueError(
             "power_reference requires --mode binary (a contiguous sweep block)"
+        )
+    if int(getattr(args, "dark_frames", DEFAULT_DARK_FRAMES)) > 0:
+        raise ValueError(
+            "dark_frames requires --mode binary (a block-structured sweep)"
         )
     sweep = gray_sweep(args.sweep_step)
     period = int(getattr(args, "period_px", DEFAULT_PERIOD_PX))
@@ -883,6 +1074,23 @@ def assert_single_exposure(
     return float(values[0])
 
 
+def assert_dark_exposure_consistency(
+    rows: Sequence[dict[str, Any]], chosen_exposure_ms: float
+) -> None:
+    """Raise ``ValueError`` if any dark row used another exposure (pure).
+
+    Dark frames only subtract meaningfully from frames captured at the same
+    exposure, so a re-exposed dark frame is a hard error, not a warning.
+    """
+    for row in rows:
+        if float(row["exposure_ms"]) != float(chosen_exposure_ms):
+            raise ValueError(
+                f"dark frame {row.get('label')} exposure {row['exposure_ms']} ms "
+                f"!= chosen {chosen_exposure_ms} ms; dark frames need the single "
+                "fixed sweep exposure"
+            )
+
+
 def summarize_power_reference(
     frame_records: Sequence[dict[str, Any]],
     *,
@@ -901,7 +1109,9 @@ def summarize_power_reference(
         (
             r
             for r in frame_records
-            if r.get("ref_position") in ("pre", "post") and "frame_total" in r
+            if r.get("ref_position") in ("pre", "post")
+            and r.get("role") != DARK_ROLE
+            and "frame_total" in r
         ),
         key=lambda r: int(r["monotonic_ns"]),
     )
@@ -1025,8 +1235,20 @@ def summarize_power_reference(
 # ---------------------------------------------------------------------------
 # Hardware execution
 # ---------------------------------------------------------------------------
-def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
-    """Execute the acquisition.  Device imports live here, never at module scope."""
+def _run(
+    args: argparse.Namespace,
+    plan: dict[str, Any],
+    *,
+    dark_capture_hook: Any = None,
+) -> int:
+    """Execute the acquisition.  Device imports live here, never at module scope.
+
+    ``dark_capture_hook`` is the seam for a hardware-enabled dark lane: a callable
+    returning a context manager that blocks illumination (laser shutter / camera
+    shutter) for the duration of the ``with`` block.  This script has no such
+    control of its own, so ``--dark-frames`` without a hook fails fast instead of
+    pretending to capture a dark frame (see ``DARK_HOOK_GAP_NOTE``).
+    """
     t_start_monotonic = time.monotonic()
     t_start_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -1068,6 +1290,12 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
         created_out = True
         (out / "frames").mkdir(parents=True, exist_ok=False)
         write_json(out / "plan.json", plan)
+
+        # 2b) A dark-frame request without an illumination-off hook is a gap, not
+        # a capture: refuse before touching any device (the error path still
+        # writes dark_abort.json and releases normally).
+        if plan.get("dark", {}).get("enabled") and dark_capture_hook is None:
+            raise RuntimeError(DARK_HOOK_GAP_NOTE)
 
         # 3) ONLY now are drivers imported / devices opened.
         from ao_shaping.drivers.ccd.common import (
@@ -1142,9 +1370,9 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 **stamp,
             )
             row.update(_stats(frame, full_scale))
-            if plan.get("power_reference"):
+            if plan.get("power_reference") or row.get("role") == DARK_ROLE:
                 # Raw sum is the power proxy for reference / drift normalisation;
-                # only recorded when the opt-in track is enabled.
+                # dark frames always record it (their summary reports totals).
                 row["frame_total"] = int(frame.sum(dtype=np.int64))
             np.savez_compressed(
                 out / row["frame_file"],
@@ -1255,8 +1483,55 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
 
         # ---- full plan at the chosen exposure ----
         set_exposure(chosen_exposure_ms)
+        dark_records: list[dict[str, Any]] = []
+
+        def capture_dark_group(item: dict[str, Any]) -> None:
+            """Capture one dark-frame group while illumination is blocked.
+
+            Mirrors the flat path exactly -- same fixed exposure, same uint16 /
+            full-scale checks in ``save_frame``, same manifest fields -- and adds
+            only the ``role='dark'`` tag, the block point and the illumination
+            state.  No SLM pattern is written: the scene must be dark anyway.
+            """
+            if dark_capture_hook is None:
+                raise RuntimeError(DARK_HOOK_GAP_NOTE)
+            with dark_capture_hook():
+                for repeat in range(int(item["frames"])):
+                    row = capture_one(
+                        {
+                            "index": len(frame_records),
+                            "label": f"{item['label']}_r{repeat:02d}",
+                            "kind": DARK_KIND,
+                            "group": DARK_GROUP,
+                            "role": DARK_ROLE,
+                            "block_index": item.get("block_index"),
+                            "block_id": item.get("block_id"),
+                            "dark_position": item.get("dark_position"),
+                            "illumination": "blocked",
+                            "slm_pattern_written": False,
+                            "gray": 0,
+                            "period_px": 0,
+                            "pattern_params": {"dark": True},
+                            "warnings": [],
+                            "exposure_ms": chosen_exposure_ms,
+                        }
+                    )
+                    if float(row["exposure_ms"]) != float(chosen_exposure_ms):
+                        # Same rule as the sweep: a second exposure never joins
+                        # the run, and the error path records the abort.
+                        raise RuntimeError(
+                            f"{row['label']} exposure {row['exposure_ms']} ms != "
+                            f"chosen {chosen_exposure_ms} ms; dark frames need "
+                            "the single fixed sweep exposure"
+                        )
+                    assert_dark_exposure_consistency(dark_records, chosen_exposure_ms)
+                    dark_records.append(row)
+
         for item in plan["patterns"]:
             if item["group"] == "bracket":
+                continue
+            if item["group"] == DARK_GROUP:
+                capture_dark_group(item)
                 continue
             gray_array = display(item)
             for repeat in range(int(item["frames"])):
@@ -1301,6 +1576,30 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                         "one fixed exposure"
                     )
 
+        # Dark frames are captured, never subtracted: report them separately and
+        # enforce the same single-exposure rule before anything is summarised.
+        dark_summary: dict[str, Any] | None = None
+        if plan.get("dark", {}).get("enabled"):
+            expected_dark = sum(
+                int(p["frames"])
+                for p in plan["patterns"]
+                if p["group"] == DARK_GROUP
+            )
+            if len(dark_records) != expected_dark:
+                raise RuntimeError(
+                    f"dark frames recorded {len(dark_records)} != expected "
+                    f"{expected_dark}"
+                )
+            dark_summary = summarize_dark(
+                frame_records,
+                frames_per_point=int(plan["dark"]["frames_per_point"]),
+                positions=plan["dark"]["positions"],
+            )
+            dark_summary["fixed_exposure_ms"] = assert_single_exposure(
+                [float(r["exposure_ms"]) for r in dark_records]
+            )
+            dark_summary["frames_expected"] = expected_dark
+
         power_reference_summary: dict[str, Any] | None = None
         if plan.get("power_reference"):
             # Drift decoupling only holds at one fixed exposure: abort (and let
@@ -1310,6 +1609,7 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                     float(r["exposure_ms"])
                     for r in frame_records
                     if r.get("group") != "bracket"
+                    and r.get("role") != DARK_ROLE
                 ]
             )
             power_reference_summary = summarize_power_reference(
@@ -1345,12 +1645,17 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             "device_two_pi_gray_readback": device_two_pi_gray,
             "two_pi_gray_true": plan.get("two_pi_gray_true", "pending offline fit"),
             "two_pi_gray_note": TWO_PI_GRAY_NOTE,
-            "saturated_frames": sum(1 for r in frame_records if r["saturated_pixels"]),
+            "saturated_frames": sum(
+                1
+                for r in frame_records
+                if r["saturated_pixels"] and r.get("role") != DARK_ROLE
+            ),
             **(
                 {"power_reference": power_reference_summary}
                 if power_reference_summary is not None
                 else {}
             ),
+            **({"dark": dark_summary} if dark_summary is not None else {}),
             "clamp_warnings": [
                 {"label": r["label"], "warnings": r["warnings"]}
                 for r in frame_records
@@ -1413,24 +1718,38 @@ def _run(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         print(f"ERROR: {error}", file=sys.stderr)
-        if created_out and plan.get("power_reference"):
+        if created_out and (
+            plan.get("power_reference") or plan.get("dark", {}).get("enabled")
+        ):
             # Record the abort reason next to the frames so an offline reader
-            # never has to guess why the drift track was cut short.
-            try:
-                write_json(
-                    out / "power_reference_abort.json",
-                    {
-                        "aborted": True,
-                        "reason": error,
-                        "power_reference": plan["power_reference"],
-                        "exposures_seen_ms": sorted(
-                            {float(r["exposure_ms"]) for r in frame_records}
-                        ),
-                        **clock(),
-                    },
-                )
-            except Exception:
-                pass
+            # never has to guess why a fixed-exposure track was cut short.
+            base = {
+                "aborted": True,
+                "reason": error,
+                "exposures_seen_ms": sorted(
+                    {float(r["exposure_ms"]) for r in frame_records}
+                ),
+                "dark_frames_recorded": sum(
+                    1 for r in frame_records if r.get("role") == DARK_ROLE
+                ),
+                **clock(),
+            }
+            if plan.get("power_reference"):
+                try:
+                    write_json(
+                        out / "power_reference_abort.json",
+                        {**base, "power_reference": plan["power_reference"]},
+                    )
+                except Exception:
+                    pass
+            if plan.get("dark", {}).get("enabled"):
+                try:
+                    write_json(
+                        out / "dark_abort.json",
+                        {**base, "dark": plan["dark"]},
+                    )
+                except Exception:
+                    pass
         return 1
     finally:
         # 4) Always release everything, on every exception path.
@@ -1559,6 +1878,25 @@ def main(argv: list[str] | None = None) -> int:
         help="[binary] dense-band gray step (default 8)",
     )
     parser.add_argument(
+        "--dark-frames",
+        type=int,
+        default=DEFAULT_DARK_FRAMES,
+        help=(
+            "[binary] dark frames per requested sweep-block point at the fixed "
+            "sweep exposure (default 0 = off, plan unchanged); requires an "
+            "illumination-off hook, which this script does not have"
+        ),
+    )
+    parser.add_argument(
+        "--dark-at",
+        choices=DARK_AT_CHOICES,
+        default=None,
+        help=(
+            "[binary] block point(s) that get dark frames: pre, post or both "
+            "(default: both, used only when --dark-frames > 0)"
+        ),
+    )
+    parser.add_argument(
         "--wait-until-idle",
         type=float,
         default=600.0,
@@ -1602,6 +1940,12 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--power-reference requires --mode binary")
         if args.power_reference_frames < 1:
             parser.error("--power-reference-frames >= 1 required")
+    if args.dark_frames < 0:
+        parser.error("--dark-frames must be >= 0")
+    if args.dark_frames == 0 and args.dark_at is not None:
+        parser.error("--dark-at requires --dark-frames >= 1")
+    if args.dark_frames > 0 and args.mode != "binary":
+        parser.error("--dark-frames requires --mode binary (block-structured sweep)")
 
     try:
         plan = build_plan(args)

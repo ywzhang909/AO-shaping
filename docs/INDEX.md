@@ -38,7 +38,6 @@
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
 | `dev/ci_testing.md` | 测试排除/分片策略与 CI 门禁现状（外迁自 AGENTS.md 的 `MISSING INFRASTRUCTURE` 与测试排除叙事） |
-| `ci-environment-contract.md` | CI 容器对测试/脚本的外部文件保证集（`data/`、`libs/gxipy`、绝对路径；dry-run 自包含守卫与 `scripts/push_preflight.py` 的依据，#251） |
 | `dev/project_structure.md` | 项目包结构逐文件详解（外迁自根 AGENTS.md 的 `Project Structure`；根文档只留精简树 + 指向本文） |
 | `dev/extension_guide.md` | 二次开发与扩展指南：改动分层路由 + 最小模板（何时加新设备/算法/CLI，复用哪些 canonical 入口） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
@@ -89,9 +88,6 @@
 | `slm/slm_gsnet.md` | FREEFORM 全频随机相位方形整形 + FourierGSNet 训练 |
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
 | `slm/slm_model_in_loop.md` | 物理预测模型闭环整形（每轮用实测数据修正模型再合成相位） |
-| `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |
-| `slm/model_in_loop_handoff.md` | Model-in-loop 跨光路交接手册（换光路/功率/衰减片/相机/入射光时的交接清单） |
-| `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理预测模型迁移学习、可微优化与 FAQ |
 | `slm/slm_alignment_probe.md` | 整形前的聚焦、彗差校正与 CCD 中心定位 |
 | `slm/zernike_matrix.md` | SLM Zernike 响应矩阵标定 + 离线矫正自检 |
 | `slm/rms_zernike.md` | SLM Zernike RMS 优化（SPGD/Adam/AdaMOD） |
@@ -119,7 +115,7 @@
 | `GUI/slm/multi_slm_controller/multi_slm_controller_srs.md` | multi_slm_controller.py 软件需求规格说明书 (SRS)：功能/非功能需求、接口规范、系统类图、设计约束 |
 | `GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md` | multi_slm_controller.py 用户手册：设备连接/相位下发/闭环远场整形操作指南 |
 | `GUI/slm/multishape_campaign_ui/multishape_campaign_ui_srs.md` | multishape_campaign_ui.py 软件需求规格说明书 (SRS)：多形状整形 campaign 操作台，「形状 + 尺寸」为唯一必填，其余参数自动派生并逐行标来源（实测/派生/默认/手工） |
-| `GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md` | multishape_campaign_ui.py 用户手册：多形状整形 campaign 选形状/定尺寸 → 派生参数 → 计划矩阵/时间磁盘预算/检查卡/历史复盘 |
+| `GUI/slm/multishape_campaign_ui/multishape_campaign_ui_user_manual.md` | multishape_campaign_ui.py 用户手册：多形状整形 campaign 选形状/定尺寸 → 派生参数 → 落盘目录/检查卡/历史复盘 |
 | `GUI/slm/slm_calibration_ui/slm_calibration_ui_srs.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 软件需求规格说明书 (SRS) |
 | `GUI/slm/slm_calibration_ui/slm_calibration_ui_user_manual.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 用户手册 |
 | `GUI/slm/streamlit_theme.md` | SLM 整形 GUI 主题配置存档（`.streamlit/config.toml` 正本）：白底冷蓝操作台 + 8 档灰阶 + 语义色 + AA 对比度，附复原命令与 `streamlit_theme_config.toml` |

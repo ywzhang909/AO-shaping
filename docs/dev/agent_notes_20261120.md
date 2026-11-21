@@ -1,4 +1,4 @@
-# Agent 当日记录 2026-11-20（纯离线，未占 SLM/CCD/激光）
+# Agent 当日记录 2026-11-20（§1–§8 纯离线；§9 起占用设备完成 P2/P3 采集与 P4 双门）
 
 ## 1. §0.3 预注册重签（已完成）
 
@@ -69,6 +69,50 @@
 - **#235**：三个剩余子项均**零/极低判别力**——`shift_phase` 在归档中与理想无平移编码字节一致（mismatch=0）、`apply_shift` 在 shift 不变时不重写相位、`FrozenDefocusForward` 无该输入；独立 pupil（瞳面）-center 反演分辨率仅 Δx ±20 px / Δy ±30–40 px；物理 LUT 只有 `data/debug/lut_checker_modulation_20261118b/summary.json`（24 cells 棋盘格调制比，全库无消费脚本），且 Q1/Q2 的「实测点状 vs 模型满幅平顶」形态差不可能由逐像元振幅加权产生。**无离线项能改变 OPEN 判定。**
 - **#247**：5 次重复逐帧角度 SD **0.088°**（稳定测量值），标签交换被 `AxisRotationError` 拒绝；但全局翻号给出 **−91.457°** ⇒ 估计量属 **180° 对称族**，符号分支只由 `image_alignment.convention` 钉住。`slm_geometry_calib.npz` 缺 panel/CCD pitch 与焦距放大率。`zero_order_overlay.py` 为死代码，`FrozenDefocusForward` 无零级项，唯一可微零级只在 sim2f 代理且未接入物理预测。梯度单测因缺 checkpoint 被 skip、batch/vmap 一致性无测试。**88.544° 可复现但不可冻结。**
 - 详细记录已写入 `open_issue_offline_followup_20261119.md` 的「2026-11-20 纯离线可执行性复核」、`next_hw_plan_transfer_candidates_issue247_20261117.md` 的任务 B 追加节、`issue_validity_verdict_20261119.md` §7.1。
+
+## 9. P2/P3 上游资格设备窗口 + P4 双门（2026-11-20，已占设备）
+
+按 `transfer_upstream_qualification_plan_20261119.md` §6.1 冻结顺序单进程串行执行，全部带 `--wait-until-idle 120`、全新 `--out`、正常关闭，无并行占用。详见该文档 §5.1 表。
+
+- **S0** `probe_optical_path_validity.py --bit-depth 8` → `data/debug/optical_path_probe/p3_upstream_20261120/20261120_012500Z/`：`probe_status=ok`、非饱和、离焦 +19.2%/+27.0%（SLM 真调制）、8-bit/255。
+- **P3a** pass1/pass2 `direction_holdout_capture_20261119.py`：各 24 行全 `ok`（14 `test` × Z5–Z11 ±0.05 + 10 calibration），`split` 捕获时写死，段间 60 s 冷却。
+- **P3b** `zernike_probe_hardware.py` → `p3_zernike_20261120/`：78 行（56 train / 12 test / 10 calibration），全 `0.087 ms`、Mono8/8-bit、全 `ok`。
+- **P2** 用户确认物理挡光后，`capture_darks --exposures-ms 0.087 --frames 16 --bit-depth 8` → `FJB24112232/darks/dark-exp-0.087ms.npz`（`peak=2.0` 纯读出噪声，追加进共享库，其它档未动）。**仅开 CCD，SLM/激光未开**；09:52:08→09:52:13 正常关闭、`DeviceLock` 释放。
+- **P4(a)** `refit_transfer_forward.py` → `p3_fit_20261120/frozen_parameters.json`（`checkpoint_sha256=380b9b87…`，train-only fit 门禁全绿，选迭代 209）。裸 loss 诊断：refit 在 test 上劣于基座（0.7866 vs 0.7188）——如实记录，未换模型。
+- **P4(b) 强度门 fail**（exit 1）：12/12 holdout 全部可评估（暗场逐行匹配 0.087ms、8-bit/255、validity 前四项 ok），最差 `relL2=0.8849` ≫ δ=0.20。
+- **P4(c) 方向门 fail**（exit 1）：pooled 4/14（需 10），pass1 2/7、pass2 2/7。
+- **结论：双门均未通过（有效 fail，非 not_assessable）。transfer `light/none` 科学验收继续暂停，不进入 P5，未调阈值/换模型操纵通过。**
+- 证据：`p3_gate_20261120/{strength_gate,direction_gate}.json`；运行日志同名 `*_run.log`。
+
+### 9.1 速度解耦采集脚本（后台子代理产出，已审查）
+
+- 新增 `scripts/slm/dynamic_shaping_capture_20261120.py` + `tests/ao_shaping/scripts/test_dynamic_shaping_capture_20261120.py`（5 用例）+ `src/ao_shaping/utils/slm/transition_timeline.py`（Qt-free 时间轴数学，GUI 模块 re-export 保持接口不变）。
+- 设计：端点相位管线各跑一次（`create_phase_from_array`），中间帧纯灰度 `blend_gray`；SLM 主线程按墙钟派发，CCD 采样在独立 `CCDSampler` 线程（`--measure at-end|every|periodic`），阻塞假 CCD 不卡派发（测试锁定）；plan-only 默认不 import 驱动/不建目录。
+- 验证：5/5 测试通过、`ruff` 四文件 exit 0、BOM/CRLF/AST 全绿。**纯离线，未占设备，未跑 `--execute`。**
+
+### 9.2 速度解耦实验方案冻结（用户确认参数，见 `dynamic_decoupling_experiment_plan_20261120.md`）
+
+- 用户 2026-11-20 交互页确认：6 形状（square/circle/triangle/star/rectangle/annular）× 4 尺寸（diameter 200/500/1000/1500，**CCD 目标平面原生像元**）；方法 = GS + transfer 模型两种都采；起点 flat gray 0；每帧测量（`every 1`）；12-bit 先探测后冻结曝光；保存原始 CCD 帧；单次过渡 5 s。
+- 冻结方案：`docs/dev/dynamic_decoupling_experiment_plan_20261120.md`。48 条 transition，估算原始帧 ~22.98 GiB。**T3 曝光探测 / T4 采集仍须用户再次明确许可，本冻结不等于启动 `--execute`。**
+- 与 transfer 科学验收严格分开：本实验的 model 相位仅作诊断，不得作为 P4 双门通过证据。
+- **T2 采集器扩展已完成并独立复核**（`ses_e0938cf12ffez5yRxrvRrH8lcq`）：`dynamic_shaping_capture_20261120.py` 729→1278 行，新增 `--plan speed_decouple_plan/1`（多端点批次）、`--raw-frames stack`（memmap uint16 逐帧）、`--inter-transition-settle-s`、`--on-error`；新增 `tests/ao_shaping/scripts/test_dynamic_shaping_capture_plan_20261120.py`（351 行 / 7 用例）。主复核：12 tests pass（exit 0）、ruff clean（exit 0）；独立 plan-only 冒烟：2 transition 摘要正确、`DIR_EXISTS=False`、另测越界相位在 plan 阶段即被拒（exit 1）。**未占设备、未跑 `--execute`。** 全系列 plan-only 冒烟：48 条 transition（占位 panel-shaped 灰度，因相位矩阵车道尚未产出）全部打印摘要、`total_frames=2448`、exit 0、`DIR_EXISTS=NO`、stderr 空，临时文件已清理。
+
+## 10. transfer 补资格路线调查（两条只读路线，均无文件/设备改动）
+
+### 10.1 模型过拟合 / 早停路线（`ses_e094cfb32ffejqHDFDpRoBsGsy`）
+
+- **选点机制**：`fit.py:345-372` 纯 train loss 选点（`best_loss` 创新低才覆盖 `result.json`），validation/held-out 不参与；本轮 `patience=999, min_delta=0`，早停不可能触发，跑满 0..220 共 221 迭代，选中 iteration 209（train 最低点）。
+- **过拟合确证**（事后从 `iterations.pkl` 重建 test 走势，非用 test 选点）：test relL2 在 iter 18 最低 0.5500，选中点 209 退化到 0.5928；train relL2 同期 0.4092→0.3771。选中点恰在 test 已明显退化之后。
+- **换迭代不能通关**：即使取 held-out 最优 test relL2 0.5500 仍 ≫ δ=0.20；方向门 pooled 4/14 与逐模态符号相关有关，非换迭代可保。失败根因是模型/观测算子层面，不是实现 bug 或选点噪声。
+- **合法早停须重采**：当前 P3 只有 calibration/train/test，无 validation（calibration 明确排除）。从现有 train 事后切 validation 违反协议冻结；须在新一轮采数前预注册独立 validation split（train 更新 / validation 选迭代 / test 仅最终单次打分），δ=0.20 与两门定义不变。即便如此，早停本身仍不足以通关。
+
+### 10.2 数据与曝光窗口路线（`ses_e094cfb2fffefxhIyx0KIbK4AC`）
+
+- **P3b 信号有效**：78/78 行 `status=ok`、无饱和；8-bit 峰值 79–192（门限 250），spot 标准差 train ≈(0.97,1.19) px、test ≈(1.17,2.14) px，reference 起终相距 0.42 px。当前数据并非欠曝。
+- **曝光窗口窄**：S0 阶梯 0.05 ms 峰值 90/95 无饱和，0.2 ms 已饱和 58 px；线性外推 120–180 counts 需约 0.063–0.095 ms，P3b 的 0.087 ms 已达该量级。适度提到 ~0.10 ms 可行（外推最大峰 ~221 < 250），但不可一律拉到 0.2 ms。自适应逻辑是宽接受带（25%–80% 满量程即接受），非逐行强制命中。
+- **方向门 4/14 更像 checkpoint 问题**：新采两 pass 的 `model_phase` 与归档逐项 14/14 完全相同（无相位错配），新数据曝光不低于归档且峰值同量级或更高；refit 只有 4/14，归档诊断 checkpoint `hybrid320_fresh_all` 在归档 pass 上 9/14（仍 <10）。
+- **重优先级**：① 先离线用较好的候选 checkpoint 在新 P3 两 pass 评估（不动设备/阈值）；② 若验证曝光影响，另建新数据集并预注册逐行目标峰值（120–180）、250-count 上限、匹配暗场，原 P3b test 继续冻结。重采可降低噪声但不能替代模型诊断。
+- **共同结论**：两条路线都不支持"抢救"当前 fail；双门 fail 如实上报，不调阈值、不用 test 选点、不剔除行。补资格须先提升模型类/观测口径并预冻结新协议，再重采数。
 
 ## 11. 进程级 access violation（GUI 车道，2026-11-20）
 

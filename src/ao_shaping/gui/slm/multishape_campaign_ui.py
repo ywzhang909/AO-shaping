@@ -21,7 +21,7 @@ PowerShell 跑出来的，手敲的两个失败模式（**参数漂移**、**来
 
 离线可用
 --------
-计划预览、参数派生、矩阵/预算、检查卡、历史浏览全部**不需要设备**：它们只读
+参数派生、检查卡、历史浏览全部**不需要设备**：它们只读
 :mod:`campaign` / :mod:`campaign_progress` / :mod:`precheck` 与本地目录。只有
 「开始」要求已连接 SLM，并且要在检查卡上把黄项逐条勾掉。
 
@@ -91,11 +91,7 @@ from ao_shaping.gui.slmshape.connect import connected_slm_numbers, ensure_state
 from ao_shaping.tools.slm.transfer.campaign import (
     SIZE_WINDOWS,
     FieldSource,
-    campaign_matrix,
     derive_settings,
-    estimate_disk_gb,
-    estimate_seconds,
-    matrix_totals,
 )
 from ao_shaping.tools.slm.transfer.campaign_progress import (
     COMPLETE_STATUSES,
@@ -505,7 +501,7 @@ def _override_input(name: str, label: str, kind: str, derived) -> Any:
 
 
 # --------------------------------------------------------------------------- #
-# ③ 计划预览
+# ③ 落盘目录
 # --------------------------------------------------------------------------- #
 def default_out_dir(side: float) -> Path:
     """默认 ``--out``：``<root>/multishape_<YYYYMMDD_HHMM>/s<side>``。"""
@@ -513,26 +509,9 @@ def default_out_dir(side: float) -> Path:
     return campaign_root() / f"multishape_{stamp}" / f"s{side:g}"
 
 
-def render_plan(settings) -> Path:
-    """③ 计划预览：16 段矩阵 + 合计 + 落盘路径（可在高级里改）。"""
-    st.subheader("③ 计划预览")
-    rows = campaign_matrix(settings.shapes)
-    totals = matrix_totals(rows)
-    st.dataframe(
-        [{"形状": SHAPE_LABELS.get(row.shape, row.shape), "阶段": row.stage,
-          "块数": row.blocks, "位深": row.bit_depth, "updates": row.updates}
-         for row in rows],
-        hide_index=True, use_container_width=True,
-    )
-    low, expected, high = estimate_seconds(rows)
-    st.caption(
-        f"合计 {totals['segments']} 段 / {totals['blocks']} 块 / {totals['updates']} updates"
-        f" · 整形墙钟 ≈{expected / 60:.0f} min（{low / 60:.0f}–{high / 60:.0f} min）"
-        f" · 预计落盘 ≈{estimate_disk_gb(rows):.1f} GB"
-        " · 口径：块数 × 24 s/块与每阶段静态基线（campaign.estimate_seconds / "
-        "estimate_disk_gb），capture / fit / 重放不计入"
-    )
-
+def render_out_dir(settings) -> Path:
+    """③ 落盘目录：本场 campaign 写到哪（``--out``，可在展开项里改）。"""
+    st.subheader("③ 落盘目录")
     default_out = default_out_dir(settings.side)
     # 尺寸变了就换一个默认落盘目录：带 key 的 text_input 只在首次运行采用 ``value``，
     # 不清掉它就会一直写上一档的 ``s1200`` 路径（跑 s200 时悄悄覆盖上一档的产物）。
@@ -541,15 +520,13 @@ def render_plan(settings) -> Path:
     if st.session_state.get(_OUT_SIDE_KEY) != settings.side:
         st.session_state["msc_out_text"] = str(default_out)
         st.session_state[_OUT_SIDE_KEY] = settings.side
-    with st.expander("落盘目录（--out）", expanded=False):
-        out_text = st.text_input(
-            "--out 根目录",
-            value=bench_settings.widget_default("msc_out_text", str(default_out)),
-            key="msc_out_text",
-            help="每个阶段写入其子目录；父目录由 runner 自己建")
-        out_dir = Path(out_text).expanduser()
-        st.caption(f"解析为：{out_dir.resolve()}（每次点「开始」都按这里写）")
-    st.caption(f"落盘目录：`{out_dir.resolve()}`（在「落盘目录」里可改）")
+    out_text = st.text_input(
+        "--out 根目录",
+        value=bench_settings.widget_default("msc_out_text", str(default_out)),
+        key="msc_out_text",
+        help="每个阶段写入其子目录；父目录由 runner 自己建")
+    out_dir = Path(out_text).expanduser()
+    st.caption(f"解析为：{out_dir.resolve()}（每次点「开始」都按这里写）")
     return out_dir
 
 
@@ -916,10 +893,10 @@ def main() -> None:
 
     st.title(PAGE_TITLE)
     st.caption("形状 + 尺寸是唯一必填输入；其余参数由自动辅助层派生并标注来源。"
-               "计划、检查卡与历史浏览在无设备时同样可用。")
+               "落盘目录、检查卡与历史浏览在无设备时同样可用。")
     connected = bool(connected_slm_numbers())
     if not connected:
-        st.info("未连接 SLM：本页的实验计划与检查卡照常可用，「开始」按钮需要先在左侧连接 SLM。")
+        st.info("未连接 SLM：本页的落盘目录与检查卡照常可用，「开始」按钮需要先在左侧连接 SLM。")
 
     campaigns = _campaign_dirs()
     shapes, side = render_targets()
@@ -927,11 +904,12 @@ def main() -> None:
         st.warning("至少选一个形状：形状 + 尺寸是这份 campaign 的唯一必填输入。")
         st.divider()
         # 不勾形状也要能翻历史：离线读数是本页的独立能力，不该被计划区的空白挡掉。
+        # （③ 只剩落盘目录，不再有矩阵/估算需要形状集合。）
         render_history(campaigns)
         return
 
     settings = render_auto_assist(shapes, side)
-    out_dir = render_plan(settings)
+    out_dir = render_out_dir(settings)
     model_dir = render_model_choice(_model_dirs(), campaigns)
     cam_size = int(bench_settings.bench_value("", "cam_size", 0) or 0) or None
     card = render_checks(settings=settings, out_dir=out_dir, model_dir=model_dir,

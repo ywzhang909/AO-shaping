@@ -2,8 +2,6 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/slm/verify_uncertainty_probes_sim.py`](../../../scripts/slm/verify_uncertainty_probes_sim.py)
-> **数据/关联脚本**: [`scripts/slm/verify_uncertainty_probes_hw.py`](../../../scripts/slm/verify_uncertainty_probes_hw.py)
 > **运行环境**: 离线+硬件
 > **说明**: commit 080e0ac9 (issue #134 R-86) 不确定性采样探针验收；线上默认 bandlimit_sigma=1.5 下机制不成立（闭环 8 组配对种子 p=0.4219、机制 0/10 种子胜），关掉带限后闭环 8/8 改善、p=0.0078（n=8 下限），但实验复现显示无带限探针只把 53% 能量送进相机窗口，故结论为暂不进闭环、需先把 U(p) 裁到相机窗口
 <!-- provenance:end -->
@@ -73,7 +71,7 @@ U(p) = (1/K) Σ_k ‖ far(c* + δ_k, p) − far(c*, p) ‖²,   δ_k ~ N(0, Σ)
 
 ## 参数扫描：10 组配置，10 个种子
 
-`sweep_uncertainty_selector_params.py`。每个配置共享**同一个参考后验**，对照为**同族随机抽样**（同带限、同幅度），跑 10 个独立种子。判据是**赢的种子比例**，不是均值。
+历史探针脚本 `sweep_uncertainty_selector_params.py`（已移除）曾按下列口径扫描。每个配置共享**同一个参考后验**，对照为**同族随机抽样**（同带限、同幅度），跑 10 个独立种子。判据是**赢的种子比例**，不是均值。
 
 | 配置 | ratio | 中位 ratio | 赢 | 选中探针 std | 秒 |
 |---|---|---|---|---|---|
@@ -94,7 +92,7 @@ U(p) = (1/K) Σ_k ‖ far(c* + δ_k, p) − far(c*, p) ‖²,   δ_k ~ N(0, Σ)
 
 ## 闭环 A/B：#134 的第 1 条验收
 
-`verify_uncertainty_probes_sim.py`，同一 seed 同时喂两个变体（配对）。拒绝场景靠 `acceptance_loss_delta=1e-12` 构造 —— 是 config 里已有的旋钮，不是 monkeypatch；被包装的只有三个观测点函数，`acceptance_verdict` / trust region / `max_rejection_streak` 全程未被替换。
+历史探针脚本 `verify_uncertainty_probes_sim.py`（已移除）曾按以下口径验证：同一 seed 同时喂两个变体（配对）。拒绝场景靠 `acceptance_loss_delta=1e-12` 构造 —— 是 config 里已有的旋钮，不是 monkeypatch；被包装的只有三个观测点函数，`acceptance_verdict` / trust region / `max_rejection_streak` 全程未被替换。
 
 | seed | σ=1.5 配对差值 | σ=0 配对差值 |
 |---|---|---|
@@ -159,7 +157,7 @@ ratio 均值 **6.91**，机制在实验上大幅复现。**但 ROI 能量只有�
 
 1. **不进闭环。** σ=0 虽然在 sim 闭环上决定性胜出（8/8，p 到下限），但实验显示它只把 53% 能量送进相机窗口。sim 的胜出不能直接外推 —— sim 的"相机"是从模型网格裁出来的，与真实窗口的相对大小不同。
 2. **真正的修法是改度量，不是改参数。** `U(p)` 在模型全网格上算，与"相机看得见的能量"脱节。建议：把 `far_field_tensor` 的求值区域**裁到相机窗口对应的频率范围**再算 `U`，或显式加一项"窗口内能量"约束。这样带限约束就可以放松到一个物理上合理、又不至于压死机制的值。
-3. **σ 是必须暴露的旋钮。** 现在 `bandlimit_sigma` 只存在于 `UncertaintyProbeSelector.__init__`，线上路径 (`_select_uncertainty_probes`) **硬编码为默认 1.5**，既不读 config 也不走 CLI。要复现本轮结论必须先把它接出来。
+3. **σ 是必须暴露的旋钮。** 当时 `bandlimit_sigma` 只存在于历史探针模块 `UncertaintyProbeSelector`（已移除）的 `__init__`，线上路径 (`_select_uncertainty_probes`) **硬编码为默认 1.5**，既不读 config 也不走 CLI。要复现本轮结论必须先把它接出来。
 4. **本轮实验没有验证的东西**（避免被误读为验收通过）：没有跑完整闭环，因此没有测 held-out correlation、CV / EE / IoU；没有重新标定几何，沿用脚本内模型参数（`panel_span_px=900`、`pupil_center=(960,600)`），而 [2026-10-15 报告](model_in_loop_live_20261015.md) 已作废当时的面板入射中心，因此探针**不一定落在真实光斑上**（ROI 能量 ~11,800–22,300 说明确有光，位置未验证）；曝光上限 0.6 ms 是保守默认而非本次实测。
 5. **性能不是障碍**：真实规模下单探针上升 0.6–0.7 s，线上默认 30 步 × 8 探针约 12–17 s/轮，相对硬件一轮数分钟的采集量可忽略。
 
@@ -167,9 +165,9 @@ ratio 均值 **6.91**，机制在实验上大幅复现。**但 ROI 能量只有�
 
 | 命令 | 产出 |
 |---|---|
-| `python scripts/slm/verify_uncertainty_probes_sim.py` | σ=1.5 基线，`data/debug/uncertainty_probes_sim/` |
-| `python scripts/slm/verify_uncertainty_probes_sim.py --selector-bandlimit 0` | σ=0 闭环 A/B |
-| `python scripts/slm/sweep_uncertainty_selector_params.py` | 10 组配置 × 10 种子，`data/debug/uncertainty_selector_sweep/` |
-| `PYTHONPATH=src;libs python scripts/slm/verify_uncertainty_probes_hw.py --selector-bandlimit {0,1.5}` | 实验，`data/debug/uncertainty_probes_hw/` |
+| 历史探针脚本 `verify_uncertainty_probes_sim.py`（已移除） | σ=1.5 基线，`data/debug/uncertainty_probes_sim/` |
+| 同上（`--selector-bandlimit 0`） | σ=0 闭环 A/B |
+| 历史扫描脚本 `sweep_uncertainty_selector_params.py`（已移除） | 10 组配置 × 10 种子，`data/debug/uncertainty_selector_sweep/` |
+| 历史实验脚本 `verify_uncertainty_probes_hw.py`（已移除，参数为 `--selector-bandlimit {0,1.5}`） | 实验，`data/debug/uncertainty_probes_hw/` |
 
-实验脚本需**独占** SLM #1 与 CCD #0；`PYTHONPATH` 必须含 `libs`，否则大恒 SDK `gxipy` 不可 import（裸 shell 不加载 `.env`）。
+上述历史实验脚本运行时需**独占** SLM #1 与 CCD #0；`PYTHONPATH` 必须含 `libs`，否则大恒 SDK `gxipy` 不可 import（裸 shell 不加载 `.env`）。

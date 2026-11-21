@@ -319,3 +319,24 @@ def test_plan_and_summary_schema_keys_present():
         assert key in summary, key
     assert plan["schema"] == SCRIPT.PLAN_SCHEMA
     assert summary["schema"] == SCRIPT.SUMMARY_SCHEMA
+
+
+def test_named_pattern_axes_match_panel_column_row_semantics():
+    """x patterns vary across panel columns; y patterns vary across panel rows."""
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    patterns = (
+        ("grating_x", SCRIPT.grating_phase(shape, period_px=128, axis=1), 1),
+        ("grating_y", SCRIPT.grating_phase(shape, period_px=128, axis=0), 0),
+        ("tilt_x", SCRIPT.tilt_phase(shape, period_px=128, axis=1, sign=1), 1),
+        ("tilt_y", SCRIPT.tilt_phase(shape, period_px=128, axis=0, sign=1), 0),
+        ("ladder_x", SCRIPT.ladder_phase(shape, axis=1), 1),
+        ("ladder_y", SCRIPT.ladder_phase(shape, axis=0), 0),
+    )
+
+    for name, phase, expected_axis in patterns:
+        col_gradient = float(np.abs(np.diff(phase, axis=1)).sum())
+        row_gradient = float(np.abs(np.diff(phase, axis=0)).sum())
+        if expected_axis == 1:
+            assert col_gradient > row_gradient, name
+        else:
+            assert row_gradient > col_gradient, name

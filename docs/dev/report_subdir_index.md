@@ -36,7 +36,6 @@ report/<topic>/<系列名>/
 | `gs_golden_reference/` | `scripts/slm/generate_gs_golden_reference.py` | `gs_golden_reference.md` |
 | `gs_refine_fwdmodel/` | `scripts/slm/generate_gs_refine_fwdmodel_report.py` | `gs_refine_fwdmodel_calibration.md` |
 | `gs_refine_zernike/` | `scripts/slm/generate_gs_refine_zernike_report.py` | `gs_refine_zernike_uniformity.md` |
-| `model_in_loop_cv/` | `scripts/slm/generate_model_in_loop_cv_report.py` | `model_in_loop_cv.md` |
 | `online_recal_efficiency/` | `scripts/slm/generate_online_recal_efficiency_report.py` | `online_recal_efficiency.md` |
 | `gui_closed_loop_shaping/` | `scripts/generate_gui_shaping_hw_report.py` | `gui_closed_loop_shaping_20261014.md` |
 | `fast_recal_adapter/` | `scripts/ml/exp_fast_recal_adapter_report.py` | `fast_recal_adapter.md` |

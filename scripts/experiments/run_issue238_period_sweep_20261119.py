@@ -147,6 +147,11 @@ def validate(args: argparse.Namespace) -> list[str]:
     if getattr(args, "power_reference", "off") == "abba":
         if getattr(args, "power_reference_frames", 2) < 1:
             problems.append("--power-reference-frames >= 1 (abba 每侧至少 1 帧)")
+    dark_frames = getattr(args, "dark_frames", 0)
+    if dark_frames < 0:
+        problems.append("--dark-frames >= 0 (0=关闭遮光暗场)")
+    if getattr(args, "dark_at", None) is not None and dark_frames < 1:
+        problems.append("--dark-at 需要 --dark-frames >= 1 (否则无暗场可放)")
     return problems
 
 
@@ -178,6 +183,14 @@ def shared_flags(args: argparse.Namespace) -> list[str]:
                 "--power-reference-frames",
                 str(args.power_reference_frames),
             ]
+    dark_frames = getattr(args, "dark_frames", 0)
+    if dark_frames > 0:
+        # 同上: 只在显式启用时转发, 缺省 argv 与历史窗口逐字一致。
+        # 探针在 --mode binary 下把未给出的 --dark-at 默认成 both。
+        flags += ["--dark-frames", str(dark_frames)]
+        dark_at = getattr(args, "dark_at", None)
+        if dark_at is not None:
+            flags += ["--dark-at", str(dark_at)]
     return flags
 
 
@@ -308,6 +321,21 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=2,
         help="[透传] abba 每侧参考帧数 (默认 2)",
+    )
+    parser.add_argument(
+        "--dark-frames",
+        type=int,
+        default=0,
+        help=(
+            "[透传] 每 sweep block 前后遮光暗场帧数 (0=关闭, 默认); "
+            ">0 时探针脚本要求二进制模式并需要 illumination-off hook"
+        ),
+    )
+    parser.add_argument(
+        "--dark-at",
+        choices=("pre", "post", "both"),
+        default=None,
+        help="[透传] 暗场采集点 (pre/post/both); 仅 --dark-frames>0 时转发",
     )
     add_window_args(parser)
     args = parser.parse_args(argv)

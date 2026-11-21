@@ -232,7 +232,7 @@ grep 挡不住藏在函数体里的延迟 import）。
 
 runbook 的采集阶段默认探针数（`--probes`，另行扫描）：
 
-- `src/ao_shaping/tools/slm/compare_disturbance.py:188: parser.add_argument("--probes", type=int, default=4)`
+- 历史源码引用（文件已移除）：`compare_disturbance.py` 的 `--probes` 默认 4
 - `scripts/slm/model_in_loop_hw_runbook.py:1186: ap.add_argument("--probes", type=int, default=12)`
 
 ## 5. 提效杠杆（按收益/成本排序）

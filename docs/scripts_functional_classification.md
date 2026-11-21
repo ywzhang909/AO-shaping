@@ -100,7 +100,7 @@
 - **C 动画/GIF**：`slm/generate_gif_from_pkl.py`、`slm/generate_slm_gsnet_sim_gif.py`、`slm/render_differentiable_opt_animation.py`
 - **D 数据采集**：`slm/capture_prior_phase_dataset.py`、`slm/capture_hdr_metrics.py`、`ml/probe_device_metadata.py`
 - **E 建模/拟合**：`slm/fit_defocus_forward_dataset.py`、`ml/forward_search.py`、`slm/refit_model_after_optics_change.py`
-- **F 分析/诊断**：`slm/compare_sim_vs_hw.py`、`ml/diagnose_snr_ceiling.py`、`slm/analyze_holdout_ceiling.py`、`ml/freeform_vs_zernike.py`
+- **F 分析/诊断**：`slm/compare_sim_vs_hw.py`、`ml/diagnose_snr_ceiling.py`、`ml/freeform_vs_zernike.py`
 - **G 验证/校验**：`slm/verify_focus_plane_hw.py`、`slm/check_flat_stability.py`、`wfs/wfs_driver_hw_test.py`
 - **H 调参/标定**：`dm/tune_sim_spgd_zernike.py`、`slm/sweep_target_size.py`、`slm/calib_geometry_from_orders.py`
 - **I 实验编排**：`slm/experiment_gs_improved.py`、`slm/model_in_loop_hw_ab.py`、`rl/run_long_sac_experiments.py`

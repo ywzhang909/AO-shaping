@@ -22,6 +22,8 @@ from typing import Callable, Protocol, runtime_checkable
 import numpy as np
 from loguru import logger
 
+from ao_shaping.gui.ccd.beam_quality import ccd_lease
+
 # 帧回调签名: (图像, 接收时刻 monotonic 秒)
 FrameCallback = Callable[[np.ndarray, float], None]
 
@@ -170,6 +172,8 @@ class CameraFrameSource:
         self._camera = camera
         self._cam: object | None = None
         self._running = False
+        #: 是否持有 ``ccd_lease`` 租约 (仅真实相机; 仿真源不走这里)。
+        self._lease_held = False
         self._lock = threading.RLock()
         self._frames = _LatestFrameQueue()
         self._on_frame: FrameCallback | None = None
@@ -222,31 +226,48 @@ class CameraFrameSource:
 
     # ---------------------------------------------------------------- 生命周期
     def start(self, on_frame: FrameCallback | None = None) -> None:
-        """打开相机并启动取流。失败时抛异常且不留下半开状态。"""
+        """打开相机并启动取流。失败时抛异常且不留下半开状态。
+
+        同一进程内同一 ``(camera_type, cam_id)`` 只允许一个采集者：租约被占用时
+        抛 :class:`RuntimeError`（带当前持有者），且**不触碰设备**。启动成功后
+        由本对象持有租约，直到 :meth:`stop`。
+        """
         with self._lock:
             if self._running:
                 return
-            cam = self._create_camera()
+            if not ccd_lease.try_acquire(self._camera_type, self._cam_id):
+                holder = ccd_lease.current()
+                where = f"{holder[0]}#{holder[1]}" if holder is not None else "其他采集者"
+                raise RuntimeError(
+                    f"相机 {self._camera_type}#{self._cam_id} 已被占用"
+                    f"（当前租约: {where}）；同一 CCD 不允许并发采集，"
+                    "请先在占用它的页面停止采集"
+                )
+            self._lease_held = True
+            cam: object | None = None
             try:
+                cam = self._create_camera()
                 cam.open()
                 self._cam = cam
                 self._on_frame = on_frame
                 cam.start_stream(self._on_camera_frame)
             # policy: 起流失败必须先把设备关掉再抛, 否则下一次 open 会撞 REPEAT_OPENED
             except Exception:
-                try:
-                    cam.close()
-                except Exception:  # policy: 关闭阶段错误类型不可枚举
-                    logger.warning("起流失败后关闭相机也失败")
+                if cam is not None:
+                    try:
+                        cam.close()
+                    except Exception:  # policy: 关闭阶段错误类型不可枚举
+                        logger.warning("起流失败后关闭相机也失败")
                 self._cam = None
                 self._running = False
+                self._release_lease()
                 raise
             self._running = True
             # 以设备实际生效值刷新缓存 (后端可能钳制/量化曝光)
             self._refresh_exposure_from_cam()
 
     def stop(self) -> None:
-        """幂等停止取流并关闭设备。"""
+        """幂等停止取流并关闭设备；无论成败都会释放租约。"""
         with self._lock:
             if not self._running:
                 # 未启动过: 仍尝试关掉可能半开的设备
@@ -261,6 +282,7 @@ class CameraFrameSource:
                         cam.close()
                     except Exception:  # policy: 同上
                         logger.warning("关闭相机失败 (未运行态)")
+                self._release_lease()
                 return
             self._running = False
             cam = self._cam
@@ -278,6 +300,15 @@ class CameraFrameSource:
                     logger.warning("关闭相机失败")
             self._frames.reset()
             self.last_frame_info = None
+            self._release_lease()
+
+    # ---------------------------------------------------------------- 租约
+    def _release_lease(self) -> None:
+        """幂等释放租约；未持有时什么也不做。"""
+        if not self._lease_held:
+            return
+        self._lease_held = False
+        ccd_lease.release(self._camera_type, self._cam_id)
 
     # ---------------------------------------------------------------- 取帧
     def drain_latest(self) -> tuple[np.ndarray, float] | None:

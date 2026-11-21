@@ -2,7 +2,7 @@
 
 本页的卖点是"形状 + 尺寸是唯一必填输入"，所以测试锁三件事：
 
-1. **离线可用** —— 没接 SLM 时不抛异常、不报 error，计划矩阵 / 派生表 / 检查卡 /
+1. **离线可用** —— 没接 SLM 时不抛异常、不报 error，落盘目录 / 派生表 / 检查卡 /
    历史会话照常渲染（issue #215 的硬要求：没设备的机器上也能看一眼再决定）；
 2. **派生真的随尺寸变** —— 换档位就得换采样窗（1200 → 900.0 px，600 → 620.0 px），
    否则"自动辅助层"只是一张写死的表；
@@ -59,11 +59,15 @@ def _columns(value) -> list[str]:
 
 
 def _matrix_frame(page: AppTest):
-    """③ 的计划矩阵表（有「块数」列那张）。"""
+    """已删的 ③ 计划矩阵表（有「块数」列那张）；现在必须**不存在**。
+
+    ③ 只留落盘目录：矩阵、合计与时间/磁盘估算按需求移除（2026-11-20）。这条
+    helper 保留是为了让「确实没了」可断言，而不是靠翻源码确认。
+    """
     for element in page.dataframe:
         if "块数" in _columns(element.value):
             return element.value
-    raise AssertionError("计划矩阵表没有渲染出来")
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -85,7 +89,7 @@ def test_page_offers_the_four_campaign_shapes(page: AppTest) -> None:
 
 def test_page_renders_every_section_title(page: AppTest) -> None:
     titles = " ".join(element.value for element in page.subheader)
-    for heading in ("① 目标", "② 自动辅助设置", "③ 计划预览", "④ 模型目录",
+    for heading in ("① 目标", "② 自动辅助设置", "③ 落盘目录", "④ 模型目录",
                     "⑤ 运行前检查", "⑥ 运行 / 逐块进度", "⑦ 历史会话"):
         assert heading in titles, heading
 
@@ -139,12 +143,21 @@ def test_resetting_the_overrides_restores_the_derived_values(page: AppTest) -> N
 
 
 # --------------------------------------------------------------------------- #
-# 3. 计划预览与门禁
+# 3. 落盘目录与门禁
 # --------------------------------------------------------------------------- #
-def test_preview_shows_sixteen_segments_and_112_blocks(page: AppTest) -> None:
-    frame = _matrix_frame(page)
-    assert len(frame) == 16                                  # 4 形状 × 4 阶段
-    assert int(frame["块数"].sum()) == 112
+def test_plan_preview_is_gone_but_the_out_dir_is_still_settable(page: AppTest,
+                                                               tmp_path: Path) -> None:
+    """③ 只剩落盘目录：矩阵表不再渲染，``--out`` 仍能改并回读。"""
+    assert _matrix_frame(page) is None
+    titles = " ".join(element.value for element in page.subheader)
+    assert "计划预览" not in titles
+    assert "③ 落盘目录" in titles
+
+    target = tmp_path / "lane"
+    page.text_input(key="msc_out_text").input(str(target))
+    page.run()
+    assert not page.exception
+    assert page.text_input(key="msc_out_text").value == str(target)
 
 
 def test_start_button_is_disabled_while_disconnected(page: AppTest) -> None:

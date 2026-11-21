@@ -90,10 +90,7 @@ writer), `__init__.py`, and `eval_pib_hybrid_sim.py`.
 
 Pre-existing subdirectories keep their original meaning: `_common/` (shared
 report helpers + the provenance registry), `call_graph/` (the `main.py` call-graph
-pipeline, incl. `repin_spans.py` — #249 一次性 span 重钉: 按 (file, qualname) 对拍
-磁盘 AST 把双 JSON 钉回实测行号, `--check` 只报告; 常态防漂移归
-`tests/ao_shaping/test_call_graph_span_drift.py`), `dm_sim/` (MATLAB DM simulation),
-`tuning_devices/` (device tuning).
+pipeline), `dm_sim/` (MATLAB DM simulation), `tuning_devices/` (device tuning).
 
 ### Rules for scripts under `scripts/`
 
@@ -1997,62 +1994,6 @@ Reports the paired per-seed differences as well as means, because a mean hides
 a 5/6-consistent effect that is really a 1/6-complete search failure — and states
 the design's **power limit** (`min_attainable_pvalue`) next to every p-value, so
 "not significant" is not misread as "no effect".
-### generate_model_in_loop_cv_report.py
-
-Generates the **K-fold cross-validation** report for the `slm-model-in-loop`
-held-out probes: `report/shape_trials/model_in_loop_cv/model_in_loop_cv.md` + `figures/`. **Fully
-offline** — simulated bench only, no camera and no SLM.
-
-The question it answers: the loop splits its probes by a **fixed seed offset**
-(train `seed + index*1000 + k`, holdout the same offset by `1_000_000`), which is
-*one* partition, not cross-validation — so every model change so far has been
-scored against whichever probes happened to land in that reserve. The report
-measures how far the held-out correlation moves when the reserve changes.
-
-**The pairing is the load-bearing part.** Fold `k` uses base seed `seed + k`, so
-each fold gets its own optimiser initialisation, and within a fold the two arms
-share that seed **and the same training probes**, differing only in the reserve.
-Rotating the training probes too would confound "different reserve" with
-"different training set". Pairing is on the fold index, which here *is* the seed
-index — so the comparison is paired along the axis that actually varies, instead
-of counting K folds as K independent replicates (the anti-pattern
-`ml/zernike/cv_harness.py` exists to prevent). The structural floor `2 / 2**K` is
-printed beside every p-value, and at K folds where the test hits that floor the
-report reports the effect size only.
-
-**It drives the real loop, not a copy.** Each fold calls
-`optimize_slm_model_in_loop` on the sim backend through two config knobs that are
-**both default-off** and documented in `SlmModelInLoopConfig`:
-
-- `holdout_on_sim=True` — measure the held-out probes on sim. Without it the sim
-  path never measures them and the score is NaN. It only **measures**: the
-  mismatch *abort* stays gated on `cam_type != "sim"`, because a simulation that
-  aborted would turn a fold into a missing score and the harness wants the number.
-- `probe_split_hook=<fold>` — replace the fixed offset with this fold's reserve.
-  The hook receives the loop's *current* counts, which matters: the acceptance
-  guard **adds probes** on rejection, so a hook answering from a fixed list
-  under-supplies from the second round on. The fold hook therefore delegates the
-  train list back to the legacy rule and pins only the reserve.
-
-No statistics are recomputed here — every number comes from
-`ml/zernike/cv_harness.py` (`build_folds`, `paired_fold_report`,
-`min_attainable_pvalue_folds`) and `ml/zernike/eval_stats.py`. `.csv` is written
-nowhere because the repo ignores `*.csv`; the markdown is the tracked artefact.
-
-```bash
-python scripts/slm/generate_model_in_loop_cv_report.py            # 5 folds, ~5 s
-python scripts/slm/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 round
-```
-
-| Option | Default | Description |
-|---|---|---|
-| `--folds` | `5` | K folds (must be >= 2 and <= `--pool-size`) |
-| `--pool-size` | `16` | probe-seed pool a folded reserve is drawn from |
-| `--seed` | `0` | base run seed; fold `k` uses `seed + k` |
-| `--fold-seed` | `20261014` | seed of the partition itself |
-| `--n-rounds` / `--probe-count` / `--holdout-probe-count` | `2` / `4` / `2` | loop budget |
-| `--step-a-iterations` / `--step-b-iterations` | `20` / `20` | Step A / Step B budget |
-| `--quick` | off | smoke mode: 2 folds, 1 round |
 
 ### generate_gs_control_report.py
 
@@ -3433,59 +3374,6 @@ The largest cross-check the report makes — `S = k_tilt·π·R` — deliberatel
 **no calibration file at all** (the illuminated radius ships inside the npz), so
 it stays valid even while §2 and §6 are disabled.
 
-### generate_model_in_loop_report.py
-
-Generates the **usage write-up** for the `slm-model-in-loop` runner:
-`docs/slm/model_in_loop_algorithm.md` + one figure. Covers the call graph, the
-computation-timing sequence, the algorithm itself (Step A / Step B / the two
-coupling guards), the config defaults, and the structure of the forward-prediction
-model (pre-processing / deep modules / post-processing).
-
-**It lands in `docs/`, not `report/`** — it is a functional description, not the
-conclusion of a measurement. AGENTS.md draws that line: `report/<topic>/` holds
-measurement conclusions, `docs/` holds device/usage documentation. The *hardware
-measurement* of this same runner is
-[`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)
-and the two are deliberately kept apart. Consequently this generator is **not**
-registered in `scripts/_common/provenance.py::REPORTS`: that registry renders
-`report/README.md` and assumes every key is under `report/`, so a `docs/` key
-would compute the wrong relative path. The document writes its own header via
-`provenance.script_link` instead. **`sync_report_provenance.py` does not touch it
-and does not need to.**
-
-**Usage:**
-```bash
-python scripts/slm/generate_model_in_loop_report.py
-python scripts/slm/generate_model_in_loop_report.py --no-figures    # skip the matplotlib figure
-python scripts/slm/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
-```
-
-**Diagrams are mermaid** (`graph TD`, `sequenceDiagram`, `stateDiagram-v2`,
-`flowchart LR`), not ASCII art: the document is read on GitHub, where mermaid
-renders. ASCII needed hand-aligned boxes to stay legible and still could not show
-control flow or state.
-
-**Two guards, in both directions.** Every symbol the diagrams name is resolved
-against the real modules' AST before anything is written (`_verify_symbols`), *and*
-every symbol in `DIAGRAM_SYMBOLS` must actually appear in the output
-(`_verify_mentioned`). A hand-drawn call graph is a snapshot: rename `_metrics_at`
-and it keeps reading as authoritative while being fiction. The first guard catches
-the rename; the second catches the opposite drift — a diagram rewritten while the
-symbol list was not. Extend `DIAGRAM_SYMBOLS` when you add a diagram.
-
-**Numbers come from the code, or not at all.** The config table's defaults are read
-out of the dataclass AST. The learned model's parameter counts are *measured* by
-importing `ml.zernike.forward_model` and calling `count_parameters` — never
-re-derived, because hand-rolling `Linear`/`Conv2d`/`GroupNorm` arithmetic (or
-`calc_n_zernike_terms`) in the generator would be a second copy of something the
-code already owns. Without torch the report omits those numbers rather than
-printing an unverified one.
-
-**No wall-clock timing.** Per-round *counts* of device round-trips and compute steps
-are derivable from the configuration, so they are given (probe count × 2 ×
-`n_eval_frames`, plus one display+measure for the round's acceptance frame).
-Durations depend on the bench and would be fabrication in an offline document.
-
 ### model_in_loop_hw_runbook.py
 
 Hardware runbook for the **model-in-the-loop** square-shaping test: calibrate
@@ -3804,71 +3692,6 @@ python scripts/slm/plan_multishape_campaign.py --model-session p20261029 \
 > `--replay-exposures 20 50 90` 会被当成多余位置参数报错, 必须重复旗标
 > (`--replay-exposures 20 --replay-exposures 50 ...`)。生成器已按此逐项展开。
 
-### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
-
-Seven evaluators that answer one design question each **without touching the
-bench**: they read a completed `slm-model-in-loop --debug` directory
-(`probes/manifest.json` + `bench_geometry.json` + `source_amplitude.npy` +
-`probes/*.npz`) and re-score it under a different modelling assumption. Because
-the input is a saved artefact, the instruments may be powered down.
-
-```bash
-python scripts/slm/evaluate_model_in_loop_refit.py       data/debug/slm_model_in_loop/<ts> --output logs/refit.json
-python scripts/slm/evaluate_model_in_loop_geometry.py    data/debug/slm_model_in_loop/<ts> --output logs/geometry.json
-python scripts/slm/evaluate_model_in_loop_order.py       data/debug/slm_model_in_loop/<ts> --output logs/order.json
-python scripts/slm/evaluate_model_in_loop_probe_mix.py   data/debug/slm_model_in_loop/<ts> --output logs/probe_mix.json
-python scripts/slm/evaluate_model_in_loop_oversampling.py data/debug/slm_model_in_loop/<ts> --output logs/oversampling.json
-python scripts/slm/evaluate_model_in_loop_psf.py         logs/psf.csv data/debug/slm_model_in_loop/<ts>
-python scripts/slm/evaluate_model_in_loop_phase_bandwidth.py logs/phase_bandwidth.csv data/debug/slm_model_in_loop/<ts>
-```
-
-| Script | Question it answers |
-|---|---|
-| `..._refit.py` | Is a zero-iteration refit as good as a short one? (compares forward models on archived holdouts) |
-| `..._geometry.py` | Does a three-parameter camera-grid correction beat the single-scale geometry? |
-| `..._order.py` | How many Zernike orders should Step A refit? (`--orders`, default `3 4 6 10`) |
-| `..._probe_mix.py` | Which Step-A probe family should be fitted — does mixing beat a single family? |
-| `..._oversampling.py` | Does bilinearly oversampling the pupil (`--factors`, default `1 2 4`) improve the held-out speckle correlation? |
-| `..._psf.py` | Does a small Gaussian PSF selected on `train` probes deblur the frozen hardware `holdout` / `shaped` frames? |
-| `..._phase_bandwidth.py` | How much circular phase smoothing (Gaussian σ, phase space) can be applied to the frozen model without degrading the frozen holdouts? |
-
-The first five take one or more `run_dirs` plus a required `--output` JSON path
-and print a per-factor / per-order table; the last two take an `output_csv`
-plus `run_dirs` and write one CSV row per sigma (no `--output` flag). All seven
-fit on the `train` split and score on `holdout` / `shaped`, so the reported
-number is always out-of-sample.
-
-> ⚠️ **Read the split sizes before quoting any single family.** These scripts
-> print bare means; on a typical one-round run `holdout` has 6 records while
-> `freeform` has 2 and `shaped` has 1, so a one-sample "correlation" sits beside
-> a six-sample mean with no spread shown. Treat single-split rows as anecdotes.
-
-> ⚠️ `..._oversampling.py` re-implements the propagation in NumPy/SciPy rather
-> than calling the canonical torch
-> `ao_shaping.utils.wavefront.fraunhofer.interpolated_pupil_intensity`, so it
-> runs without the `ml` dependency group. The two are **verified numerically
-> identical** (max relative difference ~1e-15 for factors 1/2/4); if you change
-> one, change both.
-
-### replay_model_in_loop_config.py
-
-Re-runs a **saved** `slm-model-in-loop` configuration on real hardware with a
-different probe seed — the way to separate "the seed was unlucky" from "the
-configuration is bad" without re-deriving the CLI flags by hand. **Needs
-hardware** (Santec SLM + camera); it calls the genuine
-`optimize_slm_model_in_loop`.
-
-```bash
-python scripts/slm/replay_model_in_loop_config.py data/debug/slm_model_in_loop/<ts> --seed 87 --output-dir data/debug/slm_model_in_loop/replay87
-```
-
-| Option | Default | Description |
-|---|---|---|
-| `source_run` | (required) | Saved run dir to take the configuration from |
-| `--seed` | (required) | New Step-A probe seed |
-| `--step-a-iterations` | `0` | Override Step-A budget (`0` = keep the saved value) |
-| `output_dir` | (optional) | Output root; defaults to the source run's debug root |
-
 ### verify_correction_csv.py
 
 Offline verification for the `--export-correction` gray-offset CSV
@@ -4180,40 +4003,6 @@ pickles plus a `summary.npz` under `data/slm_*/`:
 
 All three support `--no-hw` (print the acquisition plan, exit 0, touch no
 hardware), which is also how their tests run in CI.
-### analyze_holdout_ceiling.py
-
-Offline: score a **recorded** model-in-loop run against the correlation the camera
-could have achieved at all. Answers "is the forward model wrong, or is the probe
-unobservable?" without opening a device. The holdout gate correlates the prediction
-with the mapped measurement over the *whole* far-field grid, but the camera only ever
-sees a crop, so the measurement is zero outside it. This script rebuilds the same
-prediction, measures the camera footprint (an all-ones frame through the same mapping —
-`model_grid != 0` looks equivalent and is not: the mapping is a non-negative
-linear operator, so the nonzero mask is always a subset of the true footprint (it can
-only under-report — 7.91% on a bright frame, 3.96% on a dim one), and it depends
-entirely on the scene — a black frame collapses it to the empty set while the camera
-plainly did see those pixels. That second case is not hypothetical: a bench whose light
-has dropped leaves a near-black frame and the naive mask then reports that the camera
-saw nothing at all), and reports
-per family: as-recorded, restricted to the camera support, and the **perfect-model
-ceiling** `corr(prediction, prediction * support)`.
-
-```bash
-python scripts/slm/analyze_holdout_ceiling.py --run-dir data/debug/slm_model_in_loop/<stamp>
-python scripts/slm/analyze_holdout_ceiling.py --report-assets report/<topic>/assets/<stamp>
-```
-
-**Output** — `holdout_ceiling.json` (per probe: family from its spectrum, exposure,
-recorded vs rebuilt correlation, ceiling, support correlation, modelled energy inside
-the crop, flux ratio to flat, correlation against the flat reference, and the same
-after the best-fit flat pedestal is removed), plus two figures. `--report-assets` also
-writes a contact sheet of the measured CCD far fields in **two scalings**, because
-either alone misleads: all frames on the flat peak shows the throughput collapse, each
-frame on its own peak shows whether structure is missing at all.
-
-Evidence: `data/debug/analyze_holdout_ceiling/<stamp>/`. Probe families are recovered
-from the phase spectrum (the recorded manifest does not name them) and printed
-alongside the recorded correlations so the classification can be checked.
 
 ### generate_shape_trial_profiles.py
 
@@ -4376,36 +4165,6 @@ while the experiment system is offline.
 > The exposure is a **token**, never a bare `0`: the runner rejects `0`, so the
 > profile carries `auto` (the runner's own default) or an explicit positive
 > number of milliseconds.
-
-### generate_model_in_loop_hw_ab_report.py
-
-Offline report generator for the A/B campaign above: it reads the campaign's
-recorded artefacts only (the manifest, each stage's log, the MIL run's probe
-frames, the recorder's pkl/json and the panel-scan evidence) and never opens a
-device, so the report can be recomputed at any time.
-
-```bash
-python scripts/slm/generate_model_in_loop_hw_ab_report.py \
-    --session data/debug/model_in_loop_hw_ab/<stamp> --stamp <stamp>
-```
-
-Output — `report/shape_trials/model_in_loop/`:
-
-| file | what |
-|---|---|
-| `model_in_loop_hw_ab_<stamp>.md` | the report: expected vs measured per arm, the A/B conclusion, the day's exposure window and geometry calibration, the blockers hit and how they were handled |
-| `figures/<stamp>_mil_inverse_<arm>.gif` | the real inverse-optimization process: measured probe frame / model prediction / pupil phase / recorder curves, frame by frame |
-| `figures/<stamp>_hw_ab_summary.png` | per-arm comparison (score / CV / EE / holdout correlation / rounds / status) |
-| `figures/<stamp>_panel_scan_<arm>.png` | the panel-locate scan response and flat drift |
-| `figures/<stamp>_true_vs_pred_<arm>_probes_p<n>.png` | ground truth vs prediction, one row per probe (measured frame / model prediction on the camera grid / their difference, with the probe's type, round, index, exposure, Pearson r and SSIM printed on the panel); probes are split over several pages (≤4 per page) |
-| `figures/<stamp>_true_vs_pred_<arm>_stats.png` | the pooled 1:1 density plot of measured vs predicted pixels, next to the per-probe-r distribution split by probe type |
-| `figures/<stamp>_metrics_curves_<arm>.png` | the metrics curves: composite score / CV / EE / validation-set correlation vs round, with the flat baseline, the acceptance thresholds and each round's accepted/rejected state |
-
-The model prediction is mapped onto the camera grid with the run's own
-`bench_geometry.json` (`camera_px_per_model_px`, `far_field_size`) and the
-run's frozen ROI centre, so the GIF overlays prediction and measurement on the
-same pixels. The real run's "whole process" comes from the recorder (pkl/json);
-the report never recomputes it.
 
 ### model_in_loop_selfcal_bakeoff.py
 
@@ -4601,29 +4360,6 @@ trajectory rather than a re-simulation of something else.
 python scripts/slm/render_differentiable_opt_animation.py \
     --run-dir data/debug/differentiable_opt/<stamp>
 ```
-### mine_history_model_bias.py
-
-Mines the **archived** hardware runs for `phase -> measured far field` pairs,
-fits the forward model's **systematic** error offline (focal scale, pupil（瞳面）
-centre, gain, plus the GRAPHYCS-style travel scale), and validates the result
-on data that was never used for the fit.
-
-**Why it exists**: the loss audit showed the closed loop is limited by a model
-mismatch, so the question "can the history replace the hardware acquisitions?"
-needs an answer with numbers. The answer is: **yes for the focal/scale class,
-no for the position class** - the residual centroid offset is a per-session
-optical-axis zero drift and has to be confirmed on site, every session.
-
-**Usage:**
-```bash
-python scripts/slm/mine_history_model_bias.py --out-dir logs/history_model_bias
-```
-
-The run writes `pairs.json` (every pair with its session, exposure, the affine
-normalisation actually used, and the grid convention), `fit.json` (the fitted
-error terms, the diagnostics that say which class dominates, and the per-session
-calibration), `validation.json` (before/after on the held-out sets) and
-`summary.md`.
 
 ### Current-path multishape transfer capture and offline fit (2026-10-23)
 

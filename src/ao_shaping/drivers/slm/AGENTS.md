@@ -64,6 +64,13 @@ Santec.save_phase_to_csv(phase, dest)            # → WavefrontCorrection.save_
   量化），输出严格 `0..1023` uint16。
 - `tools/slm/slm_zernike_common.save_driver_correction_csv` 是薄 wrapper，唯一实现如上述。
 
+> 📌 **物理 2π 灰度从设备读取**：上面 `two_pi_gray`（如 532nm→998）只是波长相关的
+> **典型设备读数**，运行时一律经 `Santec.get_wavelength_info()[1]`（内部走
+> `SLM_Ctrl_ReadWL` 读相位表再换算）动态查询，不冻结为常量；它只作诊断/上报，
+> 与 rad→gray **编码标度**（配置 `[slm] two_pi_grayscale`，缺省 1023）严格分开。
+> 两个概念的区分与 fallback 策略见
+> [决策记录](../../../../docs/dev/two_pi_grayscale_source_decision_20261119.md)。
+
 > 详见 `tests/ao_shaping/drivers/slm/test_gray_csv.py` 与 `test_correction_csv.py`。
 
 ## Santec 接口

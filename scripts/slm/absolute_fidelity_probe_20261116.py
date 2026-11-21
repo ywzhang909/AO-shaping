@@ -35,7 +35,7 @@ Zernike 图样用 :func:`generate_noll_polynomial` 生成，单位圆外置 0（
 
 硬件上的 PYTHONPATH（离线验证不需要）::
 
-    $env:PYTHONPATH = "<仓库根>\\libs"
+    $env:PYTHONPATH = "D:\\Projects\\TIFO\\AO-shaping\\libs"
 
 用法::
 
@@ -490,7 +490,7 @@ def build_plan(
         device=dict(camera=str(args.camera), cam_id=int(args.cam_id), slm_number=int(args.slm_number)),
         camera_sensor_px=[int(sensor[0]), int(sensor[1])],
         zernike_convention="generate_noll_polynomial, amplitude = in-aperture RMS rad, outside aperture = 0",
-        pythonpath_note=f"hardware: $env:PYTHONPATH = {Path(__file__).resolve().parents[2] / 'libs'}",
+        pythonpath_note=r"hardware: $env:PYTHONPATH = 'D:\Projects\TIFO\AO-shaping\libs'",
     )
 
 

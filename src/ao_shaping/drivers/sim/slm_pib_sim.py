@@ -46,7 +46,7 @@ SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳面场的二
 ``wavelength_nm``             :data:`WAVELENGTH_NM` (1064.0)     nm         工作波长
 ``ccd_pixel_um``              :data:`CCD_PIXEL_UM` (2.2)         µm         相机像元节距
 ``focal_length_m``            :data:`FOCAL_LENGTH_M` (0.125)     m          傅里叶透镜标称焦距
-``two_pi_gray``               :data:`TWO_PI_GRAY` (993)           灰度       2π 弧度对应的灰度 (设备动态值)
+``two_pi_gray``               :data:`TWO_PI_GRAY` (993)           灰度       2π 弧度对应的灰度 (仿真默认值, 非设备读数)
 ``beam_w0``                   :data:`BEAM_W0` (400.0)            面板 px    入射高斯光束 1/e² 强度半径
 ``cam_window_px``             :data:`CAM_WINDOW_PX` (250)        px         相机 ROI 窗口边长
 ``far_field_padding``         :data:`FAR_FIELD_PADDING` (4)      –          远场 FFT 补零因子 (定角标度)
@@ -133,7 +133,10 @@ SLM_W = 1920
 SLM_H = 1200
 SLM_BITS = 10
 SLM_MAX_GRAY = (1 << SLM_BITS) - 1  # 1023
-TWO_PI_GRAY = 993  # 1064 nm 下的 2*pi 灰度 (设备动态值, 见 AGENTS.md)
+#: 仿真默认值, **不是设备读数**: 仿真没有真实 SLM, 无法查询 Santec 相位表。
+#: 993 是 1064 nm 设备曾经回报过的典型值, 这里仅为复现历史仿真结果而固定;
+#: 真实设备的物理 2π 灰度一律经 ``Santec.get_wavelength_info()[1]`` 读取。
+TWO_PI_GRAY = 993
 
 # 面板像元节距 (µm) —— 真实 SLM#1 (22030108) 为 8 µm。
 SLM_PIXEL_UM = 8.0
@@ -345,7 +348,8 @@ class SimPibSystem:
             wavelength_nm: 工作波长 (nm) —— 同上。
             ccd_pixel_um: 相机像元节距 (µm) —— 同上。
             focal_length_m: 傅里叶透镜标称焦距 (m) —— 同上。
-            two_pi_gray: 2π 弧度对应的灰度值 (设备动态值, 1064 nm 下是 993)。
+            two_pi_gray: 2π 弧度对应的灰度值 (仿真默认值 993, 取自历史 1064 nm
+                设备读数; 仿真无设备可查询, 真实值请用 Santec.get_wavelength_info())。
             cam_window_px: 相机 ROI 窗口边长 (px); 仿真相机的 ``cam_size`` 默认取它。
             peak_counts_per_ms: **绝对光度**换算 —— 单位峰值分数每毫秒曝光的 counts。
                 ``None`` (默认) ⇒ 走旧的相对强度口径 (远场峰值归一到 100, 与曝光无关),
@@ -1156,7 +1160,8 @@ class SimSLMPib:
     ) -> np.ndarray:
         """弧度相位 → uint16 灰度, 并同时给光学系统上膛。
 
-        在真实 Santec 上这一步只做弧度→灰度换算 (2*pi = ~993 灰度), 在
+        在真实 Santec 上这一步只做弧度→灰度换算 (设备读数的 2*pi 灰度, 1064 nm
+        典型 ~993), 在
         ``display_data`` 之前不动面板。而这里额外把弧度相位存下来, 使下一次
         ``far_field()`` 会反映它。
 
@@ -1166,7 +1171,7 @@ class SimSLMPib:
         Args:
             phase_rad: raw 弧度相位 (面板尺寸)。
             max_grayscale: 2π 弧度对应的灰度值; ``None`` ⇒ 用 system 的
-                ``two_pi_gray`` (1064 nm 下是设备实测的 993)。
+                ``two_pi_gray`` (仿真默认值 993, 非设备读数)。
 
         Returns:
             灰度相位数组 (uint16)。

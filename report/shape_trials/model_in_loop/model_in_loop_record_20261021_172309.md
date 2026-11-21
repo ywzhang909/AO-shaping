@@ -1,8 +1,7 @@
 # MIL (model-in-loop) 单次运行记录报告 — 20261021_172309
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/generate_model_in_loop_record_report.py`](../../../scripts/slm/generate_model_in_loop_record_report.py)
-> **复现命令**: `python scripts/slm/generate_model_in_loop_record_report.py --run-dir data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309 --stamp 20261021_172309`
+> **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/model_in_loop_hw_ab.py`](../../../scripts/slm/model_in_loop_hw_ab.py)
 > **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../../scripts/slm/generate_shape_trial_profiles.py)
 > **运行环境**: 离线

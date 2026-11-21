@@ -62,9 +62,10 @@ sys.path.insert(0, str(ROOT / "src"))
 # ---------------------------------------------------------------------------
 # Fixed evidence paths (no device access)
 # ---------------------------------------------------------------------------
-DATA = ROOT / "data/debug/slm_transfer/extend_b_20261118"
-FIT_DIR = ROOT / (
-    "data/debug/slm_transfer/20261118_transfer_mil_zernike_probe_v1/fit_m3_full"
+DATA = Path("D:/Projects/TIFO/AO-shaping/data/debug/slm_transfer/extend_b_20261118")
+FIT_DIR = Path(
+    "D:/Projects/TIFO/AO-shaping/data/debug/slm_transfer/"
+    "20261118_transfer_mil_zernike_probe_v1/fit_m3_full"
 )
 # Keep migrated historical artifacts immutable: this API-adapted script writes
 # separate outputs so rerunning it cannot replace the original mil measurements.

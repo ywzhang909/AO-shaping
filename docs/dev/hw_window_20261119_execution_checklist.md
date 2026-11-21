@@ -15,20 +15,22 @@
 §3 现场读回字段、§4 纪律）。预注册时冻结的脚本 SHA256(前16) 如下；必须在执行前复核，
 不一致须在预注册表登记新哈希并重签，否则评分作废：
 
-| 脚本 | 预注册 SHA256(前16)，含 11:19 重签 | 本次离线核对时的磁盘值（2026-11-19 会话中） |
+| 脚本 | 预注册 SHA256(前16)，含 15:46 §0.3 重签 | 本次离线核对时的磁盘值（2026-11-19T15:46:32Z） |
 |---|---|---|
-| `validate_transfer_shapes_hardware.py` | `19947B714C8A3986` | `19947B714C8A3986` ✅ |
-| `replay_transfer_shapes_hardware.py` | `25DB72439891A98E` | `25DB72439891A98E` ✅ |
-| `run_transfer_window_20261119.py` | `A406D6220E1A3FDC` | `A406D6220E1A3FDC` ✅ |
-| `run_issue238_period_sweep_20261119.py` | `4CA2762FB25ABAB2`（11:19 重签） | `4CA2762FB25ABAB2` ✅ |
-| `protocol.py` | `49CBA3A62DADC8ED` | `49CBA3A62DADC8ED` ✅ |
-| `_window.py` | `808BFAAB0976526D`（11:19 补登记） | `808BFAAB0976526D` ✅ |
+| `validate_transfer_shapes_hardware.py` | `7EF7F25A121E8824` | `7EF7F25A121E8824` ✅ |
+| `replay_transfer_shapes_hardware.py` | `5727FD8F459E5FCB` | `5727FD8F459E5FCB` ✅ |
+| `run_transfer_window_20261119.py` | `39C3E00D51FCC0E4` | `39C3E00D51FCC0E4` ✅ |
+| `run_issue238_period_sweep_20261119.py` | `48BBF7198FC3C691` | `48BBF7198FC3C691` ✅ |
+| `protocol.py` | `32078F78F45905AC` | `32078F78F45905AC` ✅ |
+| `_window.py` | `AA098F72A30F2AB8` | `AA098F72A30F2AB8` ✅ |
 
 > 说明：`run_issue238_period_sweep_20261119.py` 与 `_window.py` 在初签后变更，经核读源码确认
-> 均为**设备占用 / 锁协议层**改动（`lock_mode="segment"`，修复 period32 父子互锁），
-> 不含任何指标/评分逻辑；评分口径实现 `protocol.py::target_intensity_rmse` 哈希逐位未变。
-> 已按预注册 §0 于 `2026-11-19T11:19:41Z` 登记新哈希并重签（见预注册 §0.1），本窗口可用
-> 上表当前版本评分；**若执行前哈希再次变化，须再次重签**。
+> 均为**设备占用 / 锁协议层**改动（`lock_mode="segment"`，修复 period32 父子互锁），不含任何指标/评分逻辑。
+> 上游合并 `3d0fe7f2`（53 提交）+ `5545d579` 重构源码模块布局后，上表六个脚本 blob 哈希全部变化；
+> 评分口径实现 `protocol.py::target_intensity_rmse` 虽改了文件哈希，但在当前工作树重跑 §6 评分
+> `RECIPE_SELFCHECK_MAX_ABS_DIFF_vs_manifest=0.000e+00`、score JSON SHA256 逐位不变，语义等价。
+> 已按预注册 §0 于 `2026-11-19T15:46:32Z` 登记新哈希并重签（见预注册 §0.3，评分完成后重签），
+> `§6` 已落盘评分继续有效；**若脚本哈希再次变化，须再次重签**。
 
 ---
 
@@ -101,7 +103,10 @@ $PY = <PYTHON_EXE>                       # 例如 <REPO_ROOT>\.venv\Scripts\pyth
 - `--window` 必填，不允许复用已存在的非空目录；`--segments` 默认 `k1 k4`，choices
   `k1/k4/light/none`；`light`/`none` 必须显式给 `--dataset`（`capture/`，含 `manifest.json`）
   与 `--checkpoint`（`frozen_parameters.json`），且目录须存在，缺任一在 dry-run 阶段就返回 2。
-- `--shapes` 默认 `square`；`--side` 默认 **1200（历史失败值，禁止沿用，必须现场改为 ≤424）**。
+- `--shapes` 默认 `square`；`--side` 现默认**不给（沿用 transfer 默认 80）**，dry-run 会用
+  `2*(window-span-8)` 复算上限并**提前挡掉**超窗值（默认 220 → 上限 424；历史的 `1200`
+  会被直接拒绝，不必再等到子段 `validate()` 才失败）。要更大目标须同时加 `--window-span`
+  （如 640）并升 `--capture-grid`（如 384）。
   `--iterations/--count/--frames/--seed` 与 `--transfer-arg`（可重复）原样透传给 `transfer run`。
 - 共用信封参数：`--cooldown-s` 默认 200、`--wait-until-idle` 默认 600（0=不等不锁）、
   `--segment-timeout-s` 默认 3600（0=不限）、`--slm-number` 默认 1、`--cam-id` 默认 0。
@@ -117,7 +122,7 @@ $PY = <PYTHON_EXE>                       # 例如 <REPO_ROOT>\.venv\Scripts\pyth
 **锁协议（2026-11-19 修复后）**：父窗口 `lock_mode="segment"`，自己不持锁，只串行 +
 冷却 + 只读回读锁状态；子段脚本自己 `acquire/release`，真实 `--wait-until-idle` 原样转发。
 `--wait-until-idle 0` 在此处**不是**"不等不锁"，而是"被占即立即失败"，不能用 0 去规避互锁。
-**脚本哈希已按预注册 §0.1 于 11:19 重签（`4CA2762FB25ABAB2`），执行前须再次复核，若变化须再次重签**。先 dry-run：
+**脚本哈希已按预注册 §0.3 于 15:46 重签（当前 `48BBF7198FC3C691`），执行前须再次复核，若变化须再次重签**。先 dry-run：
 
 ```powershell
 & $PY scripts/experiments/run_issue238_period_sweep_20261119.py `
@@ -230,7 +235,7 @@ $PY = <PYTHON_EXE>                       # 例如 <REPO_ROOT>\.venv\Scripts\pyth
 | 背对背 SLM 假死 | 连续 open/close 触发 `ReadSU=-1000` / `Open=-10002`，需手动重启，当日不再续 | 窗口脚本 `--cooldown-s ≥200`（默认 200）；单进程占用，不并行第二设备进程 |
 | `floor=0` 不合规 | 历史 replay 把背景 floor 取 0，预注册 §2.2 明确禁止 | 当次同曝光暗场实测 floor，来源/时间戳填 §3 |
 | D2/D1 门控段本窗口不跑 | S7（#247 零级闭环，D2 未放行）、S5/S6（P3/P4 探针，D1 未放行）在预注册 §1 明令不执行 | 命令清单里没有这些段，不要临时加 |
-| #238 父子互锁（已修复，已重签） | 旧 run3：父窗口持锁 + 子段 `--wait-until-idle 0`（=被占立即失败）→ 0.4 s 拒绝启动；新版本改 `lock_mode="segment"`，父不持锁、子自取自放 | 确认 `lock_mode="segment"` 生效且 `--wait-until-idle >0`；哈希已按 §0.1 重签，执行前再复核 |
+| #238 父子互锁（已修复，已重签） | 旧 run3：父窗口持锁 + 子段 `--wait-until-idle 0`（=被占立即失败）→ 0.4 s 拒绝启动；新版本改 `lock_mode="segment"`，父不持锁、子自取自放 | 确认 `lock_mode="segment"` 生效且 `--wait-until-idle >0`；哈希已按 §0.3 重签，执行前再复核 |
 | 窗口/子段目录不可复用 | `run_session` 与窗口都用 `exist_ok=False`，空目录也会挡住干净重跑 | 每次换全新目录；证据只写 `<window>/segments/`，不预建子段 `--out` |
 | 复制来源不明 dataset | 计划要求"光路未动的最新 full run"，旧轴失配会话未必是最新 | 见 §3 路径检查；冻结前核对 `manifest.json` 与 provenance |
 | S0 无 `--execute` 闸门 | 探针脚本启动即开设备，只能靠授权 + `--wait-until-idle` 控制 | 只在授权后运行，退出非 0 即止步；读回 `optical_path_record.json` |
@@ -265,7 +270,10 @@ $PY = <PYTHON_EXE>                       # 例如 <REPO_ROOT>\.venv\Scripts\pyth
 - `released.json`：`released_at 2026-11-19T07:29:04Z`、`lock_released=true`、`error=null`、
   `holder=null` —— 锁正常释放。本目录不可复用。
 - 修复已落盘（`_window.py` 新增 `lock_mode="segment"`，`run_issue238...py` 显式传入），
-  脚本哈希已按预注册 §0.1 于 11:19 登记重签，可用于本窗口评分（执行前再复核）。
+  脚本哈希已按预注册 §0.3 于 15:46 登记重签，可用于本窗口评分（执行前再复核）。
+- **修复后已在全新目录 run4 成功重跑**：`data/experiments/issue238_binary_phase_20261119/run4_period_sweep/`
+  （run3 目录不可复用）。两段各 969 帧、`status=ok`、设备与锁正常释放。详见
+  `hw_plan_consolidated_20261118.md` §7.3 与 `issue238_binary_gray_capture_plan_20261119.md` §6.4。
 
 ---
 
@@ -273,12 +281,12 @@ $PY = <PYTHON_EXE>                       # 例如 <REPO_ROOT>\.venv\Scripts\pyth
 
 | 来源 | 文本要点 | 与脚本实际参数的一致性 |
 |---|---|---|
-| `hw_plan_consolidated_20261118.md` §4 S2 | `--shapes square --side 1200` | ❌ 与预注册 §4 / `k4.log` 冲突：1200 超窗，必须 ≤424。§124 的 2026-11-19 补记已承认失败并要求新目录 |
-| `hw_plan_consolidated_20261118.md` §168 后执行入口 | `--segments k1 k4 light none --shapes square --side 1200` | ❌ 同上；其余（`--window`/`--dataset`/`--checkpoint`、dry-run + `--execute`）与脚本一致 |
+| `hw_plan_consolidated_20261118.md` §4 S2 | `--shapes square --side 1200` | ✅ 已修正：§4 表与执行入口改为不写 `--side`（沿用 80）并注明 ≤424；脚本默认由 1200 改为“不给即 80”，dry-run 提前拒绝超窗值 |
+| `hw_plan_consolidated_20261118.md` §168 后执行入口 | `--segments k1 k4 light none --shapes square --side 1200` | ✅ 已修正：去掉 `--side 1200`，`--window`/`--dataset`/`--checkpoint`、dry-run + `--execute` 保持不变 |
 | `hw_plan_consolidated_20261118.md` §4 S1 | `--candidates 4 --execute`，"K=1 可复用" | ✅ 脚本 `--segments` 可只给 `k4`；本窗口按预注册 §1 同时跑 k1/k4 |
 | `hw_plan_consolidated_20261118.md` §4 前置 | `--wait-until-idle 600`、冷却 ≥200 s | ✅ 共用信封默认值正是 600 / 200 |
 | `issue238_binary_gray_capture_plan_20261119.md` §6.2 | `--frames-per-level 20`、`--periods-px 32 48`、`--cooldown-s 200`、`--wait-until-idle 600`；曝光走探针 `choose_exposure` | ✅ 脚本默认值一致；`--exposure-bracket` 仅在显式给出时透传 |
-| `issue238...` §6.2/§6.3 | 修复要求：父窗口不持锁，子段自取自放，父只回读锁状态 | ✅ 当前磁盘版本已实现（`lock_mode="segment"`）；哈希已按 §0.1 重签，执行前再复核 |
+| `issue238...` §6.2/§6.3 | 修复要求：父窗口不持锁，子段自取自放，父只回读锁状态 | ✅ 当前磁盘版本已实现（`lock_mode="segment"`）；哈希已按 §0.3 重签，执行前再复核 |
 | `issue238...` §6.3 | 旧 run3 失败于锁协议，重试须全新目录 | ✅ 与 §4.2 证据一致 |
 
 ---

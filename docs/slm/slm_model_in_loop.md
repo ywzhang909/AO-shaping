@@ -1,9 +1,7 @@
 # 物理预测模型闭环整形 (slm-model-in-loop)
 
-> **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
-> **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
+> **性质**: 人工维护文档（原生成脚本已移除，内容随源码手工校订）
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
-> **详细算法文档**: [`docs/slm/model_in_loop_algorithm.md`](model_in_loop_algorithm.md)
 
 ## 1. 这条命令做什么
 
@@ -197,9 +195,8 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 
 ## 12. 终止状态
 
-跨光路的一次性配置、自动运行、逐项验收与失败恢复见
-[`model_in_loop_handoff.md`](model_in_loop_handoff.md)。自动脚本调用本 CLI 的
-现有会话探测，不复用历史几何；三个独立诊断探针用于深入排查异常，
+跨光路的一次性配置、自动运行、逐项验收与失败恢复由自动脚本调用本 CLI 的
+现有会话探测完成，不复用历史几何；三个独立诊断探针用于深入排查异常，
 不要求在每次自动会话前重复执行。
 
 | 状态 | 含义 |

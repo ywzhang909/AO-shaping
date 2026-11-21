@@ -6,7 +6,10 @@
 2. plan 模式: 干净子进程里打印 JSON、不创建 ``--out``、不 import 相机/SLM 驱动;
 3. ``_run`` 遇到已存在的 ``--out``: 返回 2, 假锁恰好 acquire+release 一次,
    且不 import 任何驱动 (out.mkdir 失败发生在任何驱动 import 之前);
-4. 纯图样/扫描函数: 65 点、端点 1023、blaze 峰值 == g、checker 周期 16。
+4. 纯图样/扫描函数: 65 点、端点 1023、blaze 峰值 == g、checker 周期 16;
+5. 暗帧 (``--dark-frames`` / ``--dark-at``): 默认 N=0 与旧调用逐帧一致;
+   ``role="dark"`` 标记、不写入 SLM 图样、被 sweep / power-reference 分析排除;
+   暗帧曝光异动报错; 无 illumination-off hook 时快速失败并写 ``dark_abort.json``。
 """
 
 from __future__ import annotations
@@ -343,3 +346,213 @@ def test_choose_exposure_falls_back_when_all_above_ceiling():
 def test_choose_exposure_rejects_empty():
     with pytest.raises(ValueError):
         SCRIPT.choose_exposure([], 4095)
+
+
+# ---------------------------------------------------------------------------
+# 6. Dark frames (--dark-frames / --dark-at): plan, tags, exclusion, exposure
+# ---------------------------------------------------------------------------
+def _legacy_binary_args():
+    """Pre-dark caller: no dark_frames / dark_at attributes at all."""
+    return _binary_args()
+
+
+def _dark_items(plan):
+    return [p for p in plan["patterns"] if p["group"] == "dark"]
+
+
+def test_help_lists_dark_flags():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--dark-frames" in result.stdout
+    assert "--dark-at" in result.stdout
+
+
+def test_plan_dark_defaults_off_and_matches_legacy_caller():
+    legacy = SCRIPT.build_plan(_legacy_binary_args())
+    explicit_off = SCRIPT.build_plan(_binary_args(dark_frames=0, dark_at=None))
+
+    assert "dark" not in legacy
+    assert "dark" not in explicit_off
+    assert legacy["n_frames_expected"] == explicit_off["n_frames_expected"]
+    assert legacy["n_patterns"] == explicit_off["n_patterns"]
+    assert [p["label"] for p in legacy["patterns"]] == [
+        p["label"] for p in explicit_off["patterns"]
+    ]
+    # No dark frame is scheduled at the default (N=0).
+    assert not _dark_items(legacy)
+
+
+def test_plan_dark_frames_default_to_both_block_points():
+    off = SCRIPT.build_plan(_binary_args(dark_frames=0, dark_at=None))
+    on = SCRIPT.build_plan(_binary_args(dark_frames=2, dark_at=None))
+
+    assert on["dark"]["enabled"] is True
+    assert on["dark"]["positions"] == ["pre", "post"]
+    assert on["dark"]["frames_per_point"] == 2
+    assert on["dark"]["dark_subtracted"] is False
+    # The illumination gap is documented in the plan, not papered over.
+    assert on["dark"]["illumination_control"]["status"] == "gap"
+    assert "dark_capture_hook" in on["dark"]["illumination_control"]["detail"]
+
+    darks = _dark_items(on)
+    assert [p["dark_position"] for p in darks] == ["pre", "post"]
+    assert all(p["role"] == SCRIPT.DARK_ROLE for p in darks)
+    assert all(p["kind"] == "dark" and p["frames"] == 2 for p in darks)
+    # No SLM pattern is written for a dark group: no fabricated panel digest.
+    assert all(p["panel_gray_sha256"] is None for p in darks)
+
+    # Exactly 2 points x 2 frames extra; sweep/power/drift untouched.
+    assert on["n_frames_expected"] - off["n_frames_expected"] == 2 * 2
+    sweep_idx = [p["index"] for p in on["patterns"] if p["group"] == "sweep"]
+    assert darks[0]["index"] < min(sweep_idx)
+    assert darks[1]["index"] > max(sweep_idx)
+
+    # The plan stays JSON-serialisable exactly as plan mode prints it.
+    json.dumps(on, allow_nan=False)
+
+
+def test_plan_dark_at_single_point():
+    on = SCRIPT.build_plan(_binary_args(dark_frames=1, dark_at="post"))
+    assert on["dark"]["positions"] == ["post"]
+    darks = _dark_items(on)
+    assert len(darks) == 1
+    assert darks[0]["dark_position"] == "post"
+    assert darks[0]["frames"] == 1
+
+
+def test_plan_dark_rejects_bad_inputs():
+    with pytest.raises(ValueError):
+        SCRIPT.build_plan(_binary_args(dark_frames=-1))
+    with pytest.raises(ValueError):
+        SCRIPT.build_plan(_binary_args(dark_frames=1, dark_at="middle"))
+    # dark_at without dark frames would be a silent no-op: refuse.
+    with pytest.raises(ValueError):
+        SCRIPT.build_plan(_binary_args(dark_frames=0, dark_at="pre"))
+    # Blaze has no block structure to hang dark points on.
+    with pytest.raises(ValueError):
+        SCRIPT.build_plan(
+            argparse.Namespace(
+                mode="blaze",
+                sweep_step=16,
+                period_px=16,
+                checker_frames=20,
+                power_reference="off",
+                dark_frames=2,
+            )
+        )
+
+
+def test_main_parser_rejects_dark_flags_without_binary_block(tmp_path):
+    out = str(tmp_path / "never_created")
+    with pytest.raises(SystemExit) as exc:
+        SCRIPT.main(["--out", out, "--dark-at", "pre"])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        SCRIPT.main(["--out", out, "--dark-frames", "3"])  # blaze by default
+    assert exc.value.code == 2
+    assert not (tmp_path / "never_created").exists()
+
+
+def _dark_record(label, total, *, exposure_ms=0.08, ns, position="pre"):
+    return {
+        "label": label,
+        "frame_file": f"frames/{label}.npz",
+        "frame_total": total,
+        "exposure_ms": exposure_ms,
+        "monotonic_ns": ns,
+        "timestamp_utc": "2026-11-20T00:00:00.000000+00:00",
+        "block_index": 0,
+        "dark_position": position,
+        "role": SCRIPT.DARK_ROLE,
+    }
+
+
+def test_summarize_dark_reports_totals_median_sigma_and_files():
+    records = [
+        _dark_record("d0", 100, ns=1, position="pre"),
+        _dark_record("d1", 120, ns=2, position="pre"),
+        _dark_record("d2", 140, ns=3, position="post"),
+        # A sweep row must never leak into the dark statistics.
+        {"label": "sweep", "role": None, "frame_total": 10**9, "monotonic_ns": 4,
+         "exposure_ms": 0.08, "group": "sweep"},
+    ]
+    section = SCRIPT.summarize_dark(
+        records, frames_per_point=2, positions=["pre", "post"]
+    )
+    assert section["n_frames"] == 3
+    assert section["totals"] == [100.0, 120.0, 140.0]
+    assert section["median_total"] == 120.0
+    assert section["sigma_total"] == pytest.approx(16.32993161855452)
+    assert [f["label"] for f in section["frames"]] == ["d0", "d1", "d2"]
+    assert section["frames"][0]["frame_file"] == "frames/d0.npz"
+    assert section["dark_subtracted"] is False
+
+    empty = SCRIPT.summarize_dark(records[:3], frames_per_point=2, positions=["pre"])
+    assert empty["n_frames"] == 3
+
+
+def test_dark_rows_are_excluded_from_power_reference_analysis():
+    records = [
+        # A dark row that even claims a reference slot must still be ignored.
+        {**_dark_record("d0", 10**9, ns=1), "ref_position": "pre"},
+        _dark_record("d1", 100, ns=2),
+        {"label": "ref", "ref_position": "pre", "frame_total": 200,
+         "monotonic_ns": 3, "block_index": 0, "exposure_ms": 0.08},
+    ]
+    section = SCRIPT.summarize_power_reference(records, frames_per_side=1)
+    assert section["normaliser"]["mean_total"] == 200.0
+    assert section["blocks"][0]["pre"]["raw_totals"] == [200.0]
+    assert section["dark_subtracted"] is False
+
+
+def test_dark_exposure_must_match_the_single_sweep_exposure():
+    ok = [_dark_record("d0", 1, exposure_ms=0.08, ns=1)]
+    SCRIPT.assert_dark_exposure_consistency(ok, 0.08)
+    mixed = ok + [_dark_record("d1", 1, exposure_ms=0.16, ns=2)]
+    with pytest.raises(ValueError):
+        SCRIPT.assert_dark_exposure_consistency(mixed, 0.08)
+    with pytest.raises(ValueError):
+        # The same rule the run applies to every frame of the run.
+        SCRIPT.assert_single_exposure([0.08, 0.16])
+
+
+def test_run_dark_without_hook_fails_fast_and_records_abort(tmp_path, monkeypatch):
+    out = tmp_path / "run"
+    fake = _FakeLock()
+    monkeypatch.setattr(SCRIPT, "acquire_device_lock", lambda wait_s: fake)
+
+    baseline = set(_device_modules_loaded())
+    real_import = builtins.__import__
+
+    def guard(name: str, *a, **k):
+        if any(tok in name for tok in DEVICE_MODULES):
+            raise AssertionError(f"device driver imported for a dark request: {name}")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", guard)
+
+    args = _binary_args(dark_frames=2, dark_at=None)
+    args.out = out
+    args.wait_until_idle = 0
+    plan = SCRIPT.build_plan(args)
+
+    assert SCRIPT._run(args, plan) == 1
+    assert set(_device_modules_loaded()) == baseline
+    assert fake.release_count == 1
+
+    abort = json.loads((out / "dark_abort.json").read_text(encoding="utf-8"))
+    assert abort["aborted"] is True
+    assert "no illumination-off hook" in abort["reason"]
+    assert abort["dark_frames_recorded"] == 0
+
+    release = json.loads((out / "release.json").read_text(encoding="utf-8"))
+    assert release["lock_released"] == "ok"
+    assert release["slm_closed"] == "not-attempted"
+    # The fixed-exposure drift track was never enabled, so no stray abort file.
+    assert not (out / "power_reference_abort.json").exists()
+

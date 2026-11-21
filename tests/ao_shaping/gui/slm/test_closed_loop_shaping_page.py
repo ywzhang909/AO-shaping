@@ -61,7 +61,11 @@ class _Bench:
     def __init__(self) -> None:
         self.applied: list[np.ndarray] = []
         self.closed = False
+        self.opened = 0
         self._frame_id = 0
+
+    def open(self) -> None:
+        self.opened += 1
 
     def describe(self) -> dict:
         return {"name": "fake-bench", "sensor": _SENSOR}
@@ -216,6 +220,9 @@ def test_confirmed_run_renders_measured_rounds_and_closes_devices(
             page._table.item(row, 2).text() != "—"
             for row in range(page._table.rowCount())
         )
+        # 页面接线必须让 worker 打开设备一次：否则真实的 HardwareBench 会在
+        # 第一次 describe/下发时抛 "open() must be called first"。
+        assert bench.opened == 1
         assert bench.closed is True
         assert "已停止" in page._state_label.text()
     finally:

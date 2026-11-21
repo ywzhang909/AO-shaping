@@ -232,6 +232,28 @@ campaign_monitor.render_campaign_traces({str(empty)!r})
     assert "尚无逐块数据" in _captions(at)
 
 
+def test_progress_panel_survives_a_legacy_directory_without_a_plan(tmp_path: Path) -> None:
+    """``plan`` 条目出现之前的旧 campaign 不许把面板打炸。
+
+    ``data/debug/slm_transfer`` 下真有一批这种目录：journal 只有 ``capture`` / ``fit``
+    这类非整形阶段，既没有 ``plan.shapes``，也没有"目录里出现过的形状"。分母没有来源时
+    退到读取器合计（0/0）即可 —— ``campaign_matrix`` 对空集合抛 ``ValueError`` 是 CLI
+    入参契约，渲染层必须**先判空**，不能把校验错误当兜底（2026-11-20 修）。
+    """
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    _write_journal(legacy, [("capture", "complete"), ("fit", "complete")],
+                   stamps=["2026-10-26T01:45:55.000000+00:00",
+                           "2026-10-26T01:52:49.000000+00:00"])
+    at = _run(f"""
+import streamlit as st
+from ao_shaping.gui.slm import campaign_monitor
+campaign_monitor.render_progress_panel({str(legacy)!r}, running=False, key_prefix="t")
+""")
+    # 没有计划就没有分母：进度条写 0/0，而不是拿空形状集合去建矩阵。
+    assert "当前段 0/0" in at.get("progress")[0].proto.text
+
+
 def test_stage_gate_is_disabled_and_explains_itself_when_nothing_is_running(
         campaign: Path) -> None:
     """没有 campaign 在跑时按钮禁用：给他一个"点了但什么都不会发生"的按钮是骗人。"""

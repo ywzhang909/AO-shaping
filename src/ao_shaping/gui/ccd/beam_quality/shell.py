@@ -69,7 +69,7 @@ __all__ = ["DesktopShellApp", "main"]
 _NAV_ITEMS: tuple[tuple[str, str], ...] = (
     ("光束质量", "光束质量"),
     ("闭环整形", "迁移学习闭环整形"),
-    ("SLM静态整形", "SLM静态整形"),
+    ("SLM动态整形", "SLM动态整形"),
     ("实测闭环", "实测闭环动态整形"),
 )
 
@@ -77,7 +77,7 @@ _NAV_ITEMS: tuple[tuple[str, str], ...] = (
 _NAV_HINTS: tuple[str, ...] = (
     "光束质量: 选信号源后点「打开」; 相机操作在后台线程, 不冻界面",
     "迁移学习闭环整形: 需要 torch; 切页不会打断正在跑的会话",
-    "SLM静态整形: 选图案类型、调参数、生成预览, 再下发到所选 SLM",
+    "SLM动态整形: 设目标与起点, 相位分中间步逼近目标; 可暂停、续播、停止",
     "实测闭环动态整形: CCD 实测误差驱动下一步; 开始前确认占用 SLM 与 CCD",
 )
 
@@ -292,7 +292,7 @@ class DesktopShellApp(QMainWindow):
     """AO-Shaping 桌面外壳: 窄导航 + 页面栈。
 
     页 0 是既有的光束质量分析 (整个窗口嵌进来), 页 1 是 SLM 迁移学习闭环整形
-    (惰性创建), 页 2 是 SLM 静态整形 (惰性创建, 会拉 SLM 驱动只在下发时), 页 3 是
+    (惰性创建), 页 2 是 SLM 整形 (惰性创建, 会拉 SLM 驱动只在下发时), 页 3 是
     实测闭环动态整形 (惰性创建, 只在操作员确认后占用 SLM 与 CCD)。
     窗口标题由外壳统一持有, 切页不会换标题 —— 操作员在各页之间移动时, 标题栏始终
     说明「这是哪个应用」。
@@ -329,7 +329,7 @@ class DesktopShellApp(QMainWindow):
         self._warm_task: _WarmTask | None = None
         self._closing = False
 
-        # 页 2: SLM 静态整形 —— 惰性, 切过去才建 (不会拖慢冷启动)。
+        # 页 2: SLM 整形（动态过渡为主 tab）—— 惰性, 切过去才建。
         self._static_page: QWidget | None = None
 
         # 页 3: 实测闭环动态整形 —— 惰性, 切过去才建; 开跑前不碰任何设备。
@@ -437,22 +437,22 @@ class DesktopShellApp(QMainWindow):
             )
 
     def _static(self) -> QWidget:
-        """惰性创建页 2 (SLM 静态整形); 建好之后缓存, 切回来不重建。
+        """惰性创建页 2 (SLM 整形); 建好之后缓存, 切回来不重建。
 
-        静态整形页本身不 import SLM SDK, 慢的东西在下发时才在后台线程拉起; 惰性
-        创建只是为了不在冷启动时多建一个页面对象。
+        页面容器以「动态过渡」为主 tab（相位沿时间轴分中间步逼近目标），
+        原「单帧下发」保留为次 tab 供一次性定格检查。页面本身不 import SLM
+        SDK，慢的东西在下发时才在后台线程拉起；惰性创建只是为了不在冷启动时
+        多建一个页面对象。
         """
         if self._static_page is None:
-            from ao_shaping.gui.slm.static_shaping_page import (
-                OpticalPathSnapshot,
-                StaticShapingPage,
-            )
+            from ao_shaping.gui.slm.dynamic_shaping_page import ShapingPage
+            from ao_shaping.gui.slm.static_shaping_page import OpticalPathSnapshot
 
             # 桌面控制台无 Streamlit 会话，读不到 bench_settings.detected_state，
             # 因此默认注入「模型前向 / 未观测」快照：界面会显式声明光路假设未验证，
             # 下发元数据也会记录 observed=False。未来若 shell 接入标定来源，在此
             # 构造 calibrated 快照传入即可。
-            self._static_page = StaticShapingPage(
+            self._static_page = ShapingPage(
                 optical_path=OpticalPathSnapshot(source="model_forward")
             )
         return self._static_page
@@ -494,7 +494,7 @@ class DesktopShellApp(QMainWindow):
         self._stack.setCurrentWidget(widget)
 
     def select_page(self, index: int) -> None:
-        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 静态整形,
+        """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 动态整形,
         3 = 实测闭环动态整形)。"""
         self._sync_stack(max(0, min(index, len(_NAV_ITEMS) - 1)))
 

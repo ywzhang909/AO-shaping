@@ -402,18 +402,34 @@ def check_geometry(
                 )
             )
         else:
-            limit = _max_side_px(offset, half_span_px)
-            if side > limit:
+            # 与 ``validate.run`` 的最后一道硬保护逐字同判据：方框碰到采样窗的
+            # 首/末行或列 ⇒ 真跑时必然抛「target intersects camera window
+            # boundary」。这个条件**只能**在这里判成 error —— 参数级预检用的是
+            # 名义 ``TILT_SHIFT_SCALE``，实测斜面可能大得多，warning 放行就会
+            # 一直走到整形阶段才炸 (2026-10-26 之后的边界失败)。
+            if box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any():
                 problems.append(
                     Problem(
-                        "side_offset_overflow",
-                        f"目标方斑（{shape}）占 {core_px} px 核心，但边长 {side:g} px "
-                        f"加上载波位移 {offset:.0f} px 已超出采样窗余量"
-                        f"（上限 {limit:.0f} px）。",
+                        "target_intersects_window_boundary",
+                        f"目标方斑（{shape}）已碰到采样窗边界：载波位移 {offset:.0f} px，"
+                        f"采样窗半跨 {half_span_px:g} px —— 真跑时 validate.run 的硬保护"
+                        "会在这里抛「target intersects camera window boundary」。",
                         _period_hint(offset_vec, side, half_span_px),
-                        severity="warning",
                     )
                 )
+            else:
+                limit = _max_side_px(offset, half_span_px)
+                if side > limit:
+                    problems.append(
+                        Problem(
+                            "side_offset_overflow",
+                            f"目标方斑（{shape}）占 {core_px} px 核心，但边长 {side:g} px "
+                            f"加上载波位移 {offset:.0f} px 已超出采样窗余量"
+                            f"（上限 {limit:.0f} px）。",
+                            _period_hint(offset_vec, side, half_span_px),
+                            severity="warning",
+                        )
+                    )
     return problems
 
 

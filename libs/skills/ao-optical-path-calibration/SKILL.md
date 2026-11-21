@@ -105,6 +105,8 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 ### Step 4 — 曝光不超量程
 - 以**峰值计数**为准，不以曝光时间为准。
 - 饱和判据：峰值 ≥ 约 **4015**（mono12 满量程 4095 的 250/255）。8 bit 时对应 ≈ 250。
+- **选曝光要留裕度，不贴饱和线**：在"峰值 ≤ **0.7 × 满量程**"（mono12 ≈ 2866 counts、8 bit ≈ 178）的档位里取**最亮**的一档；只有当全部档位都在该线之上时，才退回"最亮不饱和档"继续。实测依据（2026-11-19）：bracket 的 0.16 ms 档峰值 3519（低于 0.9×4095，判"不饱和"），正式平场重拍却到 3712、**6 像素越线**——激光暖机与热点漂移足以把零裕度的档推过饱和线（`docs/dev/agent_notes_20261119.md:71`）。实现口径见 `scripts/slm/issue238_gray_phase_probes.py`（`PREFERRED_PEAK_FRACTION = 0.7`、`choose_exposure()`）。
+- **bracket 里出过饱和像素的档一律不可用**：哪怕它最亮，也判 `usable=false` 排除。2026-11-19 实测复验：period48 的 0.16 ms 档峰值 4095、64 像素饱和被排除，改取 0.08 ms（峰值 2496）后 960 帧全程无饱和（`docs/dev/agent_notes_20261119.md:97`）。
 - 已记录的上限参考：
   - 2026-10-22 扫描：30 ms 在 defocus +4.00 处饱和中止，5 ms 在另一次运行中也已饱和（`.slim/worktrees/sim2f-model-correction/report/shape_trials/experiment_summary_20261022.md:73`）。
   - 20 ms 时平坦峰仅 65 counts，settle 超时 7 s（`.slim/worktrees/sim2f-model-correction/report/shape_trials/experiment_summary_20261022.md:74`）。
@@ -115,6 +117,10 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 ### Step 5 — 几何与零级
 - 光阑状态（开/闭）必须记录。光阑关闭时**零级未被抑制**，E0/E1 ≈ 1.2（`report/shape_trials/aperture_closed_20261109/aperture_closed_shaping_20261109.md:11, 66-67`）；`zero_radius` 仅屏蔽评分，不屏蔽光束。
 - **未叠加倾斜 / 离焦相位时的采集**：SLM 只写整形相位、未加倾斜或离焦相位时，0 级光斑没有被空间分离，强度远强于整形图案，CCD 上可能看不清被整形的图样。此时按 §0 的纪律**轻微过曝采集**，让整形图案的弱峰可见；并在记录的 `operator_note` 里注明"未加倾斜 / 离焦相位，采用过曝采集"，便于复盘时区分这是采集策略而非光路异常。若已叠加倾斜 / 离焦相位把 0 级分离，则恢复正常峰值判据，不要过曝。
+- **中心与对齐判据取"扣 floor 后的能量质心"，不用 argmax**（2026-11-19 硬件实测证伪）：同一批帧里 argmax 逐帧跳 11–30 px（final 三帧 x 1197→1198→1208、y 983→1013→989），而扣 `floor=14.9375` counts 后的能量质心稳定在 (1228, 986)、距模型预测 1.6–4.8 px；质心在窗口半径 r=20/30/40/60/80 上完全稳定，只有 r=120 才被零级拖走（`docs/dev/agent_notes_20261119.md:135-141`）。散斑场的单像素峰位本就逐帧抖动，用 argmax 判"目标是否打到位"会把合格数据判成不达标。
+- **全局最亮点常常是零级，不是目标**：同批帧全局 argmax 始终落在零级盘（峰值 1053–1319 counts），目标区峰值仅 109–182 counts。任何"最亮点 = 目标"的假设先拿零级坐标核对。
+- **tilt / 离焦能把零级与目标级分开（已由实测标定）**：线性 ±tilt 下零级稳定不动、目标级定向偏转——13 组全幅 Mono12 实测零级稳定 ≤ 2.3 px（flat 基线最大漂移 2 px）、目标两瓣分离 109–119 px（`.worktrees/direction-model-class-20261118/report/shape_trials/issue247_zero_order_20261117/issue247_zero_order_20261117.md:8-17, 64-91`）。本轮**不启用硬件零级校正**，只验证分离方向。
+- **面板轴 ↔ CCD 轴是 +88.544° 安装旋转，不是 90°**：由两轴位移矢量实测（Kabsch）得出（panel-x 斜坡落在 CCD-x，+54.54 px；panel-y 落在 CCD-y）；逐帧按该角度旋转成对齐帧后再比模型与实测。**物理 xy 轴失配不能解释方向失败**：独立采集回验 `axis − baseline` r² −0.00348（CI95 [−0.00824, +0.00160]，含 0）、相关系数 −0.00237，判**无收益**（`docs/dev/axis_mismatch_independent_capture_plan_20261118.md:243-245, 282`）。
 - 相机焦面偏离 2f 焦面，需要 Fresnel 补偿，每天取值不同（0.559 / 0.626 / 0.70 m⁻¹，`report/slm/focus_plane_report/focus_plane_20261019.md:9, 152`）。当天的补偿值必须写入记录。
 - 几何标定读取 `data/slm_geometry_calib.npz`（字段：`Kx, Ky, rotation_deg, fwhm0, resid_x, resid_y, crop_side, center, mirror, k_mean`），写入方 `scripts/slm/persist_live_geometry.py`。旧版本以日期存档。
 
@@ -210,7 +216,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 ## 5. 红线
 
 1. 驱动板必须应答，不得在选板 ID 回落下继续实验。
-2. 曝光必须按峰值判据现场确定；不得沿用历史曝光值。
+2. 曝光必须按峰值判据现场确定；不得沿用历史曝光值；且必须在"峰值 ≤ 0.7 满量程"的档里取最亮，不得贴饱和线（Step 4）。
 3. 零级未被抑制时，不得把光阑关闭下的结果当作零级已抑制。
 4. DVI 模式不得用于打开 SLM；死机只能断电。
 5. 所有数值必须来自当天的记录或源码，不得凭记忆填写。

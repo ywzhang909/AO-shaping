@@ -166,6 +166,45 @@ def test_a_target_that_only_grazes_the_window_has_no_core() -> None:
     assert codes & {"empty_target_core", "target_outside_window"}
 
 
+def test_a_fitted_ramp_that_reaches_the_window_edge_is_a_blocking_error() -> None:
+    """实测斜面比名义值大得多 ⇒ 方框碰到窗边，必须在几何预检就拦下。
+
+    参数级预检用的是名义 ``TILT_SHIFT_SCALE``（period=64 时约 117 px）；拟合
+    出的 ``ramp_matrix`` 可能给出一倍以上的位移。这种情况原来只报
+    ``side_offset_overflow`` warning，放行后直到整形阶段才被 ``validate.run``
+    的硬保护抛成「target intersects camera window boundary」。
+    """
+    matrix = np.array([[0.0, 0.0], [250.0, 0.0]])  # period=1 ⇒ 250 px 位移
+    problems = check_geometry(
+        zero_xy=ZERO_XY,
+        ramp_matrix=matrix,
+        side=80.0,
+        period=1.0,
+        shapes=("square",),
+    )
+
+    boundary = [p for p in problems if p.code == "target_intersects_window_boundary"]
+    assert len(boundary) == 1
+    assert boundary[0].severity == "error"
+    assert "载波周期" in boundary[0].hint or "边长" in boundary[0].hint
+    # 同一次越界只报一条阻断结论，不再叠一条 warning。
+    assert "side_offset_overflow" not in _codes(problems)
+
+
+def test_a_fitted_ramp_that_stays_inside_the_window_is_not_blocked() -> None:
+    """实测斜面比名义大、但方框仍整个在窗内 ⇒ 不误伤（没有 error）。"""
+    matrix = np.array([[0.0, 0.0], [140.0, 0.0]])  # 140 px > 名义 117 px
+    problems = check_geometry(
+        zero_xy=ZERO_XY,
+        ramp_matrix=matrix,
+        side=80.0,
+        period=1.0,
+        shapes=("square",),
+    )
+
+    assert [p for p in problems if p.severity == "error"] == []
+
+
 def test_the_zero_order_must_stay_outside_the_target() -> None:
     """载波位移小于目标半宽 ⇒ 零级还在框里（警告）。"""
     matrix = np.array([[0.0, 0.0], [10.0, 0.0]])

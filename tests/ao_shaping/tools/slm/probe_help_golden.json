@@ -305,30 +305,6 @@
       "--tilt-rad"
     ]
   },
-  "slm_capture_darks": {
-    "body_literals": 65,
-    "body_literals_sha256": "ab3e46f6e4a49a79",
-    "declared": [
-      "--cam-id",
-      "--cam-type",
-      "--config-root",
-      "--exposures-ms",
-      "--frames",
-      "--no-hw",
-      "--serial"
-    ],
-    "help": "usage: <prog>[-h] [--exposures-ms EXPOSURES_MS] [--frames FRAMES] [--cam-type CAM_TYPE] [--cam-id CAM_ID] [--config-root CONFIG_ROOT] [--serial SERIAL] [--no-hw]\n\nReusable multi-exposure dark-frame capture CLI.\n\noptions:\n  -h, --help            show this help message and exit\n  --exposures-ms EXPOSURES_MS\n                        逗号分隔的曝光阶梯 (ms), 默认 '0.024,0.043,0.047'\n  --frames FRAMES       每档平均的原始帧数, 默认 16\n  --cam-type CAM_TYPE   相机后端类型\n  --cam-id CAM_ID       相机 id\n  --config-root CONFIG_ROOT\n                        CCD 配置根目录 (覆盖默认解析)\n  --serial SERIAL       手动指定序列号 (后端无回读时的逃生口); 缺省从相机读取\n  --no-hw               只打印采集计划, 不打开设备、不取设备锁",
-    "help_flags": [
-      "--cam-id",
-      "--cam-type",
-      "--config-root",
-      "--exposures-ms",
-      "--frames",
-      "--help",
-      "--no-hw",
-      "--serial"
-    ]
-  },
   "slm_diagnose": {
     "body_literals": 90,
     "body_literals_sha256": "7ea669beaf9bfe0f",

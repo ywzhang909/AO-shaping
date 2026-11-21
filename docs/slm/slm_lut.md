@@ -106,7 +106,8 @@ python src/ao_shaping/main.py slm-lut --method offset -o data/slm_lut
 - **串扰**：cell 128 px / gap 64 px 使小像素核跨不过间隙、观测稀释约 16×，现有数据只能判「未检出 / 不可判定」，不能宣称无串扰。
 - **二值光栅破简并（run1 实测，2026-11-19）**：对称二值相位光栅的绝对级次效率拟合在 landmark 模型内拆开了 γ–g₂π 简并——折叠估计 g₂π≈**962.7**、CI95 [959.2, 966.1]，条件 γ≈**0.906** [0.884, 0.920]；±1 级 minima 约 951.7 / 981.3，综合工作值取 **g₂π≈964 ±13**（[951, 978]）。理想 e 域自由拟合 898 / 929.8 因 duty/对比度简并明确不采信。该值比设备回读 993 低约 29 灰度、与幂律区间 938±11 重叠，**尚不足以判决替换 993**；设备回读仍为当前工作值。结论依赖 landmark 模型，非绝对标定。
 - **run2（32 px）未完成**：采至 gray=928（第 725/969 帧）时 SLM 写入报 `-10032`（USB其他错误）中止，缺 936..1023 回归段，部分数据退化；finally 已关 SLM/CCD/释放锁、无残留占用，但平场归零失败。32 px **未收紧** g₂π。重测需健康设备会话（fresh open + 读写自检，假死按已知流程手动重启控制器），且必须覆盖完整灰度序列，见 `issue238_binary_gray_capture_plan_20261119.md` §6.1。
-- **数据**：`data/debug/issue238_gray_phase_20261119/run1/`（155 帧，12-bit）、`data/debug/issue238_binary_phase_20261119/run1/`（二值光栅拟合）；详细设备记录、破简并方案与 `-10032` 中止见 [../dev/agent_notes_20261119.md](../dev/agent_notes_20261119.md)。
+- **run4（32/48 px）已采集并完成离线拟合、但不采纳为标定**：`data/experiments/issue238_binary_phase_20261119/run4_period_sweep/period{32,48}/`（全新目录，不复用 run3）。两段各 969 帧（960 binary + 9 曝光 bracket），`status=ok`、设备与锁正常释放。fold g₂π=952.6 [948,956] / 946.9 [945,950]，均低于回读 993；束功率漂移 13–32%、e-fit 残差高、±1 极小系统分裂、CI 只含帧噪声，只记为「存在未解释系统差异」，**不改工作值 993、#238 仍 OPEN**；判读见 `issue238_binary_gray_capture_plan_20261119.md` §6.5。
+- **数据**：`data/debug/issue238_gray_phase_20261119/run1/`（155 帧，12-bit）、`data/debug/issue238_binary_phase_20261119/run1/`（二值光栅拟合）、`data/experiments/issue238_binary_phase_20261119/run4_period_sweep/period{32,48}/`（32/48 px 原始帧，拟合完成、未采纳为标定）；详细设备记录、破简并方案与 `-10032` 中止见 [../dev/agent_notes_20261119.md](../dev/agent_notes_20261119.md)。
 
 ## 11. 注意事项
 

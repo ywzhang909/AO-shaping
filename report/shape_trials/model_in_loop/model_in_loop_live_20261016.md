@@ -3,9 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/check_flat_stability.py`](../../../scripts/slm/check_flat_stability.py)
-> **数据/关联脚本**: [`scripts/slm/replay_model_in_loop_config.py`](../../../scripts/slm/replay_model_in_loop_config.py)
 > **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../../scripts/slm/generate_shape_trial_profiles.py)
-> **数据/关联脚本**: [`src/ao_shaping/tools/slm/model_in_loop_replay.py`](../../../src/ao_shaping/tools/slm/model_in_loop_replay.py)
 > **运行环境**: 离线+硬件
 > **说明**: 2026-10-16 物理预测模型闭环 Step B 匀化权重与 Step A 重拟合消融 (SLM 22030108 + 大恒 FJB24112232, 1064 nm，另有 CPU 仿真)；提高 Step B 均匀度权重未改善方斑 (固定 0.200 ms 交错重放平均 CV 0.8027 升至 0.8989、EE 0.6919 降至 0.5177)，Step A=0 只有有代价的小幅 CV 趋势 (CV 0.8028 降至 0.7887，同时 EE 0.7071 降至 0.5888)，两者均被复合质量分拒绝；结论为保留默认 Step A=80 与 0.4/0.6 权重
 <!-- provenance:end -->

@@ -1,6 +1,6 @@
 """⑥ 「campaign 逐块」页的离屏契约。
 
-这一页只读 ⑦ 填的 campaign 目录: 段一行、块作子行, 缺值印「—」, 不做好坏判断。
+这一页只读本页顶部填的 campaign 目录: 段一行、块作子行, 缺值印「—」, 不做好坏判断。
 这里钉住:
 
 * 没有目录 / 不存在 / 是文件 / 没有段级产物 → 一行降级说明, 树为空, 不抛异常;
@@ -122,7 +122,7 @@ def test_no_dir_shows_the_hint_and_an_empty_tree(make_page) -> None:
     page = make_page()
 
     assert page.campaign_tree().topLevelItemCount() == 0
-    assert page.campaign_status_text() == "在 ⑦ 填整轮目录后显示逐块读数"
+    assert page.campaign_status_text() == "在上方填整轮目录后显示逐块读数"
     assert page.campaign_header_text() == ""
 
 

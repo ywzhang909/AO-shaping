@@ -362,7 +362,7 @@ X/Y 光强截面取自该次运行记录的原始 CCD 帧，而非上表渲染�
 
 ### 判别方法：不开设备，用已录帧重建
 
-`scripts/slm/analyze_holdout_ceiling.py` 从 `data/debug/slm_model_in_loop/20261019_111941/`
+历史分析（原脚本 `analyze_holdout_ceiling.py` 已移除）曾从 `data/debug/slm_model_in_loop/20261019_111941/`
 的几何、系数、`source_amplitude.npy` 与 23 个探针 npz 重建该次运行的预测，逐族计算
 三个量：
 
@@ -384,7 +384,7 @@ X/Y 光强截面取自该次运行记录的原始 CCD 帧，而非上表渲染�
 > 占比达 100%」。该说法**不成立**——非负线性算子的非零集必为支撑子集，不存在虚报。
 > 那个 100% 来自初稿调用时把 `region` 当成 `far_field_size` 传入导致的参数错误。
 > 结论（全 1 帧更可靠）不变，理由改为上面两条，已同步更正
-> `scripts/slm/analyze_holdout_ceiling.py::_support_mask` 与 `scripts/README.md` 的说明。
+> 支持掩码口径见 `scripts/README.md` 的历史说明。
 
 重建可信度：低带宽两族重建值与记录值相差 ≤0.04（0.821/0.862、0.810/0.846、
 0.870/0.843、0.758/0.782）；全频随机相位两族相差 0.12–0.17，因为重建用的是最终接受态

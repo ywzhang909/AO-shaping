@@ -171,12 +171,12 @@ def test_rail_is_compressed_and_single_line(app, shell) -> None:
 
 
 def test_rail_has_four_nav_items(app, shell) -> None:
-    """导航栏四页齐在: 光束质量 / 迁移学习闭环整形 / SLM 静态整形 / 实测闭环动态整形。"""
+    """导航栏四页齐在: 光束质量 / 迁移学习闭环整形 / SLM 动态整形 / 实测闭环动态整形。"""
     from ao_shaping.gui.ccd.beam_quality.shell import _NAV_ITEMS
 
     assert len(_NAV_ITEMS) == 4
     assert len(shell._rail._items) == 4
-    assert shell._rail._items[2].accessibleName() == "SLM静态整形"
+    assert shell._rail._items[2].accessibleName() == "SLM动态整形"
     assert shell._rail._items[3]._title.text() == "实测闭环"
 
 
@@ -203,12 +203,18 @@ def test_no_bottom_hint_label_in_rail(app, shell) -> None:
 
 
 def test_static_shaping_page_is_lazy_and_switches(app, shell) -> None:
-    """页 2 (SLM 静态整形) 惰性创建: 冷启动不建, 点到才实例化并成为当前页。"""
-    assert shell._static_page is None  # 冷启动不建静态整形页
+    """页 2 (SLM 整形) 惰性创建: 冷启动不建, 点到才实例化并成为当前页。"""
+    assert shell._static_page is None  # 冷启动不建整形页
     _click_item(shell, 2, app)
 
     assert shell._static_page is not None
     assert shell._stack.currentWidget() is shell._static_page
+    # 默认落在「动态过渡」主 tab, 静态单帧下发只是次 tab。
+    from ao_shaping.gui.slm.dynamic_shaping_page import ShapingPage
+
+    assert isinstance(shell._static_page, ShapingPage)
+    assert shell._static_page.tabs.currentIndex() == 0
+    assert "动态" in shell._static_page.tabs.tabText(0)
 
 
 def test_static_shaping_page_stays_cached(app, shell) -> None:

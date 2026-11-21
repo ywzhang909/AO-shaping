@@ -9,8 +9,9 @@
 - **全局编码规范**：[docs/dev/coding_conventions.md](docs/dev/coding_conventions.md)（Python 3.12+、绝对导入、类型注解、日志等）。
 - **包/函数放置**：[docs/dev/module_inventory.md](docs/dev/module_inventory.md) §WHERE TO LOOK。
 - 术语：[docs/terminology_glossary.md](docs/terminology_glossary.md)（校验 `python3 scripts/_common/term_unify_20261016.py` dry-run `0 个文件`；新词 §3 登记）。
-- **SLM 2π 灰度工作值 = 993**（1064 nm 设备回读，非 radian→gray 上限 1023）；#238 光学拟合简并、相位反演公式纠错（勿用归一化 e0n 的 cos 反演）与串扰不可判定的结论见 [docs/dev/agent_notes_20261119.md](docs/dev/agent_notes_20261119.md) 与 [docs/slm/slm_lut.md](docs/slm/slm_lut.md) §10。
+- **SLM 物理 2π 灰度从设备读取**：`Santec.get_wavelength_info()[1]`（1064 nm 典型读数 993；非 radian→gray 编码标度 1023，两者严格区分，见 [决策记录](docs/dev/two_pi_grayscale_source_decision_20261119.md)）；#238 光学拟合简并、相位反演公式纠错（勿用归一化 e0n 的 cos 反演）与串扰不可判定的结论见 [docs/dev/agent_notes_20261119.md](docs/dev/agent_notes_20261119.md) 与 [docs/slm/slm_lut.md](docs/slm/slm_lut.md) §10。
 - 工程纪律：[docs/dev/engineering_discipline.md](docs/dev/engineering_discipline.md)。
+- **渲染层不把 CLI 校验错误当兜底**：`campaign_matrix()` 对空形状集合抛 `ValueError` 是它的 CLI 入参契约，不是给渲染兜底用的；`campaign_monitor.render_progress_panel` 遇到没有 `plan.shapes` 的旧 journal / 空目录（正常历史态，`data/debug/slm_transfer` 下真实存在）必须先判空、跳过建矩阵并退到读取器合计，且对形状名不被本版识别的 `ValueError` 同样降级（2026-11-20 修，见 `tests/ao_shaping/gui/slm/test_campaign_monitor.py::test_progress_panel_survives_a_legacy_directory_without_a_plan`）。
 
 ## Project Overview
 

@@ -191,6 +191,11 @@ def _run(args: argparse.Namespace) -> int:
     results: list[dict[str, Any]] = []
     frames_grid: list[np.ndarray] = []
     frames_labels: list[str] = []
+    # 物理 2π 灰度 = Santec 相位表的设备读数 (诊断/上报值, 不参与 rad→gray 编码)。
+    # 在设备打开期间采到, 供后面组装标准光路记录用; 读不到就写 null 并登记原因,
+    # **绝不**回落成配置的编码标度 (缺省 1023) 冒充设备值。
+    two_pi_grayscale: int | None = None
+    record_reasons: dict[str, str] = {}
 
     try:
         with Santec(
@@ -204,6 +209,19 @@ def _run(args: argparse.Namespace) -> int:
                 exposure_time_ms=float(args.exposure_ms),
             ) as camera:
                 device_info = _collect_device_info(slm, camera)
+                try:
+                    _wavelength_readback, two_pi_readback = slm.get_wavelength_info()
+                    candidate = int(two_pi_readback)
+                    if candidate > 0:
+                        two_pi_grayscale = candidate
+                    else:
+                        record_reasons["devices.slm.two_pi_grayscale"] = (
+                            f"SLM 设备回报的 2π 灰度无效 ({candidate}) —— 相位表可能未编程"
+                        )
+                except Exception as exc:  # 只读字段, 失败不该阻断记录落盘
+                    record_reasons["devices.slm.two_pi_grayscale"] = (
+                        f"SLM 设备 2π 灰度读不到 ({type(exc).__name__}: {exc})"
+                    )
                 print(
                     f"[ideal_path] 设备就绪: SLM #{args.slm_number} "
                     f"(sn={device_info.get('slm_serial')}), "
@@ -331,7 +349,7 @@ def _run(args: argparse.Namespace) -> int:
                 "model": "Santec SLM-200",
                 "slm_number": int(args.slm_number),
                 "wavelength_nm": int(args.slm_wavelength),
-                "two_pi_grayscale": int(configured_max_grayscale()),
+                "two_pi_grayscale": two_pi_grayscale,
                 "panel_res": [SLM_PANEL_W, SLM_PANEL_H],
                 "open_mode": "memory (video_mode=0)",
             },
@@ -363,6 +381,7 @@ def _run(args: argparse.Namespace) -> int:
             "devices.slm.drive_board_id": "本测试不单独读驱动板 ID（见探测脚本记录）",
             "devices.camera.serial": "相机序列号经 _collect_device_info 采集",
             "exposure_check.saturated": "未做饱和判定（固定曝光，记录原始峰值供复盘）",
+            **record_reasons,
         },
     )
     (out_dir / "optical_path_record.json").write_text(

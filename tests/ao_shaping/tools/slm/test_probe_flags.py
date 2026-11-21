@@ -59,8 +59,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.ao_shaping.census_repin import yellow_or_red
-
 REPO = Path(__file__).resolve().parents[4]
 TOOLS_ROOT = REPO / "src" / "ao_shaping" / "tools"
 GOLDEN = Path(__file__).with_name("probe_help_golden.json")
@@ -79,7 +77,6 @@ PROBE_MODULES: dict[str, str] = {
     "slm_beam_extent": "ao_shaping.tools.slm.panel.beam_extent",
     "slm_bench_fingerprint": "ao_shaping.tools.slm.panel.bench_fingerprint",
     "slm_diagnose": "ao_shaping.tools.slm.panel.diagnose",
-    "slm_capture_darks": "ao_shaping.tools.ccd.capture_darks",
     "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
     "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
     "slm_floor_probe": "ao_shaping.tools.ccd.floor_probe",
@@ -258,16 +255,10 @@ def test_the_probe_list_matches_the_package() -> None:
         and "__main__" in p.read_text(encoding="utf-8-sig", errors="replace")
     }
     declared = {mod.rsplit(".", 1)[-1] for mod in PROBE_MODULES.values()}
-    if declared != on_disk:
-        # #251 P0-A: a probe that exists on disk AND in the TODO ledger is a
-        # registration still pending (merge split across commits) -> yellow;
-        # a declared probe whose file is gone is a real deletion -> red.
-        if declared - on_disk:
-            pytest.fail(f"PROBE_MODULES declares files that no longer exist: {sorted(declared - on_disk)}")
-        yellow_or_red(
-            set(on_disk - declared),
-            f"only on disk: {sorted(on_disk - declared)}",
-        )
+    assert declared == on_disk, (
+        f"only in PROBE_MODULES: {sorted(declared - on_disk)}; "
+        f"only on disk: {sorted(on_disk - declared)}"
+    )
 
 
 @pytest.mark.parametrize("probe", PROBES)
@@ -395,8 +386,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
     # 10 -> 12 on 2026-10-19: alignment_probe and bench_fingerprint take --cam-type.
-    # 12 -> 13 on 2026-11-20 (upstream hardware merge): ccd/capture_darks takes --cam-type.
-    assert len(short) == 13, f"--cam-type lost a probe: {sorted(short)}"
+    assert len(short) == 12, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -482,9 +472,9 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 367, f"declared flag inventory is {declared}, expected 367"
-    assert visible == 386, f"help-visible flag inventory is {visible}, expected 386"
-    assert len(PROBES) == 25
+    assert declared == 360, f"declared flag inventory is {declared}, expected 360"
+    assert visible == 378, f"help-visible flag inventory is {visible}, expected 378"
+    assert len(PROBES) == 24
 
 
 # ---------------------------------------------------------------------------

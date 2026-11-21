@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from ao_shaping.optimizer.wfless.model_in_loop_shaping import (

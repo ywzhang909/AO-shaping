@@ -95,8 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dataset", type=Path,
-        default=Path(__file__).resolve().parents[2]
-        / "data/debug/slm_transfer/extend_b_20261118",
+        default=Path(r"D:\Projects\TIFO\AO-shaping\data\debug\slm_transfer\extend_b_20261118"),
         help="session-B dataset directory (absolute path; may live outside this worktree)",
     )
     parser.add_argument(
@@ -518,7 +517,7 @@ def main() -> int:
     }
 
     out_path = (args.out.resolve() if args.out else
-                Path(__file__).resolve().parents[2] / "report" / "shape_trials" /
+                Path(__file__).resolve().parents[1].parent / "report" / "shape_trials" /
                 "physical_refine" / "multiplicative_gain_b_20261119.json")
     report: dict[str, Any] = {
         "format_version": 1,

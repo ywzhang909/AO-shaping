@@ -1,9 +1,9 @@
-# ccd_mode（light/none）实验测试计划 — 2026-11-18
+# ccd_mode（light/none）上机测试计划 — 2026-11-18
 
 > **📌 状态以合并版为准**：本文是 ccd_mode light/none 的原子计划，已被
 > [`hw_plan_consolidated_20261118.md`](hw_plan_consolidated_20261118.md) 汇编为 2f 整形唯一入口。
 > 完成标记、设备段取舍与执行顺序以合并版 §1–§4 为准；本文保留作判据细节依据。
-> 关键变化：实现 + 13 项离线测试已就绪，light/none 实验段已并入合并版 S2/S3/S4。
+> 关键变化：实现 + 13 项离线测试已就绪，light/none 上机段已并入合并版 S2/S3/S4。
 
 配套实现：`TransferSession.ccd_mode`（full/light/none），CLI `--ccd-mode`。
 本计划仅在下一次设备窗口执行；执行前必读 [hardware_discipline.md](hardware_discipline.md) 与光路标定 SKILL。

@@ -575,6 +575,82 @@ def test_an_explicit_window_span_is_returned_verbatim() -> None:
     assert params.effective_window_span(80, 300.0) == 300.0
 
 
+def test_a_tilt_carrier_widens_the_derived_span_by_its_displacement() -> None:
+    """倾斜相位把目标推离 0 级: 派生窗必须放下「位移 + 半个目标 + 留白」。
+
+    旧口径只按目标边长派生, GUI 校验与真跑用的半跨都不含位移 —— 这正是
+    「校验通过、跑到 validate.run 才报目标与相机窗边界相交」的根因。
+    """
+    from ao_shaping.algorithm.signal_processing.multishape_objective import (
+        carrier_offset_px,
+    )
+    from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+
+    offset = carrier_offset_px(64.0, TILT_SHIFT_SCALE)
+    assert offset > 0
+    assert params.effective_window_span(80, 0.0, 1.0, offset_px=offset) == pytest.approx(
+        220.0 + offset
+    )
+    # 倾斜关闭 (offset=0) 与旧口径逐位相同。
+    assert params.effective_window_span(80, 0.0, 1.0) == 220.0
+    # 显式半跨仍然优先, 不被位移改写。
+    assert params.effective_window_span(80, 300.0, 1.0, offset_px=offset) == 300.0
+
+
+def test_the_default_tilt_configuration_passes_and_carries_the_displaced_span(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """默认参数 + 倾斜相位: 校验无阻塞, 会话拿到的窗含载波位移。"""
+    from ao_shaping.algorithm.signal_processing.multishape_objective import (
+        carrier_offset_px,
+    )
+    from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+
+    monkeypatch.setattr(params, "_torch_missing", lambda: None)
+    values = _values(tilt=True)
+
+    errors, warnings = validate_form(values)
+    assert errors == []
+    assert warnings == []
+
+    session = build_session(values, out=tmp_path / "session")
+    assert session.window_span == pytest.approx(
+        220.0 + carrier_offset_px(64.0, TILT_SHIFT_SCALE)
+    )
+
+
+def test_a_displacement_that_cannot_fit_is_reported_before_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """位移 + 目标放不进相机帧: GUI 校验给可执行结论, 而不是等到 validate.run。
+
+    side=1800 + period=32 → 位移 231 px, 派生窗在相机帧短轴一半 (972 px) 封顶后仍装不下
+    1800 px 的目标: ``side_offset_overflow`` 报出「减小边长 / 调大周期」。
+    """
+    monkeypatch.setattr(params, "_torch_missing", lambda: None)
+
+    errors, _warnings = validate_form(_values(side=1800.0, tilt=True, period=32.0))
+
+    assert any("载波位移" in error and "调大" in error for error in errors), errors
+
+
+def test_the_tilt_span_cap_is_the_preflight_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """派生上限 (相机帧短轴 1944 px 的一半 = 972 px) 前后一格。
+
+    period=64 的载波位移 115.6 px 使半跨封顶在 972 px，余量换算成边长上限
+    ``2*(972 - 8 - 115.625) = 1696.75`` px：1696 放得下，1697 在启动前被拦。
+    """
+    monkeypatch.setattr(params, "_torch_missing", lambda: None)
+
+    assert params._MAX_DERIVED_HALF_SPAN_PX == 972.0
+    assert validate_form(_values(side=1696.0, tilt=True))[0] == []
+
+    errors, _warnings = validate_form(_values(side=1697.0, tilt=True))
+    assert any("载波位移" in error for error in errors), errors
+
+
 def test_side_900_passes_validation_through_the_derived_half_span(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -852,9 +852,14 @@ class CapturedFrame:
 class Bench(Protocol):
     """单线程串行的设备事务。实现方负责打开/关闭设备与稳定等待。
 
-    ``apply_phase`` 必须在返回前完成"写入确认 + 稳定"，否则闭环会拿旧图案配
-    新帧。``capture`` 只取**新**帧（必要时丢弃过渡帧），不得返回缓冲旧帧。
+    ``open`` 由 :meth:`ClosedLoopRunner.run` 在 worker 线程里、任何其他调用之前
+    执行一次（打开设备、设曝光、丢过渡帧都在这里）；``close`` 在 ``finally`` 里
+    调用，且必须可重复调用。``apply_phase`` 必须在返回前完成"写入确认 + 稳定"，
+    否则闭环会拿旧图案配新帧。``capture`` 只取**新**帧（必要时丢弃过渡帧），
+    不得返回缓冲旧帧。
     """
+
+    def open(self) -> None: ...
 
     def describe(self) -> dict[str, Any]: ...
 
@@ -1036,8 +1041,14 @@ class ClosedLoopRunner:
         grid = np.asarray(config.xy)
         target = np.asarray(config.target, dtype=np.float64)
         applied_phase = np.asarray(config.start_phase, dtype=np.float64)
+        opened = False
 
         try:
+            # 设备事务的唯一入口: 打开并配置 SLM/CCD（含曝光与过渡帧丢弃）。
+            # 缺了这一步, describe/apply_phase/capture 都无从谈起 —— 真实的
+            # HardwareBench 会直接抛 "open() must be called first"。
+            self.bench.open()
+            opened = True
             info = self.bench.describe()
             self._emit(LoopEvent("bench", info))
 
@@ -1185,8 +1196,9 @@ class ClosedLoopRunner:
             return self._finish(LoopState.STOPPED, "达到最大轮数，当前相位保持")
         except Exception as exc:  # 设备异常必须变成可报告状态
             # 故障时也要尽量把 SLM 留在最后一个已确认相位上；回滚失败只记录。
+            # 设备没打开成功时不能下发（否则又是一条 "must be called first"）。
             try:
-                if self.summary.applied_phase is not None:
+                if opened and self.summary.applied_phase is not None:
                     self.bench.apply_phase(self.summary.applied_phase)
             except Exception:  # 收尾回滚是尽力而为
                 pass

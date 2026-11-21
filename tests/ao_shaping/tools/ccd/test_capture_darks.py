@@ -169,12 +169,13 @@ def test_no_hw_never_acquires_device_lock(monkeypatch, capsys):
     monkeypatch.setattr(mutex, "DeviceLock", explode)
 
     rc = capture_main(
-        ["--no-hw", "--exposures-ms", "0.02,0.04", "--frames", "3",
+        ["--no-hw", "--bit-depth", "12", "--exposures-ms", "0.02,0.04", "--frames", "3",
          "--config-root", str("D:/tmp/root"), "--serial", "CAM-01"]
     )
     assert rc == 0
     out = capsys.readouterr().out
     assert "0.02, 0.04" in out
+    assert "位深        : 12" in out
     assert "darks" in out  # resolved target dir contains the darks subdir
     assert "不打开设备" in out
 
