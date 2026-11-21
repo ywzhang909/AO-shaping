@@ -4699,6 +4699,12 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 处置：10 处逐点写 `# policy:` 判据（未判据棘轮仍为 0，未放宽），总棘轮 409→424 只登记本次并入的既有差异，不预留给后续新增。
 - 复测：`tests/ao_shaping/test_conventions.py` 73 passed（本树 2026-11-08）。
 
+**2026-11-21 · c14a0703 · 盲捕获棘轮 438→458 / 盲静默 44→47 重钉（#252 新增文件入库 + 历史欠登记一次性对账）**
+- 来源：`test_conventions.py` 棘轮守卫改为用自身 walk 同时跑 `git archive HEAD src` 与工作树取数，发现基线长期欠钉。盲捕获：HEAD 实测已 **451**（超原基线 13，历史未登记），工作树净 +7 —— #252 三个新文件引入 11 处宽捕获（`dynamic_shaping` 2 / `dynamic_shaping_page` 6 / `sync_ccd_monitor` 3，全部已带 `# policy:` rationale），`ccd_analyzer` -3 与 `compare_disturbance.py` 删除 -1，合计 438→458
+- 盲静默：HEAD 实测已 **47**，工作树与 HEAD 一致，本轮无新增静默处理，仅把欠钉基线重钉到实测值 44→47
+- 未判据棘轮仍为 **0**（新增宽捕获全部带就地 `policy:` 判据）
+- 复测：`test_blind_except_handlers_in_src_do_not_grow` / `test_blind_silent_exception_handlers_in_src_do_not_grow` / `test_unmarked_blind_except_handlers_do_not_grow` 全绿
+
 **2026-11-17 · c678e660 合并 (经 86b15af1) · 盲捕获棘轮 425→438 / 盲静默 39→45 / 未判据 2→0（第 139 批随批处置）**
 - 来源：上游相机功能合并（`drivers/ccd/daheng|miicam/driver.py`、`gui/ccd/ccd_analyzer.py` 等）在本树净增 13 处宽捕获（其中 6 处为纯静默），**非本批拆分之伤**，按 ab5ae52e 与 78171ec2 先例登记复位
 - 未判据棘轮保持 0：两处新宽捕获已在 handler 就地补 `policy:` 判定行（daheng 自动曝光关闭失败仅降级、static_shaping_page 元数据落盘失败不阻断下发——两者本已 `logger.warning`, 补的是守卫要求的就地判据）
