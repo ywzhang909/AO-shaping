@@ -3,7 +3,7 @@
 
 预注册 §3.4 / 计划 §6.5-6.6 规定：只要有一行 holdout 不可评估（暗场缺失、
 曝光簿记不符、饱和、空 mask），该 split 就是 ``not_assessable``，整体门也不得
-因为另一个 split 通过而判 pass。这里只测判决聚合，不跑前向模型、不碰硬件。
+因为另一个 split 通过而判 pass。这里只测判决聚合，不跑物理预测模型、不碰硬件。
 """
 from __future__ import annotations
 

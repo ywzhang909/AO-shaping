@@ -784,7 +784,7 @@ def _verdicts(payload: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _fmt(values: list[float], digits: int = 2) -> str:
+def _fmt_list(values: list[float], digits: int = 2) -> str:
     return ", ".join(f"{v:.{digits}f}" for v in values)
 
 
@@ -817,10 +817,10 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"mean(t) = {bg['affine']['coef'][0]:.3f} + {bg['affine']['coef'][1]:.4f}*t "
         f"(replicate a +- {bg['affine']['se'][0]:.4f}, "
         f"b +- {bg['affine']['se'][1]:.5f})",
-        f"measured 5/8/12/16/20 ms: {_fmt(bg['measured'], 3)}",
+        f"measured 5/8/12/16/20 ms: {_fmt_list(bg['measured'], 3)}",
         f"data log-log slope 5->20 ms: {bg['data_loglog_slope_5_20']:.3f}; "
         f"affine-implied: {bg['affine']['loglog_slope_5_20']:.3f}",
-        f"affine residuals: {_fmt(bg['affine']['resid'], 3)} counts",
+        f"affine residuals: {_fmt_list(bg['affine']['resid'], 3)} counts",
         "",
         "Caveat: those a/b standard errors come from the two replicate frames. At "
         "background levels the replicates are often bit-identical, so the SE collapses "
@@ -899,7 +899,7 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         f"background class: max "
         f"{repro.get('background_class', {}).get('delta_max_abs', float('nan')):.4f} counts",
         f"beam centroid dy (blank vs U, same exposure): "
-        f"{_fmt(motion.get('blank_vs_U_centroid_dy_abs', []), 2)} px",
+        f"{_fmt_list(motion.get('blank_vs_U_centroid_dy_abs', []), 2)} px",
         "ROI mean change per 1 px translation: "
         f"dy {motion.get('roi_mean_change_per_translation', {}).get('dy1_dx0', float('nan')):.2f}, "
         f"dx {motion.get('roi_mean_change_per_translation', {}).get('dy0_dx1', float('nan')):.2f}, "
@@ -948,9 +948,9 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     if ps:
         delta = ps["halo_delta_C_minus_blank"]
         lines.append(
-            f"C - blank at {delta['exposures_ms']} ms: {_fmt(delta['delta'], 2)} counts"
+            f"C - blank at {delta['exposures_ms']} ms: {_fmt_list(delta['delta'], 2)} counts"
         )
-        lines.append(f"z: {_fmt(delta['delta_z'], 1)}")
+        lines.append(f"z: {_fmt_list(delta['delta_z'], 1)}")
         lines.append(
             "These z values use replicate-frame SEs that can collapse to zero when the "
             "two frames are bit-identical; read the count deltas against the section-4 "

@@ -7,7 +7,7 @@ ci169 的教训: `parents[N]` 深度错、机器绝对路径、本地 `_fmt` 重
 
     python scripts/push_preflight.py
 
-跑: ruff → 术语 → 模块体积棘轮 → 四个静态守卫文件 (repo-root bootstrap /
+跑: ruff → 术语 → 模块体积棘轮 → 五个静态守卫文件 (repo-root bootstrap /
 R-25 helper 复发 / dry-run 自包含 / golden 容差)。全绿退出 0; 任一失败列出
 名字退出非 0。完整回归仍归 CI; 本脚本只拦「60 秒内可知」的四类。
 """
@@ -55,7 +55,7 @@ def main() -> int:
     if failed:
         print(f"preflight FAILED: {failed} —— 修复后重跑, 不要 push", file=sys.stderr)
         return 1
-    print("preflight OK —— 四类已知通道全绿 (完整回归仍由 CI 裁决)")
+    print("preflight OK —— 五类已知通道全绿 (完整回归仍由 CI 裁决)")
     return 0
 
 

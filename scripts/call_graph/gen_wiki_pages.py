@@ -614,8 +614,11 @@ def build():
     (BASE / "raw/assets").mkdir(exist_ok=True)
 
     # copy raw artifacts
+    # 尾换行是入库格式契约的一部分 (test_call_graph_span_drift 双文件逐字节一致
+    # 断言依赖它): 缺了它, 本脚本一跑 call_graph.json 就和 call_graph_final.json
+    # 分叉。
     (BASE / "raw/assets/call_graph.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=1))
+        json.dumps(data, ensure_ascii=False, indent=1) + "\n")
 
     written = []
     # entry pages

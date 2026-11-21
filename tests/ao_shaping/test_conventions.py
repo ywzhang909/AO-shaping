@@ -5276,7 +5276,10 @@ _PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
     ("tools/slm/transfer/parallel_fit.py", "main"): 1,
     ("tools/slm/transfer/validate.py", "_hold_best_phase_or_flatten"): 1,
     ("tools/slm/transfer/validate.py", "_run_validate_shapes"): 1,
-    ("tools/slm/transfer/validate.py", "_validate_block_loop"): 1,
+    # 上游 e7d9a305 把 _validate_block_loop 更名 _run_validate_blocks (print 面不变)。
+    ("tools/slm/transfer/validate.py", "_run_validate_blocks"): 1,
+    # capture_darks 是 CLI 探针: --no-hw 打印采集计划 (机器可读), print 即契约。
+    ("tools/ccd/capture_darks.py", "main"): 1,
     ("tools/slm/transfer/workflow.py", "_run_reused_session"): 1,
     ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
     ("tools/slm/transfer/workflow.py", "run_session"): 1,

@@ -2,6 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/compare_transfer_fit_runs.py`](../../../scripts/slm/compare_transfer_fit_runs.py)
+> **复现命令**: `python scripts/slm/compare_transfer_fit_runs.py --dataset <M3 dataset 目录> --baseline <Noll 5..11 fit 输出目录> --updated <Noll 5..21 fit 输出目录> --out report/shape_trials/physical_refine/fit_compare_m3_z11_vs_z21_20261118.md`
 > **运行环境**: 离线对照（同一 dataset 两次 fit 输出；设备未占用）
 > **说明**: M3 dataset（68 行）Noll 5..11(iter 17) vs Noll 5..21(iter 5)：correlation 0.8814→0.8780（更差）。据此 5..21 不作候选，残差基维持 5..11。运行一致性断言通过。
 <!-- provenance:end -->
