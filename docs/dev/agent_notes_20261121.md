@@ -94,3 +94,36 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
   **最终判定：映射仍歧义，不冻结**。候选 A 仅保留为
   `issue247_axis_map_CANDIDATE_not_frozen.json`，`axis_mapping_status.json` 记 `frozen=false`、
   `map_path=null`。
+
+## SLM 工具整理：衍射效率探针 + 相位速度（2026-11-21 晚）
+
+本轮设备占用：**未开任何设备**（最后一次真机尝试在打开设备前就失败，见下）——SLM/CCD/激光
+均为空闲，无锁持有者、无残留 bench 进程。
+
+- **新建 `tools/slm/phase_speed/`**（`core.py` 纯算法 + `measure.py` 硬件后端 + CLI）：相位阶跃
+  A→B 逐帧追踪远场 0 级指标，解算响应/稳定时间与实测 fps。真机 `blaze 0→993, 0.1 ms, 60 帧`：
+  `fps=22.16`、`t_response=45.1 ms`、`t_settle=2526.9 ms`、`saturated=0`。⚠️ 测的是 **SLM+CCD
+  系统响应**（受相机帧率量化），不是 SLM 像素上升时间；`flat` 活塞在 0 级不可见，必须 `--pattern blaze`。
+- **`calibration/diffraction_efficiency/probe.py` 重构出的单点探针**新增 `separation_px` /
+  `lobe_axis`：原默认 `span/(2·period)` 的 ±1 落点在本台**错 6 倍**（估算 81 px vs 实测 471 px），
+  方向也错（`--axis x` 的光栅在相机上沿**行**位移）。本台正确用法：
+  `--period-px 16 --axis x --separation-px 471 --lobe-axis y`。未给标定间距时结果标 `粗略/未定标`，
+  两侧窗口都无能量时显式告警（不再让空窗口的噪声比值伪装成测量值）。
+- **积分口径二次修正（同日）**：① 每个 ROI 扣**自身环带背景**（空窗以前会积出约 5 万 counts 的
+  噪声基座，比真实级次还大，于是"空区"被算成占 44% 能量的级次）；② ROI 半径改由**实测光斑
+  FWHM** 定标（`min(0.35·separation, max(6, 1.5·FWHM))`），不再按间距 35% 取 165 px；
+  ③ 报告改为**闪耀级次 + 泄漏 floor**的读法（闪耀光栅两侧本就不对称，"三窗各占 1/3"是错的），
+  并实测两侧瓣的带符号偏移做几何自检。0.1 ms 真实帧离线复算：
+  0 级 `0.4742` / 闪耀级次（`minus_one`，y 上方）`0.5049` / 泄漏 floor `0.0209`，
+  对应能量 `24683 / 26279 / 1086`，光斑 FWHM `21 px`、ROI 半径 `31.5 px`；
+  **几何自检通过**：给定 471 px，实测 `470.59 px`（偏差 0.09%）。
+  相对平场零级窗口的闪耀能量份额 `0.4872`，镜像泄漏比 `0.041`。仍是**相对比值**，不是绝对效率。
+- **设备纪律**：两个探针真开设备前都先拿 `DeviceLock.default()` 并在 `finally` 释放（注入设备工厂的
+  离线/测试路径自动跳过）。SLM 的 USB 句柄独占，第二个进程 open 会被驱动拒绝，报错形态却像"设备没插"。
+- **⚠ 未解硬件问题**：带 `--separation-px/--lobe-axis` 的最终标定重测在打开设备前即失败：
+  `-10002 未找到USB设备，请检查设备电源和连接`（日志
+  `C:\Users\zhangh\AppData\Local\Temp\opencode\diff_probe_20261121_cal.log`）。随后
+  `Get-PnpDevice` 已**枚举不到任何 Santec/SLM 设备**（也无 problem device），进程扫描无残留句柄
+  ⇒ 判定为控制器/线缆/供电层面的物理掉线，**不是代码问题**，需人工检查后重测；在此之前不再反复 open。
+- 测试：`test_diff_eff_probe.py` 25 + `test_phase_speed.py` 17 + `test_cli_argv_binding.py` 25 = 67 passed；
+  ruff / BOM 干净；两个 CLI `--help` 正常（新 flag 可见）。全部改动**未提交**。

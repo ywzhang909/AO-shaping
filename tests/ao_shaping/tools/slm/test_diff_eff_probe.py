@@ -26,8 +26,10 @@ import pytest
 
 from ao_shaping.tools.slm.calibration.diffraction_efficiency.probe import (
     ProbeConfig,
+    _roi_energy,
     integrate_lobes,
     locate_zero_order,
+    measure_lobe_offsets,
     probe_diffraction_efficiency,
 )
 
@@ -124,6 +126,24 @@ def _two_spot_frame(shape: tuple[int, int], peak_value: float = 100.0) -> np.nda
     return frame
 
 
+class _RecordingLock:
+    """记录 acquire/release 的假台面锁 (路径/持有者字段照 DeviceLock 的用法)。"""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.path = Path("fake-bench.lock")
+
+    def acquire(self, timeout: float = 0.0, **_kwargs: Any) -> bool:
+        self.events.append(f"acquire(timeout={timeout})")
+        return True
+
+    def release(self) -> None:
+        self.events.append("release")
+
+    def holder(self) -> str:
+        return "none"
+
+
 @contextmanager
 def _loguru_records():
     from loguru import logger
@@ -193,9 +213,191 @@ def test_integrate_lobes_returns_three_ratios_and_coarse_label() -> None:
     )
 
 
+def test_integrate_lobes_honours_lobe_axis_and_calibrated_separation() -> None:
+    """±1 级落在**相机行方向**时, 必须给 lobe_axis="y" 才能采到能量。"""
+    frame = np.zeros((200, 200), dtype=np.float64)
+    frame[100, 100] = 100.0  # 0 级
+    frame[40, 100] = 60.0  # 行方向 ±1 级 (本台真实形态)
+    frame[160, 100] = 60.0
+
+    aligned = integrate_lobes(
+        frame,
+        cy=100.0,
+        cx=100.0,
+        period_px=16,
+        axis="x",
+        separation_scale=60.0,
+        lobe_axis="y",
+    )
+    assert aligned["lobe_axis"] == "y"
+    assert aligned["calibrated"] is True
+    assert aligned["separation_px"] == pytest.approx(60.0)
+    assert aligned["energies"]["plus_one"] > 0.0
+    assert aligned["energies"]["minus_one"] > 0.0
+    assert aligned["ratios"]["zero"] < 1.0
+
+    # 用错方向 (默认与 axis 相同的列方向) ⇒ ±1 窗口落在空区, 能量为 0。
+    crossed = integrate_lobes(
+        frame, cy=100.0, cx=100.0, period_px=16, axis="x", separation_scale=60.0
+    )
+    assert crossed["lobe_axis"] == "x"
+    assert crossed["energies"]["plus_one"] == 0.0
+    assert crossed["energies"]["minus_one"] == 0.0
+    assert crossed["ratios"]["zero"] == pytest.approx(1.0)
+
+
+def test_roi_energy_reports_zero_for_an_empty_window() -> None:
+    """空窗不能积出噪声基座 —— 本台 2026-11-21 用 165 px 半径踩过这个坑。
+
+    当时空窗积出约 5 万 counts, 与真实级次同量级, 于是"没有光斑的地方"被算成
+    一个占 44% 能量的级次。扣掉窗口自身环带背景后, 空窗必须诚实地报 ~0。
+    """
+    rng = np.random.default_rng(0)
+    frame = rng.normal(0.3, 0.5, size=(400, 400))  # 有正有负的噪声底
+    energy, background, (cy, cx) = _roi_energy(frame, 200.0, 200.0, 60.0)
+    assert abs(energy) < 0.15 * 60 * 60  # 远小于"窗内噪声全算成信号"
+    assert abs(cy - 200.0) <= 2.0 and abs(cx - 200.0) <= 2.0  # 无信号 ⇒ 重心留在窗口中心附近
+
+
+def test_integrate_lobes_names_the_blaze_order_and_mirror_leakage() -> None:
+    """闪耀光栅两侧不对称: 强侧是闪耀级次, 弱侧只是泄漏 floor。"""
+    frame = np.zeros((200, 200), dtype=np.float64)
+    frame[100, 100] = 100.0
+    frame[100, 160] = 80.0  # 行方向强瓣
+    frame[100, 40] = 2.0  # 另一侧只有泄漏
+    measurement = integrate_lobes(
+        frame,
+        cy=100.0,
+        cx=100.0,
+        period_px=16,
+        axis="x",
+        separation_scale=60.0,
+        lobe_axis="x",
+        spot_fwhm=4.0,
+    )
+    orders = measurement["orders"]
+    assert orders["blaze_order"] == "plus_one"
+    assert orders["blaze_energy"] == pytest.approx(
+        measurement["energies"]["plus_one"]
+    )
+    assert orders["mirror_energy"] == pytest.approx(
+        measurement["energies"]["minus_one"]
+    )
+    assert orders["mirror_leakage"] == pytest.approx(2.0 / 80.0)
+    assert orders["asymmetry"] > 0.9
+
+
+def test_integrate_lobes_caps_the_roi_radius_at_the_measured_spot() -> None:
+    """ROI 半径由实测光斑定标, 不能按间距 35% 取 (本台会到 165 px)。"""
+    frame = np.zeros((600, 600), dtype=np.float64)
+    frame[300, 300] = 100.0
+    coarse = integrate_lobes(
+        frame, cy=300.0, cx=300.0, period_px=16, axis="x", separation_scale=471.0
+    )
+    capped = integrate_lobes(
+        frame,
+        cy=300.0,
+        cx=300.0,
+        period_px=16,
+        axis="x",
+        separation_scale=471.0,
+        spot_fwhm=10.0,
+    )
+    assert coarse["roi_radius_px"] == pytest.approx(0.35 * 471.0, rel=1e-6)
+    assert capped["roi_radius_px"] == pytest.approx(15.0)
+
+
+def test_measure_lobe_offsets_finds_a_single_asymmetric_lobe() -> None:
+    """本台真实形态: 只有一个一级次, 两侧偏移必须如实报告 (含 None)。"""
+    frame = np.zeros((600, 600), dtype=np.float64)
+    frame[300, 300] = 100.0
+    frame[300, 500] = 60.0  # 只在 +x 侧有瓣 (偏移 200 px)
+    offsets = measure_lobe_offsets(
+        frame,
+        cy=300.0,
+        cx=300.0,
+        axis="x",
+        search_px=320.0,
+        min_offset_px=100.0,
+    )
+    assert offsets["positive"] == pytest.approx(200.0, abs=1.0)
+    assert offsets["negative"] is None
+
+
+def test_probe_separation_flag_reaches_lobe_integration(tmp_path: Path) -> None:
+    """--separation-px 必须真的进到 integrate_lobes, 否则仍是估算落点。"""
+    frame = _two_spot_frame((8, 8), peak_value=100.0)
+    with _fake_devices([frame]) as (slm, _cam, _calls, slm_factory, cam_factory):
+        result = probe_diffraction_efficiency(
+            ProbeConfig(
+                out_dir=tmp_path,
+                frames=1,
+                period_px=4,
+                separation_px=61.0,
+                lobe_axis="y",
+            ),
+            slm_factory=slm_factory,
+            cam_factory=cam_factory,
+        )
+    assert result["lobe"]["separation_px"] == pytest.approx(61.0)
+    assert result["lobe"]["lobe_axis"] == "y"
+    assert result["lobe"]["calibrated"] is True
+    assert result["config"]["separation_px"] == pytest.approx(61.0)
+    assert result["config"]["lobe_axis"] == "y"
+    assert "separation=61.0px" in result["calibration"]
+
+
 # ---------------------------------------------------------------------------
 # probe_diffraction_efficiency: 设备纪律
 # ---------------------------------------------------------------------------
+
+
+def test_probe_takes_and_releases_the_bench_lock(tmp_path: Path) -> None:
+    """真开设备前必须拿台面锁, 并在退出时释放 (USB 句柄独占)。"""
+    frame = _two_spot_frame((8, 8))
+    lock = _RecordingLock()
+    with _fake_devices([frame]) as (_slm, _cam, _calls, slm_factory, cam_factory):
+        probe_diffraction_efficiency(
+            ProbeConfig(out_dir=tmp_path, frames=1),
+            slm_factory=slm_factory,
+            cam_factory=cam_factory,
+            lock_factory=lambda: lock,
+        )
+    assert lock.events[0].startswith("acquire(timeout=")
+    assert lock.events[-1] == "release"
+    assert len(lock.events) == 2
+
+
+def test_probe_releases_the_lock_even_when_acquisition_fails(tmp_path: Path) -> None:
+    """采集抛错也必须释放锁, 否则台面会被自己的死进程占住。"""
+
+    @contextmanager
+    def exploding_camera(*_args: Any, **_kwargs: Any):
+        raise RuntimeError("相机打开失败")
+        yield None  # pragma: no cover - 只为满足上下文管理器协议
+
+    lock = _RecordingLock()
+    with _fake_devices([_two_spot_frame((8, 8))]) as (_slm, _cam, _c, slm_factory, _cf):
+        with pytest.raises(RuntimeError, match="相机打开失败"):
+            probe_diffraction_efficiency(
+                ProbeConfig(out_dir=tmp_path, frames=1),
+                slm_factory=slm_factory,
+                cam_factory=exploding_camera,
+                lock_factory=lambda: lock,
+            )
+    assert lock.events[-1] == "release"
+
+
+def test_probe_skips_the_bench_lock_when_devices_are_injected(tmp_path: Path) -> None:
+    """离线/测试路径 (注入设备工厂) 不该去碰真实台面锁。"""
+    frame = _two_spot_frame((8, 8))
+    with _fake_devices([frame]) as (_slm, _cam, _calls, slm_factory, cam_factory):
+        result = probe_diffraction_efficiency(
+            ProbeConfig(out_dir=tmp_path, frames=1),
+            slm_factory=slm_factory,
+            cam_factory=cam_factory,
+        )
+    assert result["probe"] == "diffraction_efficiency"
 
 
 def test_probe_rotates_slots_and_never_repeats(tmp_path: Path) -> None:
@@ -410,6 +612,8 @@ def test_probe_params_defaults_match_design() -> None:
     assert params.gray_depth == 0
     assert params.period_px == 32
     assert params.axis == "x"
+    assert params.separation_px == 0.0
+    assert params.lobe_axis == "auto"
     assert params.frames == 3
     assert params.settle_s == 0.25
     assert params.save_frames is False
@@ -423,6 +627,10 @@ def test_config_validates_inputs() -> None:
         ProbeConfig(axis="z")
     with pytest.raises(ValueError):
         ProbeConfig(frames=0)
+    with pytest.raises(ValueError):
+        ProbeConfig(separation_px=-1.0)
+    with pytest.raises(ValueError):
+        ProbeConfig(lobe_axis="z")
 
 
 def test_probe_reads_two_pi_grayscale_from_device_when_unspecified(
@@ -530,7 +738,7 @@ def test_relative_efficiency_normalizes_against_baseline_zero_window(
     baseline_raw = np.zeros((64, 64), dtype=np.float64)
     baseline_raw[32, 32] = 100.0
     blazed_raw = np.zeros((64, 64), dtype=np.float64)
-    blazed_raw[32, 40] = 50.0  # +1 级 (x 轴, separation = 64/(2*8) = 4 -> max 8)
+    blazed_raw[32, 40] = 50.0  # 闪耀级次, 距 0 级 8 px (显式 --separation-px 8)
     with _fake_devices([baseline_raw, blazed_raw]) as (
         _slm,
         _cam,
@@ -539,14 +747,22 @@ def test_relative_efficiency_normalizes_against_baseline_zero_window(
         cam_factory,
     ):
         result = probe_diffraction_efficiency(
-            ProbeConfig(out_dir=tmp_path, frames=1, period_px=8, axis="x"),
+            ProbeConfig(
+                out_dir=tmp_path,
+                frames=1,
+                period_px=8,
+                axis="x",
+                separation_px=8.0,
+                lobe_axis="x",
+            ),
             slm_factory=slm_factory,
             cam_factory=cam_factory,
         )
     relative = result["relative_efficiency"]
     assert relative["baseline_zero_window_counts"] == pytest.approx(100.0)
-    assert relative["plus_one"] == pytest.approx(0.5)
-    assert relative["minus_one"] == pytest.approx(0.0)
+    assert relative["blaze_order"] == "plus_one"
+    assert relative["blaze_energy_share"] == pytest.approx(0.5)
+    assert relative["mirror_leakage"] == pytest.approx(0.0)
     assert relative["first_orders_sum"] == pytest.approx(0.5)
     assert "非绝对衍射效率" in relative["note"]
 
@@ -572,7 +788,13 @@ def test_summary_json_schema_covers_dark_and_metrics(tmp_path: Path) -> None:
         "dark",
     } <= set(payload)
     assert {"available", "requested", "exposure_ms", "reason"} <= set(payload["dark"])
-    assert {"plus_one", "minus_one", "first_orders_sum"} <= set(
-        payload["relative_efficiency"]
-    )
+    assert {
+        "blaze_order",
+        "blaze_energy_share",
+        "mirror_leakage",
+        "first_orders_sum",
+        "baseline_zero_window_counts",
+    } <= set(payload["relative_efficiency"])
+    assert payload["spot_fwhm_px"] > 0.0
+    assert payload["lobe"]["orders"]["blaze_order"] in ("plus_one", "minus_one")
     assert payload["config"]["subtract_dark"] == (result["config"]["subtract_dark"])

@@ -24,7 +24,9 @@
 - 暗帧/背景按相机序列号 + **同曝光**从 ``BaseCamera.get_dark_frame`` 读取
   (激光关闭时采集的库存暗帧; 探针无权也不能关激光), 无可用暗帧时告警并
   在 JSON 里记 ``dark.available=false``, 不中断采集。
-- 两个设备都用 ``with`` 上下文管理器独占打开。
+- 两个设备都用 ``with`` 上下文管理器独占打开, 且**先拿台面跨进程互斥锁**
+  (``DeviceLock``) 再开设备: SLM 的 USB 句柄独占, 第二个进程 open 会被
+  驱动拒绝 (``-10002``/``-200``), 现象却像"设备没插"。
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ from __future__ import annotations
 import csv
 import json
 import math
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +55,7 @@ __all__ = [
     "probe_diffraction_efficiency",
     "locate_zero_order",
     "integrate_lobes",
+    "measure_lobe_offsets",
 ]
 
 
@@ -59,6 +64,44 @@ SATURATION_WARN_FRACTION: float = 0.8
 
 #: 粗略 ±1 级 ROI 半径相对估算间距的上限倍率; 不能再大, 否则三个 ROI 相交。
 _ROI_RADIUS_FRACTION: float = 0.35
+
+#: 台面跨进程互斥锁的等待上限 (s): 够等一次正常实验收尾, 又不至于无限挂住。
+_LOCK_TIMEOUT_S: float = 1800.0
+
+
+@contextmanager
+def _bench_lock_context(
+    *,
+    lock_factory: Callable[[], Any] | None,
+    slm_factory: Callable[[], Any] | None,
+    cam_factory: Callable[..., Any] | None,
+) -> Iterator[Any]:
+    """真实硬件路径拿台面跨进程互斥锁; 注入工厂 (= 离线/测试路径) 不碰真锁。
+
+    SLM 的 USB 句柄是**独占**的: 两个进程同时 open 会直接被驱动拒绝
+    (``-10002``/``-200``), 而且失败方式看起来像"设备没插", 很难查。所以凡是
+    真开设备的入口都必须先拿 :class:`DeviceLock`, 并在 ``finally`` 里释放。
+    """
+    if lock_factory is None and (slm_factory is not None or cam_factory is not None):
+        # 调用方注入了设备工厂 ⇒ 这次不碰真实硬件, 也就不该占台面锁。
+        yield None
+        return
+
+    from ao_shaping.tools.kernels.device_mutex import DeviceLock
+
+    make_lock = lock_factory or (lambda: DeviceLock.default())
+    lock = make_lock()
+    if not lock.acquire(timeout=_LOCK_TIMEOUT_S):
+        raise RuntimeError(
+            f"台面设备被其它进程占用 (holder={lock.holder()}), "
+            f"锁文件 {lock.path}; 等它释放后再重试"
+        )
+    logger.info("衍射效率探针: 已获得台面互斥锁 {} (holder=本进程)", lock.path)
+    try:
+        yield lock
+    finally:
+        lock.release()
+        logger.info("衍射效率探针: 已释放台面互斥锁")
 
 
 @dataclass(frozen=True)
@@ -78,6 +121,13 @@ class ProbeConfig:
             显式给正值则按该值下限幅到硬件满量程。
         period_px: 光栅周期 (面板像元)。
         axis: 光栅方向 (``"x"`` = 相位沿列变化, ``"y"`` = 沿行)。
+        separation_px: 已标定的 ±1 级间距 (相机像素); ``0`` = 按周期估算。
+            🔴 估算式 ``span/(2·period)`` 只是量级, 在本台 f=125mm 2f 光路上
+            误差可达 6 倍 (估算 81px vs 实测 ~471px), 故真实测量必须给这个值。
+        lobe_axis: ±1 级在**相机**上的位移方向; 空串 = 与 ``axis`` 相同。
+            轴的对应关系取决于 SLM 在光路里的安装朝向: 2026-11-21 实测本台
+            ``axis="x"`` 的光栅在相机上沿**行**位移, 即需 ``lobe_axis="y"``。
+            方向弄反时 ±1 窗口落在空区, 能量为 0 ⇒ 比值退化成纯噪声。
         frames: 每图案平均帧数 (``get_numpy_image(n_sample=frames, skip_first=True)``)。
         settle_s: 显示后 LC 稳定等待 (s), 交给 ``SlotRotator.display_data``。
         save_frames: 是否把每幅平均帧存成 ``.npy`` (用于离线复核)。
@@ -96,6 +146,8 @@ class ProbeConfig:
     gray_depth: int = 0
     period_px: int = 32
     axis: str = "x"
+    separation_px: float = 0.0
+    lobe_axis: str = ""
     frames: int = 3
     settle_s: float = 0.25
     save_frames: bool = False
@@ -108,6 +160,14 @@ class ProbeConfig:
             raise ValueError(f"period_px 必须 >= 2, 得到 {self.period_px}")
         if str(self.axis).lower() not in ("x", "y"):
             raise ValueError(f"axis 必须是 'x' 或 'y', 得到 {self.axis!r}")
+        if str(self.lobe_axis).lower() not in ("", "x", "y"):
+            raise ValueError(
+                f"lobe_axis 必须是 '' / 'x' / 'y', 得到 {self.lobe_axis!r}"
+            )
+        if float(self.separation_px) < 0.0:
+            raise ValueError(
+                f"separation_px 不能为负, 得到 {self.separation_px}"
+            )
         if int(self.frames) < 1:
             raise ValueError(f"frames 必须 >= 1, 得到 {self.frames}")
         if int(self.gray_depth) < 0:
@@ -134,38 +194,129 @@ def locate_zero_order(frame: np.ndarray) -> tuple[float, float, float]:
 
 
 def _roi_energy(
-    clean: np.ndarray, cy: float, cx: float, radius: float
-) -> tuple[float, tuple[float, float]]:
-    """在圆 ROI 内积分能量, 同时给出强度加权重心 ``(cy, cx)``。"""
+    clean: np.ndarray,
+    cy: float,
+    cx: float,
+    radius: float,
+    *,
+    annulus: tuple[float, float] = (2.0, 3.2),
+) -> tuple[float, float, tuple[float, float]]:
+    """圆 ROI 内积分能量并扣**本窗环带背景**; 返回 ``(能量, 背景中位数, 重心)``。
+
+    ⚠️ 直接对"已扣整帧中位数、负值已截断"的帧积分, 会给**空窗**积出正的噪声
+    基座: 半径 165 px 的空窗实测能积出约 5 万 counts, 与真实级次同量级, 于是
+    空窗口会伪装成一个占 44% 能量的级次 (2026-11-21 实测踩过)。每个窗用自身
+    环带 (``annulus`` × radius) 的中位数扣背景, 空窗才会诚实地报 ~0。
+    """
     height, width = clean.shape
     radius = max(1.0, float(radius))
-    y0 = max(0, int(math.floor(cy - radius)))
-    y1 = min(height, int(math.ceil(cy + radius)) + 1)
-    x0 = max(0, int(math.floor(cx - radius)))
-    x1 = min(width, int(math.ceil(cx + radius)) + 1)
+    r_out = max(radius + 1.0, float(annulus[1]) * radius)
+    y0 = max(0, int(math.floor(cy - r_out)))
+    y1 = min(height, int(math.ceil(cy + r_out)) + 1)
+    x0 = max(0, int(math.floor(cx - r_out)))
+    x1 = min(width, int(math.ceil(cx + r_out)) + 1)
     # ROI 完全落在画面外 (小帧/边缘瓣): 能量为 0, 不去构造负维度的网格。
     if y1 <= y0 or x1 <= x0:
-        return 0.0, (float(cy), float(cx))
+        return 0.0, 0.0, (float(cy), float(cx))
     yy, xx = np.mgrid[y0:y1, x0:x1]
+    dist2 = (yy - cy) ** 2 + (xx - cx) ** 2
     patch = clean[y0:y1, x0:x1]
-    inside = (yy - cy) ** 2 + (xx - cx) ** 2 <= radius * radius
-    weights = np.where(inside, patch, 0.0)
-    total = float(weights.sum())
-    if total > 0.0:
-        wy = float((weights * yy).sum() / total)
-        wx = float((weights * xx).sum() / total)
+    inside = dist2 <= radius * radius
+    ring = (dist2 >= (float(annulus[0]) * radius) ** 2) & (
+        dist2 <= (float(annulus[1]) * radius) ** 2
+    )
+    background = float(np.median(patch[ring])) if bool(ring.any()) else 0.0
+    core = patch[inside]
+    total = float(core.sum() - background * float(core.size))
+    weights = np.where(inside, np.clip(patch - background, 0.0, None), 0.0)
+    wsum = float(weights.sum())
+    if wsum > 0.0:
+        wy = float((weights * yy).sum() / wsum)
+        wx = float((weights * xx).sum() / wsum)
     else:
         wy, wx = float(cy), float(cx)
-    return total, (wy, wx)
+    return total, background, (wy, wx)
 
 
-def _safe_ratio(numerator: float, denominator: float) -> float | None:
-    """安全比值: 分母非正/非有限时返回 ``None`` (JSON 里是 null)。"""
-    num = float(numerator)
-    den = float(denominator)
-    if not math.isfinite(num) or not math.isfinite(den) or den <= 0.0:
+def _spot_fwhm(frame: np.ndarray, cy: float, cx: float, *, half: int = 80) -> float:
+    """粗估光斑 FWHM (px): 取 ``half`` 半径内行/列投影较宽的一边。
+
+    只用来给 ROI 半径定标: 焦距窗口若按「级次间距的 35%」取 (本台 471 px ⇒ 165 px),
+    半径会是实测光斑 (FWHM ≈15 px) 的 10 倍, 环带外的弥散晕就会主导积分。
+    """
+    clean = prepare_frame(np.asarray(frame, dtype=np.float64))
+    y0 = max(0, int(round(cy)) - int(half))
+    y1 = min(clean.shape[0], int(round(cy)) + int(half) + 1)
+    x0 = max(0, int(round(cx)) - int(half))
+    x1 = min(clean.shape[1], int(round(cx)) + int(half) + 1)
+    if y1 <= y0 or x1 <= x0:
+        return 0.0
+    patch = clean[y0:y1, x0:x1]
+    widths: list[float] = []
+    for profile in (patch.sum(axis=1), patch.sum(axis=0)):
+        p = np.clip(np.asarray(profile, dtype=np.float64), 0.0, None)
+        if p.size == 0 or float(p.max()) <= 0.0:
+            continue
+        above = np.where(p >= 0.5 * float(p.max()))[0]
+        if above.size:
+            widths.append(float(above[-1] - above[0] + 1))
+    return max(widths) if widths else 0.0
+
+
+def _axis_profile(frame: np.ndarray, cy: float, cx: float, axis: str) -> np.ndarray:
+    """取穿过 0 级的 1-D 剖面 (``axis`` = 位移方向)。"""
+    clean = prepare_frame(np.asarray(frame, dtype=np.float64))
+    if str(axis).lower() == "x":
+        return np.clip(clean[int(round(cy)), :], 0.0, None)
+    return np.clip(clean[:, int(round(cx))], 0.0, None)
+
+
+def _peak_offset(profile: np.ndarray, center: int, lo: int, hi: int) -> float | None:
+    """在 ``[lo, hi]`` 内找剖面最大值, 返回相对 ``center`` 的偏移 (三点抛物线亚像素)。"""
+    lo = max(0, int(lo))
+    hi = min(profile.size - 1, int(hi))
+    if hi <= lo:
         return None
-    return num / den
+    window = profile[lo : hi + 1]
+    if window.size == 0 or float(window.max()) <= 0.0:
+        return None
+    idx = int(np.argmax(window)) + lo
+    left = float(profile[idx - 1]) if idx - 1 >= 0 else float(profile[idx])
+    mid = float(profile[idx])
+    right = float(profile[idx + 1]) if idx + 1 < profile.size else float(profile[idx])
+    denom = left - 2.0 * mid + right
+    shift = 0.5 * (left - right) / denom if denom != 0.0 else 0.0
+    shift = float(np.clip(shift, -0.5, 0.5))
+    return float(idx + shift - float(center))
+
+
+def measure_lobe_offsets(
+    frame: np.ndarray,
+    *,
+    cy: float,
+    cx: float,
+    axis: str = "x",
+    search_px: float,
+    min_offset_px: float = 0.0,
+) -> dict[str, float | None]:
+    """沿位移轴分别实测两侧最强瓣的**带符号偏移** (px)。
+
+    **不假设 ±1 对称**: 闪耀光栅本身就是非对称器件 —— 相位斜坡把能量主要推进
+    单一级次, 另一侧的共轭级次被闪耀包络压掉。本台 2026-11-21 实测 `--axis x`
+    的光栅只在相机行方向出现**一个**一级次 (零级 + 单瓣), 另一侧窗口内没有任何
+    光斑。所以"三窗各占 1/3"对闪耀光栅是错的读法; 这里改成实测落点 + 泄漏比。
+    """
+    profile = _axis_profile(frame, cy, cx, axis)
+    center = int(round(cx)) if str(axis).lower() == "x" else int(round(cy))
+    span = profile.size - 1
+    lo_off = max(float(min_offset_px), 1.0)
+    plus = _peak_offset(
+        profile, center, center + int(lo_off), min(span, center + int(search_px))
+    )
+    minus = _peak_offset(
+        profile, center, max(0, center - int(search_px)), center - int(lo_off)
+    )
+    return {"positive": plus, "negative": minus}
 
 
 def integrate_lobes(
@@ -176,33 +327,49 @@ def integrate_lobes(
     period_px: int,
     axis: str = "x",
     separation_scale: float | None = None,
+    lobe_axis: str | None = None,
+    spot_fwhm: float | None = None,
 ) -> dict[str, Any]:
-    """按 0 级位置 + 光栅周期积分 0 / +1 / -1 三处 Fourier 瓣能量。
+    """按 0 级位置 + 光栅周期积分 0 / 一级次能量, 并实测两侧落点。
 
-    这是**未定标的粗略归属**: ±1 级间距按 ``K ≈ 相机宽度 / (4·周期)`` 的量级
-    估算 (2f 光路里一级位移 ~ f·λ/(P·d), 与 CCD 宽度同数量级时被周期数整除),
-    没有几何标定时只能给一个量级估计。若调用方给了 ``separation_scale`` (例如
-    来自已有标定的 K), 则直接用它当间距。结果中的 ``note`` 明确标注粗略性。
+    这是**未定标的粗略归属**: 级次间距按 ``K ≈ 相机跨度 / (2·周期)`` 的量级估算
+    (2f 光路里一级位移 ~ f·λ/(P·d)), 没有几何标定时只能给一个量级估计。若调用方
+    给了 ``separation_scale`` (例如来自已有标定的 K), 则直接用它当间距。
+
+    每个窗口扣**自身环带背景** (空窗不再积出噪声基座), ROI 半径由 ``spot_fwhm``
+    定标 (不传时退回 ``0.35·separation``)。
+
+    Args:
+        axis: 光栅方向 (SLM 图案侧)。
+        lobe_axis: 级次在**相机**上的位移方向; ``None`` = 与 ``axis`` 相同。
+            SLM 在光路里转了 90° 时二者不同 (2026-11-21 实测本台
+            ``axis="x"`` → 相机行方向), 弄反会把窗口放进空区。
+        spot_fwhm: 实测光斑 FWHM; 用来把 ROI 半径压到光斑量级。
     """
     clean = prepare_frame(np.asarray(frame, dtype=np.float64))
     height, width = clean.shape
+    disp_axis = str(lobe_axis or axis).lower()
     if separation_scale is None or float(separation_scale) <= 0.0:
-        span = width if str(axis).lower() == "x" else height
+        span = width if disp_axis == "x" else height
         separation = float(span) / (2.0 * float(period_px))
     else:
         separation = float(separation_scale)
     separation = max(8.0, separation)
-    radius = max(4.0, _ROI_RADIUS_FRACTION * separation)
+    radius_cap = _ROI_RADIUS_FRACTION * separation
+    if spot_fwhm is not None and float(spot_fwhm) > 0.0:
+        radius = min(radius_cap, max(6.0, 1.5 * float(spot_fwhm)))
+    else:
+        radius = max(4.0, radius_cap)
 
-    e_zero, zero_c = _roi_energy(clean, cy, cx, radius)
-    if str(axis).lower() == "x":
+    e_zero, bg_zero, zero_c = _roi_energy(clean, cy, cx, radius)
+    if disp_axis == "x":
         plus_c = (float(cy), float(cx + separation))
         minus_c = (float(cy), float(cx - separation))
     else:
         plus_c = (float(cy + separation), float(cx))
         minus_c = (float(cy - separation), float(cx))
-    e_plus, plus_centroid = _roi_energy(clean, *plus_c, radius)
-    e_minus, minus_centroid = _roi_energy(clean, *minus_c, radius)
+    e_plus, bg_plus, plus_centroid = _roi_energy(clean, *plus_c, radius)
+    e_minus, bg_minus, minus_centroid = _roi_energy(clean, *minus_c, radius)
     total = e_zero + e_plus + e_minus
     ratios = (
         {
@@ -213,22 +380,73 @@ def integrate_lobes(
         if total > 0.0
         else {"zero": None, "plus_one": None, "minus_one": None}
     )
+    # 闪耀光栅的级次是**非对称**的: 强的一侧是闪耀级次, 弱的一侧只是泄漏 floor。
+    stronger_is_plus = e_plus >= e_minus
+    blaze_energy = max(e_plus, e_minus)
+    mirror_energy = min(e_plus, e_minus)
+    orders = {
+        "blaze_order": "plus_one" if stronger_is_plus else "minus_one",
+        "blaze_energy": blaze_energy,
+        "mirror_energy": mirror_energy,
+        "mirror_leakage": _safe_ratio(mirror_energy, blaze_energy),
+        "asymmetry": _safe_ratio(e_plus - e_minus, e_plus + e_minus),
+    }
+    measured = measure_lobe_offsets(
+        frame,
+        cy=cy,
+        cx=cx,
+        axis=disp_axis,
+        search_px=1.6 * separation,
+        min_offset_px=0.5 * separation,
+    )
+    offsets = [abs(v) for v in measured.values() if v is not None]
+    measured_sep = max(offsets) if offsets else None
+    calibrated = separation_scale is not None and float(separation_scale) > 0.0
+    separation_check: dict[str, Any] = {
+        "given_px": separation if calibrated else None,
+        "measured_px": measured_sep,
+        "consistent": None,
+    }
+    if calibrated and measured_sep is not None:
+        separation_check["consistent"] = bool(
+            abs(measured_sep - separation) <= 0.25 * separation
+        )
     return {
         "energies": {"zero": e_zero, "plus_one": e_plus, "minus_one": e_minus},
         "ratios": ratios,
+        "backgrounds": {"zero": bg_zero, "plus_one": bg_plus, "minus_one": bg_minus},
+        "orders": orders,
         "roi_radius_px": radius,
         "separation_px": separation,
+        "lobe_axis": disp_axis,
+        "measured_offsets": measured,
+        "separation_check": separation_check,
         "centroids": {
             "zero": zero_c,
             "plus_one": plus_centroid,
             "minus_one": minus_centroid,
         },
-        "calibrated": separation_scale is not None and float(separation_scale) > 0.0,
+        "calibrated": calibrated,
         "note": (
-            "粗略/未定标: ±1 级落点由光栅周期估算, 无几何标定 .npz; "
+            "±1 落点取自标定间距 (separation_px), 并已实测两侧瓣位置; "
+            "闪耀光栅非对称, 弱侧是泄漏 floor 而非共轭级次; "
+            "比值仅作相对指标, 不代表绝对衍射效率"
+            if calibrated
+            else "粗略/未定标: 落点由相机跨度与光栅周期估算, 无几何标定; "
+            "本台估算式误差可达数倍, 给 --separation-px 后才是可信读数; "
             "比值仅作相对指标, 不代表绝对衍射效率"
         ),
     }
+
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    """安全比值: 分母非正/非有限时返回 ``None`` (JSON 里是 null)。"""
+    num = float(numerator)
+    den = float(denominator)
+    if not math.isfinite(num) or not math.isfinite(den) or den <= 0.0:
+        return None
+    return num / den
 
 
 def _average_frames(camera: Any, frames: int) -> np.ndarray:
@@ -336,20 +554,31 @@ def _write_outputs(
     )
     lobe = result["lobe"]
     relative = result.get("relative_efficiency", {})
+    base_zero = relative.get("baseline_zero_window_counts")
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(
             ["region", "energy_counts", "lobe_ratio", "relative_to_baseline_zero"]
         )
         for name in ("zero", "plus_one", "minus_one"):
+            energy = lobe["energies"][name]
             writer.writerow(
                 [
                     name,
-                    lobe["energies"][name],
+                    energy,
                     lobe["ratios"][name],
-                    relative.get(name),
+                    (energy / base_zero) if base_zero else None,
                 ]
             )
+        # 闪耀级次汇总: 闪耀光栅两侧本就不对称, 逐窗三行读不出哪个是真正的一级。
+        writer.writerow(
+            ["blaze", lobe["orders"]["blaze_energy"], lobe["orders"]["blaze_order"],
+             relative.get("blaze_energy_share")]
+        )
+        writer.writerow(
+            ["mirror", lobe["orders"]["mirror_energy"], "leakage_floor",
+             relative.get("mirror_leakage")]
+        )
     written: dict[str, str] = {
         "summary_json": str(json_path),
         "summary_csv": str(csv_path),
@@ -366,6 +595,7 @@ def probe_diffraction_efficiency(
     *,
     slm_factory: Callable[[], Any] | None = None,
     cam_factory: Callable[..., Any] | None = None,
+    lock_factory: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """在单个灰度深度上做一次轻量衍射效率探针。
 
@@ -375,6 +605,8 @@ def probe_diffraction_efficiency(
         cam_factory: 测试注入的相机工厂 (默认 ``create_camera`` 注册表);
             调用形态 ``cam_factory(cam_type, cam_id, exposure_time_ms=...)``,
             返回值须支持 ``with`` 与 ``get_numpy_image``。
+        lock_factory: 测试注入的台面锁工厂 (默认 ``DeviceLock.default()``)。
+            只有注入它才会在注入设备工厂的同时仍去拿锁。
 
     Returns:
         紧凑的结果字典 (同时写入 ``out_dir/summary.json`` 与 ``summary.csv``)。
@@ -391,14 +623,23 @@ def probe_diffraction_efficiency(
     )
     make_camera = cam_factory or create_camera
 
-    with (
-        make_slm() as slm,
-        make_camera(
-            config.cam_type,
-            config.cam_id,
-            exposure_time_ms=float(config.exposure_ms),
-        ) as camera,
-    ):
+    with ExitStack() as stack:
+        # 锁先拿、设备后开; 退出时按相反顺序先关设备再放锁 (ExitStack LIFO)。
+        stack.enter_context(
+            _bench_lock_context(
+                lock_factory=lock_factory,
+                slm_factory=slm_factory,
+                cam_factory=cam_factory,
+            )
+        )
+        slm = stack.enter_context(make_slm())
+        camera = stack.enter_context(
+            make_camera(
+                config.cam_type,
+                config.cam_id,
+                exposure_time_ms=float(config.exposure_ms),
+            )
+        )
         panel_shape = (int(slm.Panel_Res[1]), int(slm.Panel_Res[0]))
         max_gray = int(config.gray_depth) or int(
             getattr(slm, "_max_gray", None) or getattr(slm, "MAX_GRAYSCALE_VALUE", 1023)
@@ -409,7 +650,7 @@ def probe_diffraction_efficiency(
         )
         logger.info(
             "衍射效率探针: SLM#{} ({}×{}, 2π 灰度={}) 相机 {}#{} 曝光={}ms "
-            "周期={}px 方向={} 帧数={}",
+            "周期={}px 方向={} ±1 间距={} 级次方向={} 帧数={}",
             config.slm_number,
             panel_shape[1],
             panel_shape[0],
@@ -419,6 +660,12 @@ def probe_diffraction_efficiency(
             config.exposure_ms,
             config.period_px,
             config.axis,
+            (
+                f"{float(config.separation_px):.1f}px(标定)"
+                if float(config.separation_px) > 0.0
+                else "估算"
+            ),
+            str(config.lobe_axis) or str(config.axis),
             config.frames,
         )
 
@@ -452,25 +699,52 @@ def probe_diffraction_efficiency(
         blazed_full_scale = _saturation_warn(blazed_raw, camera, full_scale)
 
         blazed_peak = float(np.asarray(blazed).max())
+        # 光斑 FWHM 用**平场**帧量 (此时全部能量都在零级, 是最干净的孤立方斑)。
+        # ROI 半径由它定标: 按间距 35% 取会到 165px, 是实测光斑 (FWHM≈15px) 的
+        # 十倍, 弥散晕与背景噪声就会主导积分。
+        spot_fwhm = _spot_fwhm(prepare_frame(baseline), cy, cx)
         lobe = integrate_lobes(
             blazed,
             cy=cy,
             cx=cx,
             period_px=int(config.period_px),
             axis=str(config.axis),
+            separation_scale=(
+                float(config.separation_px) if float(config.separation_px) > 0.0 else None
+            ),
+            lobe_axis=(str(config.lobe_axis) or None),
+            spot_fwhm=spot_fwhm,
         )
+        plus_one = float(lobe["energies"]["plus_one"])
+        minus_one = float(lobe["energies"]["minus_one"])
+        # 空瓣自检: **闪耀级次那一侧**窗口里没能量, 说明落点整体放错了 (间距/方向
+        # 错)。另一侧本来就只是泄漏 floor, 空是正常的, 不告警 (2026-11-21 实测:
+        # 用默认估算间距 81px 时两侧全空, 而那正是落点错的信号)。
+        if max(plus_one, minus_one) <= 0.0:
+            logger.warning(
+                "衍射效率探针: ±1 两侧窗口内都没有能量 —— 落点 (间距 {}px, 方向 {}) "
+                "多半不对; 本台实测一级位移沿相机行方向约 471px, "
+                "用 --separation-px 471 --lobe-axis y 重测 (或先做几何标定)。",
+                lobe["separation_px"],
+                lobe["lobe_axis"],
+            )
         # 归一化效率: 以**平场零级同半径窗口**的能量为入射基准。它仍受窗口
         # 截断影响, 所以只作相对指标 (与 lobe["note"] 同口径)。
         radius_px = float(lobe["roi_radius_px"])
         baseline_zero = _roi_energy(prepare_frame(baseline), cy, cx, radius_px)[0]
-        plus_one = float(lobe["energies"]["plus_one"])
-        minus_one = float(lobe["energies"]["minus_one"])
+        orders = dict(lobe["orders"])
         relative_efficiency = {
-            "plus_one": _safe_ratio(plus_one, baseline_zero),
-            "minus_one": _safe_ratio(minus_one, baseline_zero),
+            "blaze_order": orders["blaze_order"],
+            "blaze_energy_share": _safe_ratio(
+                orders["blaze_energy"], baseline_zero
+            ),
+            "mirror_leakage": orders["mirror_leakage"],
             "first_orders_sum": _safe_ratio(plus_one + minus_one, baseline_zero),
             "baseline_zero_window_counts": baseline_zero,
-            "note": "相对平场零级窗口能量; 窗口截断/无几何标定, 非绝对衍射效率",
+            "note": (
+                "相对平场零级窗口能量; 闪耀级次 = 两侧较强的一侧, 弱侧是泄漏 floor; "
+                "窗口截断/无几何标定, 非绝对衍射效率"
+            ),
         }
 
         result: dict[str, Any] = {
@@ -485,6 +759,8 @@ def probe_diffraction_efficiency(
                 "gray_depth": max_gray,
                 "period_px": config.period_px,
                 "axis": config.axis,
+                "separation_px": float(config.separation_px),
+                "lobe_axis": str(config.lobe_axis) or str(config.axis),
                 "frames": config.frames,
                 "settle_s": config.settle_s,
                 "subtract_dark": bool(config.subtract_dark),
@@ -498,6 +774,7 @@ def probe_diffraction_efficiency(
                 "blazed_frame_peak": blazed_peak,
             },
             "lobe": lobe,
+            "spot_fwhm_px": spot_fwhm,
             "relative_efficiency": relative_efficiency,
             "peaks": {
                 "baseline_counts": float(np.asarray(baseline).max()),
@@ -510,7 +787,12 @@ def probe_diffraction_efficiency(
             },
             "slots": {"baseline": flat_slot, "blaze": blaze_slot},
             "saturation_warn_fraction": SATURATION_WARN_FRACTION,
-            "calibration": "none (argmax 0 级 + 周期估算 ±1 级; 粗略/未定标)",
+            "calibration": (
+                f"separation={lobe['separation_px']:.1f}px 来自 --separation-px; "
+                "0 级 argmax, 无焦面门禁 (粗略/未定标)"
+                if lobe["calibrated"]
+                else "none (argmax 0 级 + 周期估算 ±1 级; 粗略/未定标)"
+            ),
         }
         payloads: dict[str, np.ndarray] = {}
         if config.save_frames:

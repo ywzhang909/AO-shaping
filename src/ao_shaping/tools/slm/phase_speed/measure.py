@@ -24,12 +24,17 @@
 
 ⚠️ 帧率限制: 测的是 SLM+CCD 组合响应, fps 受相机采集速率约束, 不是孤立的
 SLM 上升时间. 这一点写进 JSON 的 ``caveats`` 与终端摘要.
+
+⚠️ 真开设备前必须先拿台面跨进程互斥锁 (``DeviceLock``): SLM 的 USB 句柄独占,
+第二个进程 open 会被驱动拒绝, 现象却像"设备没插".
 """
 
 from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -63,6 +68,34 @@ _SLOT_MIN, _SLOT_MAX = 2, 125
 _MAX_GRAY = 1023
 #: 饱和预警阈值 (占满量程比例).
 _SAT_FRACTION = 0.95
+#: 台面跨进程互斥锁的等待上限 (s).
+_LOCK_TIMEOUT_S = 1800.0
+
+
+@contextmanager
+def _bench_lock_context(
+    *, lock_factory: Callable[[], Any] | None, injected: bool
+) -> Iterator[Any]:
+    """真开设备前拿台面跨进程互斥锁; 注入设备工厂时 (离线/测试) 不占锁."""
+    if lock_factory is None and injected:
+        yield None
+        return
+
+    from ao_shaping.tools.kernels.device_mutex import DeviceLock
+
+    make_lock = lock_factory or (lambda: DeviceLock.default())
+    lock = make_lock()
+    if not lock.acquire(timeout=_LOCK_TIMEOUT_S):
+        raise RuntimeError(
+            f"台面设备被其它进程占用 (holder={lock.holder()}), "
+            f"锁文件 {lock.path}; 等它释放后再重试"
+        )
+    logger.info("phase_speed: 已获得台面互斥锁 {}", lock.path)
+    try:
+        yield lock
+    finally:
+        lock.release()
+        logger.info("phase_speed: 已释放台面互斥锁")
 
 
 class SpeedMeasurementResult:
@@ -156,6 +189,7 @@ def run_speed_measurement(
     *,
     slm_factory: Callable[["SpeedConfig"], Any] | None = None,
     camera_factory: Callable[["SpeedConfig"], Any] | None = None,
+    lock_factory: Callable[[], Any] | None = None,
 ) -> SpeedMeasurementResult:
     """执行相位阶跃速度测量并落盘.
 
@@ -163,14 +197,24 @@ def run_speed_measurement(
         config: CLI 参数对象.
         slm_factory: 返回 SLM 上下文管理器的工厂 (默认打开真实 Santec; 测试注入).
         camera_factory: 返回相机上下文管理器的工厂 (默认走相机注册表; 测试注入).
+        lock_factory: 台面互斥锁工厂 (默认 ``DeviceLock.default()``; 测试注入).
+            只有注入它才会在注入设备工厂的同时仍去拿锁.
 
     Returns:
         SpeedMeasurementResult: 含分析结果与完整元数据.
     """
+    injected_devices = slm_factory is not None or camera_factory is not None
     slm_factory = slm_factory or _open_slm
     camera_factory = camera_factory or _open_camera
 
-    with slm_factory(config) as slm, camera_factory(config) as cam:
+    with ExitStack() as stack:
+        # SLM 的 USB 句柄独占: 真开设备前必须先拿台面跨进程锁, 否则第二个
+        # 进程 open 会被驱动拒绝 (表现得像"设备没插")。
+        stack.enter_context(
+            _bench_lock_context(lock_factory=lock_factory, injected=injected_devices)
+        )
+        slm = stack.enter_context(slm_factory(config))
+        cam = stack.enter_context(camera_factory(config))
         return _run_session(config, slm, cam)
 
 

@@ -227,6 +227,70 @@ def _run_with_fakes(tmp_path: Path, slm: FakeSLM, cam: FakeCamera, **overrides: 
     )
 
 
+class _RecordingLock:
+    """记录 acquire/release 的假台面锁."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.path = Path("fake-bench.lock")
+
+    def acquire(self, timeout: float = 0.0, **_kwargs: Any) -> bool:
+        self.events.append(f"acquire(timeout={timeout})")
+        return True
+
+    def release(self) -> None:
+        self.events.append("release")
+
+    def holder(self) -> str:
+        return "none"
+
+
+def test_run_speed_measurement_takes_and_releases_the_bench_lock(tmp_path: Path) -> None:
+    """真开 SLM/相机前拿台面锁, 会话结束释放 (USB 句柄独占)."""
+    lock = _RecordingLock()
+    config = _make_config(tmp_path)
+    run_speed_measurement(
+        config,
+        slm_factory=lambda _cfg: FakeSLM(),
+        camera_factory=lambda _cfg: FakeCamera(_make_frames(n_baseline=3, n_steps=8)),
+        lock_factory=lambda: lock,
+    )
+    assert lock.events[0].startswith("acquire(timeout=")
+    assert lock.events[-1] == "release"
+    assert len(lock.events) == 2
+
+
+def test_run_speed_measurement_refuses_when_the_bench_is_busy(tmp_path: Path) -> None:
+    """锁拿不到就**不能**开设备: 报错而不是撞上去把 USB 状态搞坏."""
+
+    class BusyLock(_RecordingLock):
+        def acquire(self, timeout: float = 0.0, **_kwargs: Any) -> bool:
+            self.events.append("acquire-failed")
+            return False
+
+    lock = BusyLock()
+    config = _make_config(tmp_path)
+    opened: list[str] = []
+
+    with pytest.raises(RuntimeError, match="台面设备被其它进程占用"):
+        run_speed_measurement(
+            config,
+            slm_factory=lambda _cfg: opened.append("slm") or FakeSLM(),
+            camera_factory=lambda _cfg: opened.append("cam") or FakeCamera([]),
+            lock_factory=lambda: lock,
+        )
+    assert opened == []
+    assert "release" not in lock.events
+
+
+def test_run_speed_measurement_skips_the_lock_for_injected_devices(tmp_path: Path) -> None:
+    """注入设备工厂 (离线/测试) 不碰真实台面锁."""
+    outcome = _run_with_fakes(
+        tmp_path, FakeSLM(), FakeCamera(_make_frames(n_baseline=3, n_steps=8))
+    )
+    assert outcome.result.t_settle_ms is not None
+
+
 def test_run_speed_measurement_rotates_slots_and_raw_flat(tmp_path: Path) -> None:
     slm = FakeSLM()
     cam = FakeCamera(_make_frames(n_baseline=3, n_steps=8))

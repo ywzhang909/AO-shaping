@@ -421,6 +421,21 @@ class ProbeParams:
     gray_depth: Annotated[int, option("--gray-depth")] = 0
     period_px: Annotated[int, option("--period-px")] = 32
     axis: Annotated[str, option("--axis", type=click.Choice(["x", "y"]))] = "x"
+    separation_px: Annotated[
+        float,
+        option(
+            "--separation-px",
+            help="已标定的 ±1 级间距 (相机像素); 0=用周期估算 (本台误差可达 6 倍)",
+        ),
+    ] = 0.0
+    lobe_axis: Annotated[
+        str,
+        option(
+            "--lobe-axis",
+            type=click.Choice(["auto", "x", "y"]),
+            help="±1 级在相机上的位移方向; auto=与 --axis 相同 (SLM 转 90° 时须显式给)",
+        ),
+    ] = "auto"
     frames: Annotated[int, option("--frames")] = 3
     settle_s: Annotated[float, option("--settle-s")] = 0.25
     save_frames: Annotated[bool, option("--save-frames/--no-save-frames")] = False
@@ -452,6 +467,8 @@ def probe(params: ProbeParams) -> None:
         gray_depth=int(params.gray_depth),
         period_px=int(params.period_px),
         axis=str(params.axis),
+        separation_px=float(params.separation_px),
+        lobe_axis="" if str(params.lobe_axis) == "auto" else str(params.lobe_axis),
         frames=int(params.frames),
         settle_s=float(params.settle_s),
         save_frames=bool(params.save_frames),
