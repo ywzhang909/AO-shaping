@@ -5834,6 +5834,20 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - call_graph: `repin_spans.MOVED` 的 model_in_loop 三条**反向** (新上游现状 = 三函数在 runner_common, 上游 e7d9a305 删模块重新内联; 注释记录方向出处), 重钉 4 处 (voltage_io×3 + session_record.measured_peak_rates×1 再漂移) + 4 个 MIL 节点回指 runner_common, `--check` 退出 0 (stale 0 / unresolved 0), 双 JSON 逐字节一致
 - 载体 (本批): span-drift/golden/dry-run **7 passed + 1 xfail**(census 黄通道对新漂移正确让位), differentiable **59 passed**, shape 守卫 **436 passed**; ruff 全仓除 1 项 (属第 176 批清单项, 见下条红面盘点) 外绿
 - 红面全景 (并行合并遗留, 非本批引入, 后续批逐项清): root-guards 10 红 (docs 覆盖 x3 + 其余, 上游新模块未登记文档所致); tools 3 红 (transfer/test_validate_live_frame 上游算法改后测试没跟); scripts 30 红 (term 23 文件 56 行未统一、provenance 死链 x2、新脚本 repo-root bootstrap/绝对路径、target_phase_matrix 3 红、`_fmt` 复发、PySide6 本地噪音 x2); modsize 1 越线; runners 全绿 (MIL 测试上游已删干净)
+**2026-11-21 · b485d85f 之后 · 第 176 批: 并行合并遗留红面清零 (scripts 28 + root-guards 10 + tools 3 + drivers 1 + modsize/term)**
+- term: `--apply` 统一 23 文件 56 行 (上游窗口用词, 门禁回归 0)
+- ruff: 上游 artifact 脚本死导入 `replace` 删除 (未用即删, 无行为变化)
+- **b170 通道二次失守全数收复** (e7d9a305 对 7+6 个脚本是**纯回滚零新增**, 逐文件 diff 核验后整文件取回): dry-run 合成回退 (analyze_fwdmodel_fit / ladder + `_hw_fidelity_ladder_sections.py`)、clean-process 子进程化 (analyze_model_hw_fidelity)、绝对路径 ROOT 派生 (gain_b / diagnose×2 / issue247 / absolute_fidelity_probe_20261116)、R-25 `_fmt` 收口 (5 脚本别名回规范 formatter, `_common/__init__.py` 的 `fmt_g_or_dash`/`fmt_spec_or_text` 一并找回)
+- modsize: `--update-baseline` 重钉 —— **收紧 5** (MIL 移除受益: ccd_analyzer −162, transfer_desktop/page −376 等) / **抬高 4** (runner_common +306 = 上游把 MIL 三函数重新内联回本体, sim/gui/workflow 小幅为窗口功能增量) / **新增 1** (dynamic_shaping_page, 上游新 GUI 模块) —— 全部为钉实测, 非放宽规则
+- provenance: `dark_frame_record` 与 `fidelity_ladder/README.md` 登记为 `script=HANDWRITTEN` (后者从错误的 script=ladder 项**去重改类** —— 生成脚本从不写 README); `target_phase_matrix_20261120` / `stepb_optimizer_lr` / `ladder_summary` (b169 项回滚找回) 入 REPORTS; `fit_compare_m3(_z21/_z11_vs_z21)` 补占位符式复现命令 (输入是 data/ 语料, note 声明按会话替换); 9 份 MIL 叙事报告的 **150 条孤儿断链**按文件登记入 `_PREEXISTING_BROKEN` (e7d9a305 删资产留叙事的预期分叉); sync_report_provenance 重刷索引, 守卫 944/944 绿
+- wiki (#249 守卫首战即抓到合并窗分叉): `gen_wiki_pages.py` 再生成 7 页 + 补 `slm-model-in-loop` 页; **生成器尾换行 bug 修根** —— gen_wiki_pages/finalize_graph 写 JSON 缺 `\n` 与入库格式契约 (双 JSON 逐字节一致断言) 冲突, 一跑即分叉, 两处补 `+ "\n"`
+- live-doc 锚/表/链接: pre_run_characterization 行 9 重钉 `:582,596` (e7d9a305 +1 行, 谱系注记续写)、TODO `ccd_analyzer:296/323`、strength_gate 预注册表 `‖·‖` 竖线转义、相差光路方案对 gitignored `dump/` 的链接降级为行内路径文本
+- 文档登记: module_inventory `utils/slm/` 行 + `transition_timeline`、`slm/transfer/` 行 + `strength_gate` (上游新模块, docstring 实测口径)
+- print 契约: allowlist 随上游更名 `_validate_block_loop→_run_validate_blocks` 重钉; capture_darks main 的 CLI 计划打印按「print 即契约」登记
+- tools 钉链: validate_live_frame×2 + validate_blocks 的归属者链回退到 `capture→_cap_live_reader` / `run` 直钉 (上游把 #205 第 131/133 批 helper 重新内联, 与 MIL 同模式; 出处入注释)
+- drivers: gxipy 条件 skip 守卫**第三次**被回滚找回 (`test_missing_env_falls_back_to_bundled_libs`, CI 全新 checkout 无 libs/gxipy 是契约事实)
+- target_phase_matrix 3 红 = **上游新测试违反 CI 环境契约** (直接读 data/ 冻结 checkpoint): 三项加 `needs_checkpoint` skipif + 新增 `test_dry_run_without_checkpoint_stays_honest` (实测无 checkpoint 时 48 条齐全全标 skip (unrepresentable), 不崩不伪造) —— skip 不是弱化, 是把契约两面都在 CI 钉住
+- 载体: utils 1719 / algorithm 898 / ml 1865 / root-guards **621** / tools 1729 (transfer 两文件复绿 23) / runners 640 / drivers 1406+skip / scripts 除 2 条本地 PySide6 噪音外全绿; ruff 全仓 0, term 0, modsize `--check` 0, push_preflight 435+95skip 绿; optimizer/gui 分片交 CI 裁决
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
