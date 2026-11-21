@@ -52,7 +52,7 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
   需先接照明熄灯 + 再次上机批准。未发布任何新 g₂π。
 - **#234 / #236 双门复跑**：离线仍失败，修复门禁后再谈上机；未据既有数据宣称增益。
 
-## 5. #247 A1b 复采 + 2-D 对角 blaze（verdict=mapping_frozen）
+## 5. #247 A1b 复采 + 2-D 对角 blaze（verdict=映射仍歧义，未冻结）
 
 本轮设备占用：Santec SLM #1（1064 nm）+ Daheng CCD + 激光。六步探测 verdict=`ok`（17:37），
 20 s 冷却后单次 `--execute` 采集（17:41–17:44），`status=ok frames=60`（15 图样 × 4 帧），
@@ -65,11 +65,19 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
   实现，synthesis 脚本改为委托），15 图样/60 帧，`--self-test` exit 0；
   `issue247_axis_map_solve_20261121.py` 增加 2×2 最小二乘与冻结判定，旧目录复跑仍
   `mapping_still_ambiguous` 且记录产物未改；ruff 全过。
-- **解算**（`axis_mapping_status.json` / `README_axis_mapping.md` / `issue247_axis_map.json`）：
-  `frozen=true, verdict=mapping_frozen`。四项判据全 PASS——残差 RMS **0.871 px**（≤1.0）、
-  最大相对误差 **1.576 %**（≤2 %）、双列夹角 **90.36°**（88.544±2°）、秩守卫
-  **0.9925**（≥0.10）；拟合 A≈[[+26.3, −7673.4],[+7705.9, −22.0]]（CCD px per cycle/panel-pixel），
-  cond≈1.01。
+- **解算（并行车道，blaze-only 预注册判据）**：`issue247_axis_map_solve_20261121.py` 的冻结规则
+  `freeze_rule.applies_to="blaze2d family only"`，`frozen = blaze.present and not failing`，
+  只检验 blaze2d 四项条件，**不**把 1-D 方向自洽纳入冻结判定。按该宽口径写入
+  `frozen=true, verdict=mapping_frozen`——四项 blaze2d 判据全 PASS：残差 RMS **0.871 px**（≤1.0）、
+  最大相对误差 **1.576 %**（≤2 %）、双列夹角 **90.36°**（88.544±2°）、秩守卫 **0.9925**（≥0.10）；
+  拟合 A≈[[+26.3, −7673.4],[+7705.9, −22.0]]（CCD px per cycle/panel-pixel），cond≈1.01。
+- **⚠ 用户验收门（10 方向自洽）FAIL → 最终不冻结**：同一 session 完整数据自带的 1-D 探针
+  `consistency.panel_x_consistent=false`、`panel_y_consistent=false`，`tilt_x_vs_tilt_y=0.46°`
+  （期望 88.544°）、`grating_x_vs_ladder_x=89.57°`、`tilt_y_vs_ladder_y=5.48°`。故单一可逆 2×2
+  映射无法同时解释 blaze2d 族与 1-D 族；用户判据（残差/相对误差 **且** 10 方向自洽）不满足。
+  该目录的 `frozen=true` 与 `issue247_axis_map.json` 属 blaze-only 宽口径旧结论，已标注为被用户门
+  作废（见 `data/debug/hw_window_20261121b/issue247_axis/RECONCILIATION_not_frozen_20261121.md`）；
+  **不得当作冻结映射使用**。
 - **归因**：blaze2d（四方向独立点）支持 ladder family——panel-x ramp→CCD 行、panel-y ramp→CCD 列；
   grating/tilt family 的"两正交轴都落 CCD 列"与任何可逆 2×2 映射不相容。当前仅能定位为
   grating/tilt 探针输出与设计映射不一致，具体根因待独立验证；辅助拟合：grating fy/fx 列向
@@ -77,3 +85,12 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
   `focal_magnification` 仍为反推，不宣称"物理常数已定"。
 - 未改 #247 issue 状态、未 push；仅按冻结方案 §3.4 发一条事实性评论。未动 #234/#236 双门、
   未动 transfer `light/none` 暂停判定。
+- **本会话（审批范围的 2-D blaze 子集）**：预检 `issue247_b2d_20261121` verdict=`ok`；单次
+  `--execute --patterns "flat+4×blaze2d"` 采集 5 图样/20 帧到
+  `data/debug/hw_window_20261121/issue247_axis_b2d/`，`status=ok n_frames=20 saturation_count=0`，
+  `released.json` `slm_closed/camera_closed/lock_released/closed_normally=true`，无残留 bench 进程。
+  该子集 blaze2d 拟合通过（RMS **0.774 px**、相对误差 **1.342 %**、夹角 89.135°、秩守卫 0.966），
+  但 subset 本身不含 1-D 探针，无法单独满足 10 方向门；结合同 session 完整数据的 1-D 对照，
+  **最终判定：映射仍歧义，不冻结**。候选 A 仅保留为
+  `issue247_axis_map_CANDIDATE_not_frozen.json`，`axis_mapping_status.json` 记 `frozen=false`、
+  `map_path=null`。

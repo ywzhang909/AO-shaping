@@ -502,8 +502,12 @@ def rot180(array: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Deterministic plan (pure)
 # ---------------------------------------------------------------------------
-def build_patterns() -> list[dict[str, Any]]:
-    """Build the complete frozen descriptive probe plan."""
+def build_patterns(only: list[str] | None = None) -> list[dict[str, Any]]:
+    """All frozen probes, or just the ids named in ``only`` (approval scoping).
+
+    An empty/None ``only`` keeps the full frozen list; naming any id that is not
+    in the plan is a hard error, so a typo can never silently shrink a run.
+    """
     patterns: list[dict[str, Any]] = []
 
     def add(pid: str, kind: str, frames: int, **params: Any) -> None:
@@ -568,6 +572,16 @@ def build_patterns() -> list[dict[str, Any]]:
                 sign_y=sign_y,
             ),
         )
+
+    if only:
+        wanted = {str(pid).strip() for pid in only if str(pid).strip()}
+        unknown = sorted(wanted - {p["id"] for p in patterns})
+        if unknown:
+            raise SystemExit(
+                f"--patterns: unknown pattern id(s) {unknown}; "
+                f"known: {sorted(p['id'] for p in patterns)}"
+            )
+        patterns = [p for p in patterns if p["id"] in wanted]
 
     for item in patterns:
         item["phase_sha256"] = digest(pattern_phase(item, DEFAULT_PANEL_SHAPE))
@@ -762,7 +776,11 @@ def build_declared_constants(
 
 
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
-    patterns = build_patterns()
+    raw_only = getattr(args, "patterns", None)
+    only: list[str] | None = None
+    if raw_only:
+        only = [s.strip() for s in str(raw_only).split(",") if s.strip()]
+    patterns = build_patterns(only)
     declared, missing = build_declared_constants()
     frames = {p["id"]: int(p["frames"]) for p in patterns}
     out = getattr(args, "out", None)
@@ -787,7 +805,11 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "missing": missing,
         "grating_periods_px": list(GRATING_PERIODS_PX),
         "grating_duty": 0.5,
-        "blaze2d_designs": build_blaze2d_designs(),
+        "blaze2d_designs": [
+            d
+            for d in build_blaze2d_designs()
+            if only is None or d["id"] in set(only)
+        ],
         "blaze2d_frames": int(BLAZE2D_FRAMES),
         "tilt": build_tilt_plan(tilt_period),
         "ladder": build_ladder_plan(),
@@ -1401,6 +1423,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--self-test", action="store_true", help="assert offline invariants; no devices, no --out"
+    )
+    parser.add_argument(
+        "--patterns",
+        default=None,
+        help=(
+            "comma-separated pattern ids to run (default: the whole frozen "
+            "list). Unknown ids abort. Used to keep a run inside the currently "
+            "approved scope, e.g. 'flat,blaze2d_px128_py192_sx+1_sy+1,...'"
+        ),
     )
     parser.add_argument(
         "--tilt-period-px", type=float, default=DEFAULT_TILT_PERIOD_PX,

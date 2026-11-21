@@ -47,6 +47,10 @@ EXPECTED_PATTERN_IDS = (
     "tilt_x_minus",
     "tilt_y_plus",
     "tilt_y_minus",
+    "blaze2d_px128_py192_sx+1_sy+1",
+    "blaze2d_px128_py192_sx+1_sy-1",
+    "blaze2d_px192_py128_sx+1_sy+1",
+    "blaze2d_px192_py128_sx+1_sy-1",
 )
 
 
@@ -190,6 +194,34 @@ def test_plan_json_covers_all_patterns_and_constants(tmp_path: Path):
     assert declared["slm_pixel_pitch_um"] is None
     assert declared["camera_pixel_size_um"] is None
     assert declared["focal_magnification"] is None
+
+
+# ---------------------------------------------------------------------------
+# 5b. --patterns 只能缩小到批准范围，未知 id 必须硬失败
+# ---------------------------------------------------------------------------
+def test_patterns_flag_narrows_the_run_and_rejects_unknown_ids(tmp_path: Path):
+    subset = (
+        "flat",
+        "blaze2d_px128_py192_sx+1_sy+1",
+        "blaze2d_px128_py192_sx+1_sy-1",
+        "blaze2d_px192_py128_sx+1_sy+1",
+        "blaze2d_px192_py128_sx+1_sy-1",
+    )
+    result = _run("--out", str(tmp_path / "subset"), "--patterns", ",".join(subset))
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert tuple(plan["pattern_ids"]) == subset
+    assert plan["n_patterns"] == len(subset)
+    assert plan["n_frames_expected"] == sum(plan["frames_per_pattern"].values())
+    # summary 只声明本次采集的 blaze2d 设计，求解器不会去找没采的方案。
+    assert [d["id"] for d in plan["blaze2d_designs"]] == list(subset[1:])
+    # 默认行为不变：不传 --patterns 仍是完整冻结清单。
+    full = json.loads(_run("--out", str(tmp_path / "full")).stdout)
+    assert tuple(full["pattern_ids"]) == EXPECTED_PATTERN_IDS
+
+    bad = _run("--out", str(tmp_path / "bad"), "--patterns", "flat,bogus_id")
+    assert bad.returncode != 0
+    assert "unknown pattern id" in (bad.stderr + bad.stdout)
 
 
 # ---------------------------------------------------------------------------
