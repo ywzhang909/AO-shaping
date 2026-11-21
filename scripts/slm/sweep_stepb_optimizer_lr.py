@@ -493,7 +493,7 @@ def _write_csv(path: Path, records: list[dict[str, object]]) -> None:
             writer.writerow(row)
 
 
-def _fmt(value: object, nd: int = 4) -> str:
+def _fmt_cell(value: object, nd: int = 4) -> str:
     if value is None or value == "":
         return "—"
     if isinstance(value, float):
@@ -528,11 +528,11 @@ def _write_md(
                 arm=record["arm"],
                 lr=record["lr"],
                 status=record["status"],
-                wall=_fmt(record["wall_s"], 1),
-                cv=_fmt(record.get("cv_final"), 4),
-                ee=_fmt(record.get("ee_final"), 4),
-                ff=_fmt(record.get("ff_final"), 4),
-                best=_fmt(record.get("cv_best"), 4),
+                wall=_fmt_cell(record["wall_s"], 1),
+                cv=_fmt_cell(record.get("cv_final"), 4),
+                ee=_fmt_cell(record.get("ee_final"), 4),
+                ff=_fmt_cell(record.get("ff_final"), 4),
+                best=_fmt_cell(record.get("cv_best"), 4),
             )
         )
     lines.append("")
@@ -554,13 +554,13 @@ def _write_md(
                 lr=record["lr"],
                 sched=record["lr_schedule"] or "—",
                 it=record["iterations"],
-                wall=_fmt(record["wall_s"], 2),
-                cv=_fmt(record.get("cv_final"), 4),
-                ee=_fmt(record.get("ee_final"), 4),
-                ff=_fmt(record.get("ff_final"), 4),
-                rms=_fmt(record.get("phase_rms_rad"), 3),
-                wrap=_fmt(record.get("wrap_fraction"), 3),
-                lap=_fmt(record.get("laplacian_rms_rad"), 4),
+                wall=_fmt_cell(record["wall_s"], 2),
+                cv=_fmt_cell(record.get("cv_final"), 4),
+                ee=_fmt_cell(record.get("ee_final"), 4),
+                ff=_fmt_cell(record.get("ff_final"), 4),
+                rms=_fmt_cell(record.get("phase_rms_rad"), 3),
+                wrap=_fmt_cell(record.get("wrap_fraction"), 3),
+                lap=_fmt_cell(record.get("laplacian_rms_rad"), 4),
             )
         )
     lines.append("")
@@ -584,16 +584,16 @@ def _write_md(
             "| {arm} | {cv0} | {cvb} | {cvg} | {cvg2} | {ee0} | {eeg} | {eeg2} | "
             "{ff0} | {ffg} | {ffg2} |".format(
                 arm=record["arm"],
-                cv0=_fmt(record.get("cv_final"), 4),
-                cvb=_fmt(record.get("cv_block"), 4),
-                cvg=_fmt(record.get("cv_gray1023"), 4),
-                cvg2=_fmt(record.get("cv_gray993"), 4),
-                ee0=_fmt(record.get("ee_final"), 4),
-                eeg=_fmt(record.get("ee_gray1023"), 4),
-                eeg2=_fmt(record.get("ee_gray993"), 4),
-                ff0=_fmt(record.get("ff_final"), 4),
-                ffg=_fmt(record.get("ff_gray1023"), 4),
-                ffg2=_fmt(record.get("ff_gray993"), 4),
+                cv0=_fmt_cell(record.get("cv_final"), 4),
+                cvb=_fmt_cell(record.get("cv_block"), 4),
+                cvg=_fmt_cell(record.get("cv_gray1023"), 4),
+                cvg2=_fmt_cell(record.get("cv_gray993"), 4),
+                ee0=_fmt_cell(record.get("ee_final"), 4),
+                eeg=_fmt_cell(record.get("ee_gray1023"), 4),
+                eeg2=_fmt_cell(record.get("ee_gray993"), 4),
+                ff0=_fmt_cell(record.get("ff_final"), 4),
+                ffg=_fmt_cell(record.get("ff_gray1023"), 4),
+                ffg2=_fmt_cell(record.get("ff_gray993"), 4),
             )
         )
     lines.append("")
@@ -605,8 +605,8 @@ def _write_md(
     )
     if base is not None:
         lines.append(
-            f"- 基线 adam/0.05@150: 墙钟 {_fmt(base['wall_s'], 2)} s, "
-            f"CV {_fmt(base.get('cv_final'), 4)}, EE {_fmt(base.get('ee_final'), 4)}。"
+            f"- 基线 adam/0.05@150: 墙钟 {_fmt_cell(base['wall_s'], 2)} s, "
+            f"CV {_fmt_cell(base.get('cv_final'), 4)}, EE {_fmt_cell(base.get('ee_final'), 4)}。"
         )
     winners = sorted(
         level2,
@@ -616,14 +616,14 @@ def _write_md(
         best = winners[0]
         lines.append(
             f"- 灰度 1023 存活后 CV 最低的变体: {best['arm']} "
-            f"(CV {_fmt(best.get('cv_gray1023'), 4)})。"
+            f"(CV {_fmt_cell(best.get('cv_gray1023'), 4)})。"
         )
     l1_ok = [r for r in level1 if r["status"] == "ok"]
     if l1_ok:
         fastest = min(l1_ok, key=lambda r: float(r["wall_s"]))
         lines.append(
             f"- Level 1 中不发散且墙钟最短: {fastest['arm']} "
-            f"({_fmt(fastest['wall_s'], 1)} s)。"
+            f"({_fmt_cell(fastest['wall_s'], 1)} s)。"
         )
     lines.append("")
     lines.append(

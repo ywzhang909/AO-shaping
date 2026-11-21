@@ -1,7 +1,7 @@
 ---
 title: calibrate_dm_response_matrix（DM 响应矩阵标定内核）
 created: 2026-10-13
-updated: 2026-11-09
+updated: 2026-10-13
 type: function
 tags: [calibration,dm,matrix]
 source: src/ao_shaping/optimizer/wf/dm_response_matrix.py:702

@@ -92,7 +92,7 @@ out = {
     "edges": [{"from": a, "to": b, "calls": n} for (a, b), n in sorted(edges.items())],
     "cmd_entries": data["cmd_entries"],
 }
-(base / "call_graph_final.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
+(base / "call_graph_final.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n")
 
 n_res = sum(1 for v in final_nodes.values() if v)
 logger.info(f"final nodes: {len(final_nodes)} (resolved {n_res}, external {len(final_nodes)-n_res}), edges {len(edges)}")

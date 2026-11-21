@@ -41,7 +41,7 @@ Target (measured anchor 0): power within +/-50 px 0.2571, pixels above half max 
 
 Verdict: **no single parameter reproduces the measured power and half-max pixel count inside the scanned ranges.**
 
-## Q3 - does the measured spot imply a full-panel pupil?
+## Q3 - does the measured spot imply a full-panel pupil（瞳面）?
 
 Measured spot FWHM: 18.46 px (40.6 um).
 

@@ -100,7 +100,7 @@ def load_checkpoint(path: Path) -> tuple[dict, list[list[float]], str]:
 def build_forward(
     model: dict, ramp: list[list[float]], centre_xy: tuple[float, float], grid: int
 ) -> FrozenDefocusForward:
-    """按归档脚本的同一组参数构造前向模型（origin 用本 pass 的实测中心）。"""
+    """按归档脚本的同一组参数构造物理预测模型（origin 用本 pass 的实测中心）。"""
     params = FrozenDefocusParameters(
         defocus_diopter=float(model["defocus_diopter"]),
         origin_xy=(float(centre_xy[0]), float(centre_xy[1])),

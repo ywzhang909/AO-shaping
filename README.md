@@ -23,7 +23,7 @@ AO-Shaping 解决一个具体问题：**让激光远场变成想要的样子**�
 2. **无波前传感器（WFS-less）的闭环**：只看 CCD 远场，用 PIB（Power-in-Bucket）、
    方形光斑均匀度、环围能量等目标驱动 SPGD、启发式搜索、可微分优化或
    “物理预测模型在环”合成。入口：`pib`、`combined`、`slm-pib`、`slm-pib square`、
-   `slm-gsnet`、`slm-gs-refine`、`slm-model-in-loop`、`slm-transfer-shapes`。
+   `slm-gsnet`、`slm-gs-refine`、`slm-model-in-loop`、`slm-transfer-shapes`、`slm-turb-shaping`。
 3. **数字孪生与学习型模型**：2f-Fourier 实验系统的仿真后端，带湍流、
    热晕扰动与相机噪声模型；`src/ml/` 提供相位预测、Zernike 正向/逆向模型与
    GSNet 训练。没有硬件时，同一套 runner 用 `--cam-type sim` 即可回归。
@@ -224,6 +224,7 @@ CLI (src/ao_shaping/main.py)
 | [`docs/user/cli-reference.md`](docs/user/cli-reference.md) | CLI 正式参考：全部 flag、取值域、默认值 |
 | [`docs/dev/extension_guide.md`](docs/dev/extension_guide.md) | **二次开发指南**：分层、扩展点、最小模板、测试与文档门禁 |
 | [`docs/dev/coding_conventions.md`](docs/dev/coding_conventions.md) | 编码规范、测试规范、贡献流程 |
+| [`docs/ci-environment-contract.md`](docs/ci-environment-contract.md) | CI 环境契约：容器保证/不保证的外部文件（dry-run 自包含与合成回退的判据） |
 | [`docs/dev/call_graph_wiki/index.md`](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：逐命令 + 逐函数文档（AST 静态分析，可重跑） |
 | [`docs/architecture.md`](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 实验系统唯一入口约定 |
 | [`docs/drivers_architecture.md`](docs/drivers_architecture.md) | 驱动分层架构、设备注册表、惰性加载契约 |
@@ -244,7 +245,7 @@ CLI (src/ao_shaping/main.py)
 
 ## CLI 命令总览
 
-统一入口 `main.py`（Click-based），目前注册 **20 个顶层命令**；所有 runner 位于
+统一入口 `main.py`（Click-based），目前注册 **21 个顶层命令**；所有 runner 位于
 `src/ao_shaping/runners/`，可绕过 `main.py` 以 `python -m` 直接运行。
 
 ```bash
@@ -273,6 +274,7 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-gs-refine` | [docs/slm/slm_gs_refine.md](docs/slm/slm_gs_refine.md) | GS 预矫正 + 全频随机相位 SPGD 细化 |
 | `slm-model-in-loop` | [docs/slm/slm_model_in_loop.md](docs/slm/slm_model_in_loop.md) | 物理预测模型闭环校正 + 目标光斑相位合成（反复迭代） |
 | `slm-transfer-shapes` | [docs/slm/slm_transfer_workflow.md](docs/slm/slm_transfer_workflow.md) | 物理预测模型多形状整形（model → shaping → replay → record 四阶段） |
+| `slm-turb-shaping` | [docs/user/cli-reference.md](docs/user/cli-reference.md) | 湍流仿真光束整形实验（数字孪生闭环，`--report` 产相位/光斑动态演化 GIF + 曲线，#253） |
 
 > `slm-pib` 是 Click group：不带子命令等价于 `spgd`；`square` 是方形远场整形
 > （文档页 [`docs/slm/spgd_square.md`](docs/slm/spgd_square.md)）。

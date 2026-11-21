@@ -320,9 +320,9 @@ def test_batch_stack_and_serial_semantics(tmp_path: Path, monkeypatch) -> None:
 def test_stack_raw_frames_keep_camera_native_full_frame(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """回归（实机失败）：raw 帧按 CCD 原生全幅落盘，绝不按 SLM 面板尺寸预分配。
+    """回归（实验失败）：raw 帧按 CCD 原生全幅落盘，绝不按 SLM 面板尺寸预分配。
 
-    实机 CCD 返回 1944x2592 全幅（冻结计划禁止物理开窗），面板却是 (1200,1920)。
+    实验 CCD 返回 1944x2592 全幅（冻结计划禁止物理开窗），面板却是 (1200,1920)。
     旧实现用面板尺寸预分配 memmap，``on_frame`` 首帧即抛 shape 不一致；异常发生在
     daemon 采样线程里被吞掉，主流程照常结束但 **零帧落盘**（所有 transition 目录失效）。
     这里用与面板不同的相机幅面跑真实 execute 路径，必须全幅写入且无异常。

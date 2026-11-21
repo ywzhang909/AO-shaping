@@ -54,6 +54,7 @@ __all__ = [
     "slm_gsnet_run",
     "slm_model_in_loop_run",
     "slm_transfer_shapes_run",
+    "slm_turb_shaping_run",
 ]
 
 _LAZY_RUNNERS: dict[str, str] = {
@@ -80,6 +81,7 @@ _LAZY_RUNNERS: dict[str, str] = {
     "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner",
     "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner",
     "slm_transfer_shapes_run": "ao_shaping.runners.slm.transfer_shapes_runner",
+    "slm_turb_shaping_run": "ao_shaping.runners.slm.turb_shaping_runner",
 }
 
 #: Override the attribute name only when a module exposes more than one command.
@@ -105,6 +107,7 @@ _IMPORT_ATTRS: dict[str, str] = {
     "slm_gsnet_run": "run",
     "slm_model_in_loop_run": "run",
     "slm_transfer_shapes_run": "run",
+    "slm_turb_shaping_run": "run",
 }
 
 

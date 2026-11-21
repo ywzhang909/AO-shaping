@@ -1,7 +1,7 @@
 ---
 title: slm-lut（SLM 灰度-相位 LUT 标定（衍射效率反演））
 created: 2026-10-13
-updated: 2026-11-07
+updated: 2026-10-13
 type: command
 tags: [command]
 source: src/ao_shaping/tools/slm/calibration/lut_runner.py:585

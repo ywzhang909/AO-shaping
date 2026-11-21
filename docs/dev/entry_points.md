@@ -41,6 +41,7 @@ main (click.group)                                  # 20 个命令，逐个由 c
 ├── slm-gs-refine     ← runners.slm.gs_refine_runner
 ├── slm-model-in-loop ← runners.slm.model_in_loop_runner
 ├── slm-transfer-shapes ← runners.slm.transfer_shapes_runner  (物理预测模型多形状闭环整形: 从零训练 + 逐形状整形)
+├── slm-turb-shaping ← runners.slm.turb_shaping_runner  (湍流仿真整形实验: SimDisturbance 挂具 + 伴随产物 + 动态演化报告, #253)
 ├── slm-lut           ← tools.slm.calibration.lut_runner       (来自 tools/，不经 _LAZY_RUNNERS)
 └── slm-diagnose      ← tools.slm.panel.diagnose               (同上)
 ```
