@@ -31,6 +31,7 @@ sim/
 ├── compat.py            # 兼容层
 ├── nonideal.py          # 非理想效应建模
 ├── disturbance.py       # 波前干扰: 湍流 + 热晕 (static/dynamic), 供 slm_pib_sim 使用
+├── turbulence_harness.py # 干扰挂具收口 (#253): reset 抗丢失包装 + disturbance.json/npz 伴随产物 + 产物目录发现, 供 slm_pib_sim_run 与 slm-turb-shaping 共用
 ├── dm_optics.py         # DM 电压 → 瞳孔相位耦合 (可分离高斯影响力函数)
 ├── oopao_backend.py     # OOPAO 后端实现 (湍流相位屏 + ASM 传播)
 ├── _oopao_compat.py     # OOPAO 兼容层 (internal)

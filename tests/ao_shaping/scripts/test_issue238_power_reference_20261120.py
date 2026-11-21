@@ -307,5 +307,25 @@ def test_plan_only_window_creates_no_directory(tmp_path):
 
 
 def test_no_device_driver_is_imported():
-    loaded = [n for n in sys.modules if any(tok in n for tok in DEVICE_MODULES)]
-    assert loaded == []
+    """真起子进程证明"导入这两个模块不拖设备驱动"。
+
+    进程内 ``sys.modules`` 扫描会被同 shard 先跑的测试污染 —— 只要之前任何
+    测试 import 过 ``ao_shaping.drivers.*`` 这里必然误报 (issue #205 第 132 批
+    对 ``test_analyze_model_hw_fidelity`` 同型缺陷的先例修法)。
+    """
+    import os
+    import subprocess
+
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    code = (
+        "import importlib, sys; "
+        "importlib.import_module('scripts.slm.issue238_gray_phase_probes'); "
+        "importlib.import_module('scripts.experiments.run_issue238_period_sweep_20261119'); "
+        "loaded = [n for n in sys.modules if any(tok in n for tok in "
+        "('daheng', 'gxipy', 'santec', '_slm_win'))]; "
+        "sys.exit(1 if loaded else 0)"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=False
+    )
+    assert proc.returncode == 0, proc.stderr

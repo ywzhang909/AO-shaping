@@ -38,6 +38,7 @@
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
 | `dev/ci_testing.md` | 测试排除/分片策略与 CI 门禁现状（外迁自 AGENTS.md 的 `MISSING INFRASTRUCTURE` 与测试排除叙事） |
+| `ci-environment-contract.md` | CI 容器对测试/脚本的外部文件保证集（`data/`、`libs/gxipy`、绝对路径；dry-run 自包含守卫与 `scripts/push_preflight.py` 的依据，#251） |
 | `dev/project_structure.md` | 项目包结构逐文件详解（外迁自根 AGENTS.md 的 `Project Structure`；根文档只留精简树 + 指向本文） |
 | `dev/extension_guide.md` | 二次开发与扩展指南：改动分层路由 + 最小模板（何时加新设备/算法/CLI，复用哪些 canonical 入口） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |

@@ -126,7 +126,7 @@ def plot_fps(runs: list[dict[str, Any]], font: str | None) -> None:
     ax.set_title(
         txt(
             use_cjk,
-            f"实机 ~{statistics.median(fps):.1f} fps vs 计划 {PLANNED_FPS:.0f} fps，SLM 写入为瓶颈",
+            f"实验 ~{statistics.median(fps):.1f} fps vs 计划 {PLANNED_FPS:.0f} fps，SLM 写入为瓶颈",
             f"measured ~{statistics.median(fps):.1f} fps vs planned {PLANNED_FPS:.0f} fps; SLM write is the bottleneck",
         ),
         fontsize=12,

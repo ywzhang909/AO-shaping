@@ -61,6 +61,7 @@ EXPECTED_COMMANDS = (
     "slm-model-in-loop",
     "slm-pib",
     "slm-transfer-shapes",
+    "slm-turb-shaping",
     "wf",
     "zernike-matrix",
 )

@@ -1,5 +1,12 @@
 # 冻结目标与相位矩阵离线生成报告
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/target_phase_matrix_20261120.py`](../../scripts/slm/target_phase_matrix_20261120.py)
+> **复现命令**: `python scripts/slm/target_phase_matrix_20261120.py --checkpoint data/debug/slm_transfer/p3_fit_20261120/frozen_parameters.json --out <输出目录>`
+> **运行环境**: 离线（未执行 --execute，不占用 SLM/CCD/激光）
+> **说明**: 冻结目标 × 相位矩阵 48 条 (6 形状 × 4 尺寸 × {gs, model}) 离线生成报告；30 条有效相位文件, 18 条 model 网格不可表示按契约不伪造。checkpoint 为 data/debug 语料 (不入库), 缺 checkpoint 时脚本诚实退化 (见 tests/ao_shaping/scripts/test_target_phase_matrix_20261120.py)。
+<!-- provenance:end -->
+
 ## 摘要
 
 已执行 `square, circle, triangle, star, rectangle, annular` × `200, 500, 1000, 1500` CCD px × `gs, model` 的 48 条计划。最终 manifest 含 30 条有效相位文件记录（24 GS + 6 model）；18 条 model 因网格不可表示而明确不生成相位。没有失败条目。本批未 import/打开硬件驱动，未占用 SLM、CCD、激光，未执行任何 `--execute`，未 git add/commit。

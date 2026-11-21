@@ -87,6 +87,7 @@ CMD_ORDER = [
     ("slm-gs-refine", "GS 预整形 + 全频随机相位 SPGD 细化"),
     ("slm-model-in-loop", "物理预测模型闭环方形整形（反复迭代）"),
     ("slm-transfer-shapes", "多形状物理预测模型闭环整形（从零训练 → 逐形状整形 → 共同重放 → 记录）"),
+    ("slm-turb-shaping", "湍流仿真光束整形实验（数字孪生闭环 + 相位/光斑动态演化报告，#253）"),
     ("slm-lut", "SLM 灰度-相位 LUT 标定（衍射效率反演）"),
     ("slm-diagnose", "SLM 面板硬件自检（逐级定位）"),
 ]
@@ -112,6 +113,7 @@ CMD_SYMS = {
     "slm-gs-refine": "slm_gs_refine_run",
     "slm-model-in-loop": "slm_model_in_loop_run",
     "slm-transfer-shapes": "slm_transfer_shapes_run",
+    "slm-turb-shaping": "slm_turb_shaping_run",
     "slm-lut": "slm-lut",
     "slm-diagnose": "slm-diagnose",
 }
@@ -614,8 +616,11 @@ def build():
     (BASE / "raw/assets").mkdir(exist_ok=True)
 
     # copy raw artifacts
+    # 尾换行是入库格式契约的一部分 (test_call_graph_span_drift 双文件逐字节一致
+    # 断言依赖它): 缺了它, 本脚本一跑 call_graph.json 就和 call_graph_final.json
+    # 分叉。
     (BASE / "raw/assets/call_graph.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=1))
+        json.dumps(data, ensure_ascii=False, indent=1) + "\n")
 
     written = []
     # entry pages

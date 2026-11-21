@@ -33,7 +33,7 @@ Usage::
 
 Hardware PYTHONPATH (offline validation needs none)::
 
-    $env:PYTHONPATH = "D:\\Projects\\TIFO\\AO-shaping\\libs"
+    $env:PYTHONPATH = "<仓库根>\\libs"
 """
 from __future__ import annotations
 

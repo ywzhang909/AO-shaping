@@ -1,10 +1,9 @@
 # 物理预测模型保真度阶梯 · 产物占位 (等待下一次设备会话)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/hw_forward_model_fidelity_ladder.py`](../../../../../scripts/slm/hw_forward_model_fidelity_ladder.py)
-> **复现命令**: `python scripts/slm/hw_forward_model_fidelity_ladder.py --execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116`
+> **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/_hw_fidelity_ladder_sections.py`](../../../../../scripts/slm/_hw_fidelity_ladder_sections.py)
-> **运行环境**: 离线
+> **运行环境**: 人工撰写（阶梯目录的导读与运行手册; 数据产物由 ladder_summary.md 注册项覆盖）
 > **说明**: 物理预测模型保真度阶梯的产物目录 (占位): 脚本在 SLM #1 上依次上屏多个相位图案, 采集 CCD 远场, 逐图案对比模型预测与实测, 用于判定怀疑的缺失离焦项。整个阶梯只开/关一次 SLM + 相机 (背靠背开关会触发驱动冻结), 设备占用记入 device_log.json。目前仅以 --dry-run 离线演练过 (合成相位 + 占位帧), 尚未执行 --execute, 因此本目录还没有硬件结果, 不伪造数字; 运行手册与判据优先级见正文。主判据为信号区秩相关 spearman_signal, 不使用全域 spearman_coverage 下结论
 <!-- provenance:end -->
 

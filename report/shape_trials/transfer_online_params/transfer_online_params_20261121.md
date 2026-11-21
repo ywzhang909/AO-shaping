@@ -2,7 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/visualize_transfer_online_params.py`](../../../scripts/slm/visualize_transfer_online_params.py)
-> **复现命令**: `.venv\Scripts\python.exe scripts\slm\visualize_transfer_online_params.py --session data/debug/slm_transfer/20261105_173655 --trace data/debug/slm_transfer/debug_weights_real_force_20261121/fit/debug_weights/weights_history.jsonl --out report/shape_trials/transfer_online_params`
+> **复现命令**: `python scripts/slm/visualize_transfer_online_params.py --session data/debug/slm_transfer/20261105_173655 --trace data/debug/slm_transfer/debug_weights_real_force_20261121/fit/debug_weights/weights_history.jsonl --out report/shape_trials/transfer_online_params`
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/fit.py`](../../../src/ao_shaping/tools/slm/transfer/fit.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/workflow.py`](../../../src/ao_shaping/tools/slm/transfer/workflow.py)
 > **运行环境**: 离线

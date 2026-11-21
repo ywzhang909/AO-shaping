@@ -6,14 +6,14 @@
 > **数据/关联脚本**: [`scripts/slm/build_speed_decouple_plan_20261120.py`](../../scripts/slm/build_speed_decouple_plan_20261120.py)
 > **数据/关联脚本**: [`scripts/slm/plot_speed_decouple_timing_20261120.py`](../../scripts/slm/plot_speed_decouple_timing_20261120.py)
 > **运行环境**: 离线+硬件
-> **说明**: 动态整形速度解耦采集正式报告：30 条 transition（24 GS + 6 model 诊断）全 ok，原始帧 (52,1944,2592) uint16，冻结曝光 0.08ms；实机约 2.3fps 瓶颈在 SLM 写入+换槽(中位 0.312s)，非 CCD 读出或像素翻转。数据来自 data/debug/slm_transfer/speed_decouple_capture_20261120_v2/。transfer light/none 仍暂停。
+> **说明**: 动态整形速度解耦采集正式报告：30 条 transition（24 GS + 6 model 诊断）全 ok，原始帧 (52,1944,2592) uint16，冻结曝光 0.08ms；实验约 2.3fps 瓶颈在 SLM 写入+换槽(中位 0.312s)，非 CCD 读出或像素翻转。数据来自 data/debug/slm_transfer/speed_decouple_capture_20261120_v2/。transfer light/none 仍暂停。
 <!-- provenance:end -->
 
 ## 摘要
 
 本报告记录动态整形**速度解耦**实测采集：从冻结灰度 0（flat）出发，对 24 个 GS 目标相位与 6 个在可表示半径内的 model 诊断相位，各做一次 5 s 的灰度渐变过渡，全程用 Daheng CCD 全幅采集原始 uint16 帧，冻结曝光 `0.08 ms`。采集共 30 条 transition，全部 `status=ok`，无错误日志；bench 互斥锁正常释放，SLM 与 CCD 均正常关闭。
 
-关键结论：实机 SLM 灰度帧下发节拍为 **约 2.3 fps**（每条 5 s 实下发 12–14 帧），显著低于计划的 10 fps / 51 帧计划值。瓶颈位于 **SLM 写入 + 内存槽轮换**（相邻帧中位 `0.312 s`，最大 `0.562 s`），而非 CCD 曝光读出（中位 `0.075 s`）或 LCOS 像素翻转等待（中位 `7.8 ms`）。墙钟驱动的下发循环在硬件慢时**跳帧而不拉长过渡**，每条 transition 的末帧 `progress_t` 精确为 `1.0`（终点相位逐码精确）。因此计划字段 `frames=51` 是**计划帧数**，不代表实机下发帧数。
+关键结论：实验 SLM 灰度帧下发节拍为 **约 2.3 fps**（每条 5 s 实下发 12–14 帧），显著低于计划的 10 fps / 51 帧计划值。瓶颈位于 **SLM 写入 + 内存槽轮换**（相邻帧中位 `0.312 s`，最大 `0.562 s`），而非 CCD 曝光读出（中位 `0.075 s`）或 LCOS 像素翻转等待（中位 `7.8 ms`）。墙钟驱动的下发循环在硬件慢时**跳帧而不拉长过渡**，每条 transition 的末帧 `progress_t` 精确为 `1.0`（终点相位逐码精确）。因此计划字段 `frames=51` 是**计划帧数**，不代表实验下发帧数。
 
 **重要边界**：本批 model 相位只作诊断（P3 checkpoint 双资格门 fail），不构成 transfer `light/none` 的上游资格；transfer `light/none` 采集仍暂停，未获得用户再次确认，未进入 P5，未执行 transfer `light/none` 的 `--execute`。
 
@@ -33,7 +33,7 @@
 |---|---|
 | 起点 | flat gray 0 |
 | 每条时长 | 5 s |
-| 计划 fps / 计划帧数 | 10 fps / 51 帧（计划值，非实机下发帧数） |
+| 计划 fps / 计划帧数 | 10 fps / 51 帧（计划值，非实验下发帧数） |
 | 采样 | `--measure every --measure-every 1` |
 | 原始帧 | `--raw-frames stack`，CCD 原生全幅 `(1944, 2592)`，不物理开窗 |
 | 帧间 settle | `--inter-transition-settle-s 0.5` |
@@ -84,7 +84,7 @@ GS 的 24 条覆盖 `square/circle/triangle/star/rectangle/annular` × `200/500/
 
 ![CCD 曝光读出与 SLM 写入换槽耗时分解](figures/speed_decouple_20261120_timing.png)
 
-成因解释：`dispatch_frames` 的时间轴由墙钟决定（`t=(now−t0)/duration_s`），硬件慢时跳帧而非拉长过渡，只在 `t>=1.0` 结束；`display` 闭包经 `SlotRotator.display_data` 每条写入前轮换 SLM 内存槽（避免同槽连写被固件当作 no-op）。每条 transition 的下发帧实际受 SLM 写入 + 换槽路径限制（相邻 grab→下一 display 中位 `0.312 s`，n=359，按 transition 分段、只统计同一段内 `0<gap<2.0 s` 的相邻对，已排除跨 transition 的 0.5 s settle；含 SDK `display_data` 调用与槽切换开销），远大于 CCD 读出（中位 `0.075 s`）与像素翻转等待（中位 `7.8 ms`）。相邻下发帧间隔均值 `0.422 s`（中位 `0.387 s`），对应约 `2.4–2.6 fps`；`run_summary` 的 fps 按含 transition 内 settle 的总耗时计算，中位 `2.284`，两者一致指向实机约 `2.3 fps` 量级。像素翻转等待由 `pixel_flip_wait_s` 按单帧最大灰度变化估算，上限 `0.2 s`，本批最大码变 `62`（满量程 1023），故仅约 `12 ms`，不构成瓶颈。
+成因解释：`dispatch_frames` 的时间轴由墙钟决定（`t=(now−t0)/duration_s`），硬件慢时跳帧而非拉长过渡，只在 `t>=1.0` 结束；`display` 闭包经 `SlotRotator.display_data` 每条写入前轮换 SLM 内存槽（避免同槽连写被固件当作 no-op）。每条 transition 的下发帧实际受 SLM 写入 + 换槽路径限制（相邻 grab→下一 display 中位 `0.312 s`，n=359，按 transition 分段、只统计同一段内 `0<gap<2.0 s` 的相邻对，已排除跨 transition 的 0.5 s settle；含 SDK `display_data` 调用与槽切换开销），远大于 CCD 读出（中位 `0.075 s`）与像素翻转等待（中位 `7.8 ms`）。相邻下发帧间隔均值 `0.422 s`（中位 `0.387 s`），对应约 `2.4–2.6 fps`；`run_summary` 的 fps 按含 transition 内 settle 的总耗时计算，中位 `2.284`，两者一致指向实验约 `2.3 fps` 量级。像素翻转等待由 `pixel_flip_wait_s` 按单帧最大灰度变化估算，上限 `0.2 s`，本批最大码变 `62`（满量程 1023），故仅约 `12 ms`，不构成瓶颈。
 
 ## 设备占用与释放（硬件纪律）
 

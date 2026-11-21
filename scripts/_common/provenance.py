@@ -581,15 +581,29 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/fit_compare_m3_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset <M3 dataset 目录> --baseline <baseline fit 输出目录> "
+            "--updated <updated fit 输出目录> --out report/shape_trials/physical_refine/"
+            "fit_compare_m3_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）baseline(iter 0, loss 0.302758) vs updated(iter 17, loss 0.165202)："
             "correlation 0.7867→0.8814。运行一致性断言通过（manifest_sha256/checkpoint/adaptation/"
             "radiometry/ramp_matrix 相同，cv_measured 逐行一致）。仅前向预测对照，不是整形验收。"
+            "复现命令的三个输入目录是 data/debug 下的 fit 产物（语料不入库），占位符需按当次"
+            "会话路径替换。"
         ),
     ),
     "report/shape_trials/physical_refine/fit_compare_m3_z21_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset <M3 dataset 目录> --baseline <baseline fit 输出目录> "
+            "--updated <Zernike 5..21 扩展基 fit 输出目录> --out report/shape_trials/"
+            "physical_refine/fit_compare_m3_z21_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）baseline(iter 0) vs Zernike 5..21 扩展基(iter 5)：检验残差基容量是否提升下限，"
@@ -598,6 +612,12 @@ REPORTS: dict[str, ReportProvenance] = {
     ),
     "report/shape_trials/physical_refine/fit_compare_m3_z11_vs_z21_20261118.md": ReportProvenance(
         script="scripts/slm/compare_transfer_fit_runs.py",
+        command=(
+            "python scripts/slm/compare_transfer_fit_runs.py "
+            "--dataset <M3 dataset 目录> --baseline <Noll 5..11 fit 输出目录> "
+            "--updated <Noll 5..21 fit 输出目录> --out report/shape_trials/"
+            "physical_refine/fit_compare_m3_z11_vs_z21_20261118.md"
+        ),
         environment="离线对照（同一 dataset 两次 fit 输出；设备未占用）",
         note=(
             "M3 dataset（68 行）Noll 5..11(iter 17) vs Noll 5..21(iter 5)：correlation 0.8814→0.8780（更差）。"
@@ -1129,6 +1149,53 @@ REPORTS: dict[str, ReportProvenance] = {
             "图名统一 `speedup_` 前缀归属本报告。 "
             "负结果保留: 模型内 loss 下降≠光学改善、曝光对齐下原始峰值比无意义、`get_displayed_phase()` "
             "不可作证据"
+        ),
+    ),
+    "report/slm/differentiable_opt/artifacts/stepb_optimizer_lr_20261116/stepb_optimizer_lr.md": ReportProvenance(
+        script="scripts/slm/sweep_stepb_optimizer_lr.py",
+        command="python scripts/slm/sweep_stepb_optimizer_lr.py",
+        environment="离线",
+        note=(
+            "MIL Step B 优化器/学习率/调度扫描 (纯离线仿真, 不碰任何硬件设备): lr 阶梯、"
+            "余弦/阶梯/预热+余弦调度在同等物理光斑质量约束下能否砍迭代预算。"
+        ),
+    ),
+    "report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/ladder_summary.md": ReportProvenance(
+        script="scripts/slm/hw_forward_model_fidelity_ladder.py",
+        command=(
+            "python scripts/slm/hw_forward_model_fidelity_ladder.py "
+            "--execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116"
+        ),
+        environment="离线",
+        note=(
+            "保真度阶梯的逐图案汇总 (metrics.json/csv 同批产物): dry-run 演练写出占位与判据"
+            "说明, 不伪造数字; --execute 后重写为实测对比。主判据 spearman_signal。"
+        ),
+        extra_scripts=("scripts/slm/_hw_fidelity_ladder_sections.py",),
+    ),
+    "report/shape_trials/dark_frame_record_20261119.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="",
+        environment="硬件窗口记录（仅开相机，激光关闭；非脚本产物）",
+        note=(
+            "同曝光暗场采集与归档的手写记录（MER2-507-23GM, 12-bit, 8 档曝光×16 帧, "
+            "归档至 data/ccd_configs/）；暗场采集能力见 ao_shaping.tools.ccd.capture_darks，"
+            "但本记录的数据来自当次窗口操作，无单一复现命令。"
+        ),
+    ),
+    "report/shape_trials/target_phase_matrix_20261120.md": ReportProvenance(
+        script="scripts/slm/target_phase_matrix_20261120.py",
+        command=(
+            "python scripts/slm/target_phase_matrix_20261120.py "
+            "--checkpoint data/debug/slm_transfer/p3_fit_20261120/frozen_parameters.json "
+            "--out <输出目录>"
+        ),
+        environment="离线（未执行 --execute，不占用 SLM/CCD/激光）",
+        note=(
+            "冻结目标 × 相位矩阵 48 条 (6 形状 × 4 尺寸 × {gs, model}) 离线生成报告；"
+            "30 条有效相位文件, 18 条 model 网格不可表示按契约不伪造。checkpoint 为 "
+            "data/debug 语料 (不入库), 缺 checkpoint 时脚本诚实退化 (见 "
+            "tests/ao_shaping/scripts/test_target_phase_matrix_20261120.py)。"
         ),
     ),
     "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md": ReportProvenance(
@@ -2770,12 +2837,9 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116/README.md": ReportProvenance(
-        script="scripts/slm/hw_forward_model_fidelity_ladder.py",
-        command=(
-            "python scripts/slm/hw_forward_model_fidelity_ladder.py "
-            "--execute --out report/slm/differentiable_opt/artifacts/fidelity_ladder_20261116"
-        ),
-        environment="离线",
+        script=HANDWRITTEN,
+        command="",
+        environment="人工撰写（阶梯目录的导读与运行手册; 数据产物由 ladder_summary.md 注册项覆盖）",
         note=(
             "物理预测模型保真度阶梯的产物目录 (占位): 脚本在 SLM #1 上依次上屏多个相位图案, "
             "采集 CCD 远场, 逐图案对比模型预测与实测, 用于判定怀疑的缺失离焦项。整个阶梯只"
@@ -2860,7 +2924,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note=(
             "动态整形速度解耦采集正式报告：30 条 transition（24 GS + 6 model 诊断）全 ok，"
-            "原始帧 (52,1944,2592) uint16，冻结曝光 0.08ms；实机约 2.3fps 瓶颈在 SLM 写入+换槽"
+            "原始帧 (52,1944,2592) uint16，冻结曝光 0.08ms；实验约 2.3fps 瓶颈在 SLM 写入+换槽"
             "(中位 0.312s)，非 CCD 读出或像素翻转。数据来自 "
             "data/debug/slm_transfer/speed_decouple_capture_20261120_v2/。transfer light/none 仍暂停。"
         ),
@@ -2890,7 +2954,7 @@ REPORTS: dict[str, ReportProvenance] = {
     "report/shape_trials/transfer_online_params/transfer_online_params_20261121.md": ReportProvenance(
         script="scripts/slm/visualize_transfer_online_params.py",
         command=(
-            ".venv\\Scripts\\python.exe scripts\\slm\\visualize_transfer_online_params.py "
+            "python scripts/slm/visualize_transfer_online_params.py "
             "--session data/debug/slm_transfer/20261105_173655 "
             "--trace data/debug/slm_transfer/debug_weights_real_force_20261121/fit/debug_weights/weights_history.jsonl "
             "--out report/shape_trials/transfer_online_params"
@@ -2974,6 +3038,100 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/hw_differentiable_phase_opt.py",
             "src/ao_shaping/utils/wavefront/calibration_terms.py",
         ),
+    ),
+    "report/turbulence_shaping/matrix_20261121/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "3 变体 x 3 档湍流 (cn2=1e-14/2e-13/2e-12, distance=500 m) 对比择优矩阵汇总; "
+            "轴为 2026-11-21 实测 σ 标定后冻结 (~0.06/0.27-0.28/0.88-0.90 rad)"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=1e-14 (实测 σ≈0.064 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=2e-13 (实测 σ≈0.273 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=2e-12 (实测 σ≈0.884 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=1e-14 (实测 σ≈0.063 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=2e-13 (实测 σ≈0.278 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=2e-12 (实测 σ≈0.895 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=1e-14 (实测 σ≈0.063 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=2e-13 (实测 σ≈0.285 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.885 rad); 相位/光斑双 GIF + metrics.png",
     ),
 }
 

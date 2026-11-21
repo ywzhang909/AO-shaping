@@ -33,6 +33,14 @@ ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/slm/target_phase_matrix_20261120.py"
 CHECKPOINT = ROOT / "data/debug/slm_transfer/p3_fit_20261120/frozen_parameters.json"
 
+#: CI 容器不保证 data/ 语料 (docs/ci-environment-contract.md)。以下三项钉死真实
+#: P3 checkpoint 的具体数字 (490.7 px 上限、GS 全生成、sha256 幂等), 无数据即
+#: skip; 缺 checkpoint 路径的诚实退化契约由 test_dry_run_without_checkpoint_*
+#: 在 CI 上覆盖 (#251 P1-A: 缺数据不许崩, 也不许伪造)。
+needs_checkpoint = pytest.mark.skipif(
+    not CHECKPOINT.is_file(), reason=f"冻结 checkpoint 缺失: {CHECKPOINT}"
+)
+
 
 def _load():
     """按文件路径加载脚本模块（``scripts/`` 不是可导入的包）。"""
@@ -172,6 +180,7 @@ def test_model_grid_numbers_and_representability(params) -> None:
 
 
 # --------------------------------------------------------------------- dry-run
+@needs_checkpoint
 def test_dry_run_lists_48_entries_and_writes_nothing(tmp_path, capsys) -> None:
     """冻结矩阵 48 条：24 条 GS 全生成；model 仅 200 px 的 6 条生成。"""
     out = tmp_path / "dry"
@@ -189,6 +198,7 @@ def test_dry_run_lists_48_entries_and_writes_nothing(tmp_path, capsys) -> None:
 
 
 # --------------------------------------------------------------------- manifest
+@needs_checkpoint
 def test_run_writes_manifest_sha256_and_is_idempotent(tmp_path) -> None:
     """实跑 circle@200 的 GS + model：manifest 契约成立，且第二次全部 skipped。"""
     pytest.importorskip("torch")
@@ -254,6 +264,7 @@ def test_run_writes_manifest_sha256_and_is_idempotent(tmp_path) -> None:
     }
 
 
+@needs_checkpoint
 def test_unrepresentable_model_phase_is_not_faked(tmp_path) -> None:
     """500 px 在冻结模型网格外：记 skipped_unrepresentable，不写相位。"""
     out = tmp_path / "out"
@@ -272,3 +283,20 @@ def test_unrepresentable_model_phase_is_not_faked(tmp_path) -> None:
     assert payload["summary"]["representable_false"] == ["square@500"]
     phases = out / "phases"
     assert not phases.exists() or not list(phases.glob("*.npy"))
+
+
+@pytest.mark.skipif(CHECKPOINT.is_file(), reason="真实 checkpoint 场景由 48 条干跑测试覆盖")
+def test_dry_run_without_checkpoint_stays_honest(tmp_path, capsys) -> None:
+    """CI 容器场景 (缺 data/): dry-run 仍退出 0、48 条齐全, 全部诚实标
+    ``skip (unrepresentable)`` 并给出 checkpoint 缺失理由 —— 不崩溃、不伪造。"""
+    out = tmp_path / "dry"
+    argv = ["--out", str(out), "--checkpoint", str(tmp_path / "absent.json"), "--dry-run"]
+    assert matrix.main(argv) == 0
+    assert not out.exists()
+    plan = json.loads(capsys.readouterr().out)
+    assert len(plan["entries"]) == 48
+    assert plan["gs_grid"] == [600, 960]
+    for row in plan["entries"]:
+        assert row["action"] == "skip (unrepresentable)"
+        assert row["representable"] is False
+        assert "checkpoint" in row["reason"]

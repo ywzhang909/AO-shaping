@@ -3,7 +3,7 @@
 冻结矩阵: 6 个形状 x 4 个尺寸 (CCD 原生像元) x 2 条方法 = 48 条相位:
 
 * ``gs``    —— ``gerchberg_saxton`` 的纯傅里叶基线, 不依赖任何拟合参数作为"真值";
-* ``model`` —— 冻结物理前向模型 (P3 checkpoint) 上的 128 控制格可微优化, **仅作诊断**
+* ``model`` —— 冻结物理预测模型 (P3 checkpoint) 上的 128 控制格可微优化, **仅作诊断**
   (``model_phase_diagnostic_only=true``)。P3 checkpoint 双资格门 fail, 且其
   ``grid_size=128`` / ``fft_size=512`` 只覆盖零级周围 ±253.4 CCD px, 500/1000/1500 px
   目标大部分落在窗外 —— 那些尺寸不产出相位, manifest 记
@@ -602,7 +602,7 @@ def gs_phase(
 
 
 # ---------------------------------------------------------------------------
-# model: 冻结前向模型上的可微优化 (诊断专用)
+# model: 冻结物理预测模型上的可微优化 (诊断专用)
 # ---------------------------------------------------------------------------
 def _model_seed(forward: Any, target: np.ndarray, centre: tuple[float, float]) -> np.ndarray:
     """模型优化初值: 在**冻结模型自己的 FFT 网格**上对本条目标做 80 步 GS。
@@ -654,7 +654,7 @@ def model_phase(
     device: str | None = None,
     sample_step_px: float = 2.0,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """在冻结物理前向模型上优化 128x128 相位 (诊断), 目标就是已落盘的目标图。
+    """在冻结物理预测模型上优化 128x128 相位 (诊断), 目标就是已落盘的目标图。
 
     只用 ``FrozenDefocusForward.predict`` (含离焦/Zernike 残差与高斯照明), 不另造
     传播模型; 损失 = 目标窗外能量 (最小化) + 目标内掩膜 CV。初值见 ``_model_seed``
@@ -942,7 +942,7 @@ def _write_manifest(
             "note": (
                 "本批不加倾斜/载波, 目标就在零级。每条相位若给出 "
                 "diagnostics.zero_order_core_fraction_r10px, 那是该模型自己算出的 "
-                "10 px 圆盘能量占比 (数值估计, 未上机验证); 给不出时为 null 并带 null_reason。"
+                "10 px 圆盘能量占比 (数值估计, 未实验验证); 给不出时为 null 并带 null_reason。"
             ),
         },
         "grids": {"gs": gs_report, "model": model_report},

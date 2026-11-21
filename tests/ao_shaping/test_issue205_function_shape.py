@@ -151,7 +151,15 @@ _SWEEP_ANALYSIS = "src/ao_shaping/tools/kernels/sweep_analysis.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
-TARGETS = [
+def _build_targets() -> list[tuple[str, str, int, int, int]]:
+    """(relative path under src, function name, span ceiling, nesting ceiling,
+    the span measured when the guard was written).
+
+    #251 P0-B (#250 5.2 同批): 表经守卫工厂构建 —— 某行漏定义常量时
+    collection 只炸一次且消息点名; 反向分叉 (常量无行) 由文末
+    自洽元守卫拦截。
+    """
+    return [
     (_FILE, "calibrate_bench_geometry_from_sweep", 214, 3, 186),
     (_FILE, "_milsg_validate_sweeps", 30, 3, 26),
     (_FILE, "_milsg_focal_crosschecks", 32, 3, 27),
@@ -584,7 +592,15 @@ TARGETS = [
     (_WAVEFRONT_CORRECTION, "_default_calc", 155, 1, 134),
     (_WAVEFRONT_CORRECTION, "_wc_fit_correction_map", 66, 1, 57),
     (_WAVEFRONT_CORRECTION, "_wc_detect_outliers", 58, 1, 50),
-]
+    ]
+
+_TABLE_BUILD_ERROR = ""
+try:
+    TARGETS = _build_targets()
+except NameError as _exc:
+    _TABLE_BUILD_ERROR = str(_exc)
+    TARGETS = []
+
 
 NESTING_NODES = (ast.If, ast.For, ast.While, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
 
@@ -643,3 +659,65 @@ def test_the_depth_measurement_is_not_silently_zero() -> None:
         f"expected _sweep_width_groups to measure exactly 4 deep, got {nesting}; "
         "the nesting walker changed and the ceilings above mean nothing"
     )
+
+
+def _path_constants(source: str) -> set[str]:
+    """Module-level ``_NAME = "path/with/slash"`` constants."""
+    tree = ast.parse(source)
+    out: set[str] = set()
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id.startswith("_")
+        ):
+            value = node.value
+            if (
+                isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+                and "/" in value.value
+            ):
+                out.add(node.targets[0].id)
+    return out
+
+
+def _constants_used_by_table(source: str) -> set[str]:
+    """Path constants referenced from ``_build_targets`` rows."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_build_targets":
+            return {
+                n.id
+                for n in ast.walk(node)
+                if isinstance(n, ast.Name) and n.id.startswith("_")
+            }
+    return set()
+
+
+def test_the_ratchet_table_builds_without_missing_constants() -> None:
+    """正向: 表引用的每个路径常量必须已定义 (缺失时只报一次并列出名字)。"""
+    assert _TABLE_BUILD_ERROR == "", (
+        f"the TARGETS table references an undefined path constant: {_TABLE_BUILD_ERROR} -- "
+        "define it in the same commit as the row (#251 P0-B)"
+    )
+
+
+def test_no_zombie_path_constants() -> None:
+    """反向: 每个定义的路径常量至少被一条表条目引用 (防僵尸常量)。"""
+    source = Path(__file__).read_text(encoding="utf-8")
+    zombies = sorted(_path_constants(source) - _constants_used_by_table(source))
+    assert not zombies, (
+        f"path constants with no TARGETS row (zombie, table and constants drifted apart): {zombies} -- delete them with the rows"
+    )
+
+
+def test_the_self_check_catches_both_forks() -> None:
+    """元守卫自测 (负样本): 缺常量与僵尸常量都要能被识别。"""
+    source = (
+        '_A = "src/a.py"\n_B = "src/b.py"\n\n\ndef _build_targets():\n'
+        '    return [(_A, "f", 1, 1, 1)]\n'
+    )
+    assert _path_constants(source) == {"_A", "_B"}
+    assert _constants_used_by_table(source) == {"_A"}
+    assert _path_constants(source) - _constants_used_by_table(source) == {"_B"}
