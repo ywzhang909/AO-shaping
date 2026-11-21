@@ -2911,6 +2911,27 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/diagnose_zernike_direction_lr.py",
         ),
     ),
+    "report/shape_trials/diff_phase_monotonicity_replay_20261121.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note=(
+            "可微光束优化逐轮 SLM 相位的离线回放与逐像素单调性诊断："
+            "逐轮相位未落盘，但用 scripts/slm/render_differentiable_opt_animation.py 的重放设施"
+            "逐位精确重建 121 帧相位栈（120 轮 loss 对 history.csv max_rel_diff=0、"
+            "最终相位对 phase_final.npy max_abs_diff=0）。"
+            "scripts/slm/replay_diff_phase_monotonicity.py 经 phase_model_to_panel 做中心对齐+"
+            "最近邻尺寸缩放后，统计 active 像素（4.9%）的符号一致性：均值 0.611、"
+            "单调(>=0.9)像素仅 0.06%；真实 lr 反事实重放显示当前 lr=0.05 近最优，"
+            "0.08/0.12 使最终 loss 变差 8%/22%。结论：像素级相位更新不单调，不建议放大 lr，"
+            "与 transfer fit 阶段 Zernike 放大 lr 处方不可混用。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/replay_diff_phase_monotonicity.py",
+            "scripts/slm/render_differentiable_opt_animation.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
+        ),
+    ),
 }
 
 
