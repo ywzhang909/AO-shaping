@@ -2932,6 +2932,29 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
         ),
     ),
+    "report/shape_trials/multistart_batch_and_cpu_gpu_analysis_20261121.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note=(
+            "可微光束整形 B=2 多起点批量并行 + CPU→GPU 整合分析："
+            "scripts/slm/sweep_differentiable_multistart_batch.py 复用 differentiable_problem 重建入口，"
+            "一次 batch FFT 前向+一次反传+单 Adam(B,M,M)，每条 trajectory 独立峰值归一化、独立 copy 初相；"
+            "真实存档 20261116_114424 跑 120 轮，batch trajectory 0 对照单条串行 loss max_rel_diff=6.56e-7、"
+            "最终相位 max_abs_diff=3.34e-6（容差内 PASS，非 bit-exact）；双初相 RMS 差 0.05 证明非重复计算。"
+            "端到端吞吐 3.37x（batch 1486 vs 串行 441 fields/s，其中混入去掉 D2H 同步/记账的收益，"
+            "纯 batching 约 1.9x，不宣称实机帧率提升）。CPU→GPU 分析：P4 200 步全 GPU，P6b 闭环 5 步的 "
+            "scipy map_coordinates / numpy 可搬 torch（grid_sample 有现成先例），但秒级 SLM/CCD I/O 主导延迟；"
+            "建议仅做 grid_sample 重采样 + 消除重复 D2H 同步。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/sweep_differentiable_multistart_batch.py",
+            "scripts/_common/differentiable_problem.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
+            "src/ao_shaping/algorithm/_torch_support.py",
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "src/ao_shaping/utils/wavefront/calibration_terms.py",
+        ),
+    ),
 }
 
 
