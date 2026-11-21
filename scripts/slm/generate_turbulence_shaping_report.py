@@ -42,7 +42,18 @@ from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-_METRIC_KEYS = ("quality", "cv", "ee", "ar", "pbr", "J")
+_METRIC_KEYS = ("quality", "shape", "cv", "ee", "ar", "pbr")
+
+#: 各变体的"好坏一分"列名不同: square 记 `quality`, spgd/heuristic 的 shape 目标记
+#: `shape` (= J)。报告一律先找 quality 再找 shape, 缺列时该分节降级而不是打红。
+_SCORE_FALLBACK = ("quality", "shape")
+
+
+def _score_of(row: dict) -> float | None:
+    for key in _SCORE_FALLBACK:
+        if row.get(key) is not None:
+            return float(row[key])
+    return None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -52,6 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--fps", type=float, default=6.0, help="GIF 帧率")
     ap.add_argument("--phase-grid", type=int, default=256, help="相位重建网格边长")
     ap.add_argument("--max-frames", type=int, default=80, help="GIF 帧数上限 (均匀抽样)")
+    ap.add_argument("--max-side", type=int, default=256, help="GIF 最长边 px (提交档建议 ≤192 控制体积)")
     return ap.parse_args(argv)
 
 
@@ -95,21 +107,34 @@ def _subsample(rows: list, epochs: list, max_frames: int) -> tuple[list, list]:
     return [rows[i] for i in idx], [epochs[i] for i in idx]
 
 
-def _write_gif(frames: list[np.ndarray], path: Path, fps: float) -> None:
-    import matplotlib.animation as animation
+def _write_gif(frames: list[np.ndarray], path: Path, fps: float, max_side: int) -> None:
+    """PIL 直编码 GIF: 画布 = 数据像素, 受 ``max_side`` 真实控制。
 
-    fig = plt.figure(figsize=(4.6, 4.2))
-    ax = fig.add_subplot(111)
-    ax.set_axis_off()
-    im = ax.imshow(frames[0], vmin=0.0, vmax=1.0)
+    旧 FuncAnimation 路径把每帧画进固定的 4.6x4.2 英寸画布 (460x420 px),
+    ``max_side`` 只能缩小 imshow 数据区而缩不了 GIF 尺寸 (实测 60 帧 460x420
+    单文件 6 MB)。改为 viridis→RGB、resize 到 max_side、量化 128 色、optimize。
+    """
+    from PIL import Image
 
-    def _draw(i: int):
-        im.set_data(frames[i])
-        return (im,)
-
-    ani = animation.FuncAnimation(fig, _draw, frames=len(frames), blit=False)
-    ani.save(path, writer=animation.PillowWriter(fps=fps))
-    plt.close(fig)
+    cmap = plt.get_cmap("viridis")
+    rgb = []
+    for f in frames:
+        arr = np.clip(np.asarray(f, dtype=np.float64), 0.0, 1.0)
+        if arr.ndim == 3 and arr.shape[-1] == 3:  # spot_frames 已带标注条 RGB
+            img = Image.fromarray((arr * 255).astype(np.uint8))
+        else:  # phase_frames 等 2D 灰度 → viridis
+            img = Image.fromarray((cmap(arr)[..., :3] * 255).astype(np.uint8))
+        if max(img.size) > max_side:
+            scale = max_side / max(img.size)
+            img = img.resize(
+                (max(int(img.width * scale), 1), max(int(img.height * scale), 1)),
+                Image.BILINEAR,
+            )
+        rgb.append(img.convert("P", palette=Image.ADAPTIVE, colors=128))
+    rgb[0].save(
+        path, save_all=True, append_images=rgb[1:],
+        duration=int(round(1000.0 / fps)), loop=0, optimize=True,
+    )
 
 
 def spot_frames(rows: list[dict], side_px: float | None) -> list[np.ndarray]:
@@ -132,12 +157,12 @@ def spot_frames(rows: list[dict], side_px: float | None) -> list[np.ndarray]:
             for x in (max(cx - half, 0), min(cx + half, w - 1)):
                 rgb[max(cy - half, 0):cy + half, x] = 255
         ep = rows[i].get(RECORD_EPOCH, i)
-        q = rows[i].get("quality")
+        q = _score_of(rows[i])
         canvas = np.ones((h + 16, w, 3), dtype=np.uint8) * 245
         canvas[16:] = rgb
         img = Image.fromarray(canvas)
         draw = ImageDraw.Draw(img)
-        label = f"epoch {ep}" + (f"   quality {float(q):.3f}" if q is not None else "")
+        label = f"epoch {ep}" + (f"   score {q:.4f}" if q is not None else "")
         draw.text((4, 2), label, fill=(10, 10, 10))
         frames.append(np.asarray(img).astype(np.float64) / 255.0)
     return frames
@@ -189,7 +214,9 @@ def metrics_png(rows: list[dict], out: Path) -> str:
     return name
 
 
-def build_report(run_dir: Path, out: Path, *, fps: float, phase_grid: int, max_frames: int) -> dict:
+def build_report(
+    run_dir: Path, out: Path, *, fps: float, phase_grid: int, max_frames: int, max_side: int = 256
+) -> dict:
     run_meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8")) if (run_dir / "run.json").is_file() else {}
     dist = json.loads((run_dir / "disturbance.json").read_text(encoding="utf-8")) if (run_dir / "disturbance.json").is_file() else {}
     rows, epochs = load_records(run_dir)
@@ -200,15 +227,15 @@ def build_report(run_dir: Path, out: Path, *, fps: float, phase_grid: int, max_f
     sp = spot_frames(sub_rows, side_px=float(side) if side else None)
     ph = phase_frames(sub_rows, n_max=sidecar_n_max(run_dir), grid=phase_grid)
     if sp:
-        _write_gif(sp, out / "spot_evolution.gif", fps)
+        _write_gif(sp, out / "spot_evolution.gif", fps, max_side)
     if ph:
-        _write_gif(ph, out / "phase_evolution.gif", fps)
+        _write_gif(ph, out / "phase_evolution.gif", fps, max_side)
     mname = metrics_png(rows, out)
 
     meas = dist.get("measured", {})
     first_q, last_q, best_q = None, None, None
-    if rows and rows[0].get("quality") is not None:
-        qs = [float(r["quality"]) for r in rows if r.get("quality") is not None]
+    qs = [s for s in (_score_of(r) for r in rows) if s is not None]
+    if qs:
         first_q, last_q, best_q = qs[0], qs[-1], max(qs)
     lines = [
         f"# 湍流仿真整形实验报告 — {run_dir.name}",
@@ -256,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = args.run_dir.resolve()
     out = args.out or (ROOT / "report" / "turbulence_shaping" / run_dir.name)
     summary = build_report(
-        run_dir, Path(out), fps=args.fps, phase_grid=args.phase_grid, max_frames=args.max_frames
+        run_dir, Path(out), fps=args.fps, phase_grid=args.phase_grid,
+        max_frames=args.max_frames, max_side=args.max_side,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

@@ -81,8 +81,13 @@ class TurbShapingParams:
         float, option("--cn2", type=float, help="折射率结构常数 (生成器旋钮)")
     ] = 2e-13
     distance_m: Annotated[
-        float, option("--distance-m", type=float, help="生成器路径长度旋钮 [m]")
-    ] = 1.0
+        float,
+        option(
+            "--distance-m",
+            type=float,
+            help="生成器路径长度旋钮 [m] (默认 500: 标定到 σ≈0.09 rad @ cn2=1e-14)",
+        ),
+    ] = 500.0
     l_max: Annotated[float, option("--l-max", type=float, help="外尺度 [m]")] = 10.0
     l_min: Annotated[float, option("--l-min", type=float, help="内尺度 [m]")] = 0.01
     halo_pv_waves: Annotated[

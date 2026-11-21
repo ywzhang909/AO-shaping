@@ -26,9 +26,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-#: 矩阵轴 (2026-11-21 冻结): 三个 SPGD 族变体 × 三档 cn2。
+#: 矩阵轴 (2026-11-21 标定后冻结): 三个 SPGD 族变体 × 三档湍流强度。
+#: cn2 与 distance_m(=500, runner 默认) 是退化的生成器旋钮, 档位按**实测 σ_turb**
+#: 标定 (~0.09 / ~0.40 / ~1.8 rad); 第一版网格 (distance=1) 实测 σ 仅 0.006-0.03
+#: rad, 湍流近乎名义值, 无实验区分度, 已作废重跑 (台账第 179 批)。
 VARIANTS = ("spgd", "square", "heuristic")
-CN2_GRID = (5e-14, 2e-13, 1e-12)
+CN2_GRID = (1e-14, 2e-13, 2e-12)
 BASE_DIST_SEED = 20261121
 
 
@@ -89,14 +92,16 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
     for res in results:
         cell_dir = report_root / f"{res['variant']}_cn2{res['cn2']:g}"
         build_report(
-            Path(res["run_dir"]), cell_dir, fps=6.0, phase_grid=256, max_frames=60
+            Path(res["run_dir"]), cell_dir, fps=6.0, phase_grid=256,
+            max_frames=24, max_side=160,
         )
         rows.append({
             "variant": res["variant"],
             "cn2": res["cn2"],
             "sigma_total_rad": res["measured"]["sigma_total_rad"],
             "evals": int(res["measured"]["calls"]),
-            "report": cell_dir.relative_to(report_root.parent).as_posix() + "/report.md",
+            # 链接相对**汇总表自身所在目录** (report_root) 解析, 不是其父目录
+            "report": (cell_dir / "report.md").relative_to(report_root).as_posix(),
         })
 
     by_cn2: dict[float, list[dict]] = {}

@@ -2951,6 +2951,100 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_objective.py",
         ),
     ),
+    "report/turbulence_shaping/matrix_20261121/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "3 变体 x 3 档湍流 (cn2=1e-14/2e-13/2e-12, distance=500 m) 对比择优矩阵汇总; "
+            "轴为 2026-11-21 实测 σ 标定后冻结 (~0.06/0.27-0.28/0.88-0.90 rad)"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=1e-14 (实测 σ≈0.064 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=2e-13 (实测 σ≈0.273 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/spgd_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 spgd x cn2=2e-12 (实测 σ≈0.884 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=1e-14 (实测 σ≈0.063 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=2e-13 (实测 σ≈0.278 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/square_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 square x cn2=2e-12 (实测 σ≈0.895 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=1e-14 (实测 σ≈0.063 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=2e-13 (实测 σ≈0.285 rad); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121/heuristic_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 60 "
+            "--out-root data/turb_matrix --report-root report/turbulence_shaping/matrix_20261121"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="矩阵单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.885 rad); 相位/光斑双 GIF + metrics.png",
+    ),
 }
 
 

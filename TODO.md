@@ -5865,6 +5865,15 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - `scripts/slm/run_turb_shaping_matrix.py`: 冻结 3 变体 × 3 档 cn2 = 9 单元 (dist_seed=BASE+slot), 单元经 `run_arm` + `build_report` (不复制实现), 汇总矩阵报告 = 实测 σ 表 + 逐单元 GIF 报告链接 + 对比择优口径; `--dry-run` 只打印计划零副作用 (CI 环境契约)
 - 测试 3 项 (axes 冻结 / 9 单元 plan 可构造 `TurbShapingParams` 且目录互不撞 / dry-run 零写入) 全绿; scripts README 登记
 - 载体: turb 套件 **7 passed** (spgd calls 回归钉同时证明 177 前 spgd 也在说谎); ruff 0 / term 0 / modsize 0
+**2026-11-21 · 0a222ac6 之后 · 第 179 批: #253 M2b —— 矩阵轴标定冻结 + GIF 直编码降体积 + 报告入库 (附 ci179 drivers 红修复)**
+- **drivers 红根因** (ci179, 经 job-log 端点 `grep FAILED` 定位): `turbulence_harness.py` 未登记 `drivers/sim/AGENTS.md` 文档树, `test_drivers_doc_tree` 打红 → 补树行; 177 批「drivers 被 addopts ignore, 电池必须显式路径跑」教训固化进本批电池 (显式 `tests/ao_shaping/drivers`: 2400 pass / 230 skip)
+- **矩阵轴标定冻结**: runner `--distance-m` 默认 1.0→**500** (1 m 处实测 σ 仅 0.006-0.03 rad, 湍流近乎名义值, 无实验区分度, 第一版矩阵作废重跑); `CN2_GRID=(1e-14, 2e-13, 2e-12)` → 实测 σ ≈ 0.063 / 0.273-0.285 / 0.884-0.895 rad 三档分明; 头注释记录标定依据
+- **GIF 体积根因**: 旧 `_write_gif` 的 FuncAnimation 路径把每帧画进固定 4.6×4.2 英寸画布 (460×420 px), `max_side` 只缩 imshow 数据区**缩不了画布** (实测 60 帧单元 6 MB, 全矩阵 45 MB) → 重写为 **PIL 直编码**: viridis→RGB、resize 至 max_side、量化 128 色、optimize; spot 帧自带标注条 RGB 按 ndim 分支 (误对 3D 帧套 cmap 会炸 `(1,1,3,3)|u1`); 矩阵参数冻结 24 帧 / 160 px → 全矩阵 **5.6 MB (1/8)**
+- 汇总报告单元链接 bug: `report_matrix` 按 `report_root.parent` 生成相对路径, 而守卫 `test_report_relative_links_resolve` 按**汇总表自身目录**解析 → 改 `(cell_dir/"report.md").relative_to(report_root)`
+- provenance 登记两条顺序不变量 (均实测踩红): (1) 任何再生成必须在 `sync_report_provenance.py` **之前** (build_report 重写 report.md 会抹掉溯源块, 11 项红); (2) 守卫要求 command 与 registry script **同名** → 单元条目 script=`run_turb_shaping_matrix.py` (实际写出者), 生成器列汇总条目 extra_scripts; 共登记 10 条 (登记后 REPORTS 总数 244), sync 渲染 10 份溯源块
+- 环境陷阱两条: **同一并行工具块内 edit 与 bash 存在竞态** —— 第一次"新参数重跑"实际跑的旧代码 (探针查出 60 帧/460px), 依赖编辑与其执行必须分轮; docker 容器内 root 写报告文件 → 宿主 `rm` 权限拒绝, 经容器内 `rm + chown -R 1000:1000` 清理
+- **标定矩阵实验 9/9 全 exit 0** 入库 `report/turbulence_shaping/matrix_20261121/` (每单元 report.md + 相位/光斑双 GIF + metrics.png, 汇总 = 三档 σ 实测对比择优表): heuristic-PSO 全面领先 (736 求值, shape -1.43→-0.56..-0.65), spgd-adamod 弱 (124 求值, -1.42→-1.15), square 高 σ (0.9 rad) 末值**低于**首值 (0.586→0.557) → 均入 M3 素材 (提 n_max / 调参 / 缩窄择优)
+- 载体: 电池 2400 pass / provenance+matrix 复跑 987 pass / ruff 0 / term 0 / modsize 0 / preflight 五通道绿
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

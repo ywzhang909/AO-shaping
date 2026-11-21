@@ -36,7 +36,7 @@ def matrix():
 
 def test_matrix_axes_are_the_frozen_grid(matrix) -> None:
     assert matrix.VARIANTS == ("spgd", "square", "heuristic")
-    assert matrix.CN2_GRID == (5e-14, 2e-13, 1e-12)
+    assert matrix.CN2_GRID == (1e-14, 2e-13, 2e-12)
 
 
 def test_cell_plans_construct_params_and_are_unique(matrix, tmp_path: Path) -> None:
