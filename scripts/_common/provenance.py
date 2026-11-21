@@ -2887,6 +2887,26 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/algorithm/signal_processing/differentiable_objective.py",
         ),
     ),
+    "report/shape_trials/transfer_online_params/transfer_online_params_20261121.md": ReportProvenance(
+        script="scripts/slm/visualize_transfer_online_params.py",
+        command=(
+            ".venv\\Scripts\\python.exe scripts\\slm\\visualize_transfer_online_params.py "
+            "--session data/debug/slm_transfer/20261105_173655 "
+            "--trace data/debug/slm_transfer/debug_weights_real_force_20261121/fit/debug_weights/weights_history.jsonl "
+            "--out report/shape_trials/transfer_online_params"
+        ),
+        environment="离线",
+        note=(
+            "transfer 在线训练参数变化可视化：闭环轮次图从 rounds.json 读指标、从各轮 frozen_parameters.json "
+            "补出参数（6 轮，参数只在 0→1 轮跳变后持平，全部未验收）；逐迭代图从 "
+            "debug_weights_real_force_20261121 的 weights_history.jsonl 读真实采集下的 7 次迭代 × 18 参数，"
+            "训练损失 0.39325→0.34548。两图的参数线各自按全程极差归一化。纯离线重绘既有存档，未操作设备。"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/transfer/fit.py",
+            "src/ao_shaping/tools/slm/transfer/workflow.py",
+        ),
+    ),
     "report/shape_trials/debug_weights_real_verification_20261121.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

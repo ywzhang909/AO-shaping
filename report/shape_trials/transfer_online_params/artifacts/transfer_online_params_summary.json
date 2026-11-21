@@ -1,0 +1,88 @@
+{
+  "round_session": "data\\debug\\slm_transfer\\20261105_173655",
+  "round_sources": [
+    "fit/frozen_parameters.json",
+    "fit.round1/frozen_parameters.json",
+    "fit.round2/frozen_parameters.json",
+    "fit.round3/frozen_parameters.json",
+    "fit.round4/frozen_parameters.json",
+    "fit.round5/frozen_parameters.json"
+  ],
+  "round_rows": [
+    {
+      "round": 0,
+      "measured_correlation": 0.7599333384930262,
+      "measured_relative_l2": 0.5480628455771942,
+      "accepted": false
+    },
+    {
+      "round": 1,
+      "measured_correlation": 0.6616783586211823,
+      "measured_relative_l2": 0.6062889325015741,
+      "accepted": false
+    },
+    {
+      "round": 2,
+      "measured_correlation": 0.6616783586211823,
+      "measured_relative_l2": 0.6062889325015741,
+      "accepted": false
+    },
+    {
+      "round": 3,
+      "measured_correlation": 0.6616783586211823,
+      "measured_relative_l2": 0.6062889325015741,
+      "accepted": false
+    },
+    {
+      "round": 4,
+      "measured_correlation": 0.6616783586211823,
+      "measured_relative_l2": 0.6062889325015741,
+      "accepted": false
+    },
+    {
+      "round": 5,
+      "measured_correlation": 0.6616783586211823,
+      "measured_relative_l2": 0.6062889325015741,
+      "accepted": false
+    }
+  ],
+  "trace_file": "data\\debug\\slm_transfer\\debug_weights_real_force_20261121\\fit\\debug_weights\\weights_history.jsonl",
+  "trace_iterations": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "trace_losses": [
+    0.39324551820755005,
+    0.3749158978462219,
+    0.3773155212402344,
+    0.362912654876709,
+    0.35193318128585815,
+    0.34996604919433594,
+    0.34547632932662964
+  ],
+  "trace_parameters": [
+    "defocus_diopter",
+    "gain",
+    "background",
+    "sigma_ccd_px",
+    "origin_0",
+    "origin_1",
+    "amplitude_center_0",
+    "amplitude_center_1",
+    "amplitude_width_0",
+    "amplitude_width_1",
+    "residual_noll_5",
+    "residual_noll_6",
+    "residual_noll_7",
+    "residual_noll_8",
+    "residual_noll_9",
+    "residual_noll_10",
+    "residual_noll_11"
+  ],
+  "note": "rounds.json 不记录参数；轮次参数由每轮 frozen_parameters.json 补出。"
+}
