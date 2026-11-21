@@ -5874,6 +5874,7 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 环境陷阱两条: **同一并行工具块内 edit 与 bash 存在竞态** —— 第一次"新参数重跑"实际跑的旧代码 (探针查出 60 帧/460px), 依赖编辑与其执行必须分轮; docker 容器内 root 写报告文件 → 宿主 `rm` 权限拒绝, 经容器内 `rm + chown -R 1000:1000` 清理
 - **标定矩阵实验 9/9 全 exit 0** 入库 `report/turbulence_shaping/matrix_20261121/` (每单元 report.md + 相位/光斑双 GIF + metrics.png, 汇总 = 三档 σ 实测对比择优表): heuristic-PSO 全面领先 (736 求值, shape -1.43→-0.56..-0.65), spgd-adamod 弱 (124 求值, -1.42→-1.15), square 高 σ (0.9 rad) 末值**低于**首值 (0.586→0.557) → 均入 M3 素材 (提 n_max / 调参 / 缩窄择优)
 - 载体: 电池 2400 pass / provenance+matrix 复跑 987 pass / ruff 0 / term 0 / modsize 0 / preflight 五通道绿
+- **ci180 (178 批 tip) Pytest 三条红复盘**: drivers doc tree (本批已修) + `test_cli_help_golden[main:slm-turb-shaping]` 与 `test_cli_contract_freeze::test_help_text_matches_golden` —— 178 批加 heuristic 选项、179 批改 `--distance-m` 默认, 都动了 help 却没重生成 golden; 漏网原因是电池只跑了 `tests/ao_shaping/runners/slm` 子目录, 而这两个契约文件在 `runners/` **顶层** (preflight 五通道亦不覆盖)。固化: **凡改 runner help/默认值, 必须 `AO_UPDATE_HELP_GOLDEN=1` 重生成并跑 `tests/ao_shaping/runners/test_cli_help_golden.py` + `test_cli_contract_freeze.py`**; 本批后续提交重生成 golden (实测 diff 仅 `main:slm-turb-shaping` 一条)
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
