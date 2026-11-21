@@ -2895,6 +2895,8 @@ REPORTS: dict[str, ReportProvenance] = {
             "短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整跑通，"
             "weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物"
             "在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。"
+            "debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；"
+            "scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。"
             "口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，"
             "须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。"
         ),
@@ -2902,6 +2904,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/workflow.py",
             "src/ao_shaping/tools/slm/transfer/fit.py",
             "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/visualize_weights_tsne.py",
         ),
     ),
 }
