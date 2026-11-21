@@ -15,7 +15,7 @@ python src/ao_shaping/main.py --help
 python src/ao_shaping/main.py wf --help
 ```
 
-当前共 **20 个命令**：
+当前共 **21 个命令**：
 
 | 命令 | 一句话用途 | 详情章节 |
 |---|---|---|
@@ -39,6 +39,7 @@ python src/ao_shaping/main.py wf --help
 | `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 20 |
 | `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 21 |
 | `slm-transfer-shapes` | 物理预测模型多形状整形（model → shaping → replay → record 四阶段，逐 CCD 块验收） | 22 |
+| `slm-turb-shaping` | 湍流仿真光束整形实验（数字孪生闭环 + 相位/光斑动态演化报告，#253） | 23 |
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
 
@@ -365,3 +366,26 @@ python src/ao_shaping/main.py slm-transfer-shapes \
     --out data/debug/slm_transfer/session2 \
     --model-dir data/debug/slm_transfer/session --execute
 ```
+
+## 23. slm-turb-shaping
+
+湍流仿真光束整形实验（#253）：在 2f-Fourier 数字孪生上给 `slm-pib` 的 `spgd` /
+`square` 两个变体挂 `SimDisturbance` 时变波前扰动跑闭环，落 recorder pkl +
+`disturbance.json/npz` + `run.json`，并以 `--report`（默认开）调用离线生成器
+`scripts/slm/generate_turbulence_shaping_report.py` 产出**相位与目标光斑的动态
+演化 GIF** + 指标曲线报告。全程 sim-only，不触碰任何硬件。
+
+```bash
+python src/ao_shaping/main.py slm-turb-shaping \
+    --algorithm square --turb-mode dynamic --cn2 2e-13 \
+    --epochs 200 --dist-seed 7 --cam-size 512 --target-side 120 \
+    --report --report-out report/turbulence_shaping/run1
+```
+
+| 关键 flag | 默认 | 说明 |
+|---|---|---|
+| `--algorithm` | `square` | `spgd`（Zernike PIB shape 目标）/ `square`（方形综合质量分） |
+| `--turb-mode` | `dynamic` | `none` / `static`（冻结屏）/ `dynamic`（逐求值独立屏，时间白极限） |
+| `--cn2` | `2e-13` | 生成器旋钮（与 `--distance-m` 退化，幅度以实测 `stats()` 为准） |
+| `--dist-seed` | `5` | 干扰主种子；square 变体同时透传给优化器 `--seed` 保证可复现 |
+| `--dry-run` | off | 只打印组装的 `slm-pib` argv，零副作用 |

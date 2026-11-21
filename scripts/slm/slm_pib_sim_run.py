@@ -53,9 +53,17 @@ from ao_shaping.drivers.sim.slm_pib_sim import (
 #: Fixed optical-system seed (the report's baseline runs use the same value).
 SYSTEM_SEED = 42
 
-#: Name of the companion manifest / archive written next to each run.
-COMPANION_JSON = "disturbance.json"
-COMPANION_NPZ = "disturbance.npz"
+#: 伴随产物文件名与注入状态的唯一来源在 drivers.sim.turbulence_harness
+#: (#253 收口: 脚本与新 runner 共用同一实现, 此处仅为旧引用面保留转发)。
+from ao_shaping.drivers.sim.turbulence_harness import (
+    COMPANION_JSON,
+    COMPANION_NPZ,
+    artifact_roots as _artifact_roots,
+    find_new_artifact_dir,
+    install_disturbance_system,
+    run_dir_of,
+    write_disturbance_companion,
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -189,40 +197,9 @@ def resolve_tag(args: argparse.Namespace) -> str:
     return args.dist_tag or args.disturbance
 
 
-def _artifact_roots(data_root: Path) -> set[Path]:
-    """Resolved ``slm_pib_*`` run-root dirs currently under ``<data_root>/debug``."""
-    debug_root = Path(data_root) / "debug"
-    if not debug_root.is_dir():
-        return set()
-    return {p.resolve() for p in debug_root.glob("slm_pib_*") if p.is_dir()}
-
-
-def find_new_artifact_dir(data_root: Path, before: set[Path]) -> Path | None:
-    """Return the artifact root created by the run that just finished.
-
-    Uses a before/after set difference rather than "newest by mtime" so a
-    concurrently-running session cannot make this pick the wrong directory.
-    Falls back to the newest existing root only when no new one appeared.
-    """
-    after = _artifact_roots(data_root)
-    new = sorted(after - before, key=lambda p: p.stat().st_mtime, reverse=True)
-    if new:
-        return new[0]
-    existing = sorted(after, key=lambda p: p.stat().st_mtime, reverse=True)
-    return existing[0] if existing else None
-
-
-def run_dir_of(artifact_root: Path) -> Path:
-    """The nested dir holding the ``.pkl`` (what the report globs as ``slm_pib_*/*``)."""
-    subdirs = (
-        [p for p in artifact_root.iterdir() if p.is_dir()]
-        if artifact_root.is_dir()
-        else []
-    )
-    with_pkl = [p for p in subdirs if any(p.glob("*.pkl"))]
-    if with_pkl:
-        return max(with_pkl, key=lambda p: p.stat().st_mtime)
-    return artifact_root
+def _install_disturbance_reset(disturbance: SimDisturbance) -> None:
+    """转发到 drivers.sim.turbulence_harness.install_disturbance_system。"""
+    install_disturbance_system(disturbance)
 
 
 def write_companion(
@@ -233,88 +210,14 @@ def write_companion(
     archive_factor: int = 8,
     archive_max: int = 12,
 ) -> tuple[Path, Path]:
-    """Write ``disturbance.json`` + ``disturbance.npz`` into ``run_dir``.
-
-    Args:
-        disturbance: The model that was attached to the run.
-        run_dir: Directory holding the run's ``.pkl`` (created if missing).
-        run_meta: Run identity recorded under the manifest's ``"run"`` key.
-        archive_factor: Spatial decimation factor for the archived thumbnails.
-        archive_max: Maximum number of distinct screens archived.
-
-    Returns:
-        ``(json_path, npz_path)``.
-    """
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    archive = disturbance.archive(factor=archive_factor, max_count=archive_max)
-    trace = disturbance.trace()
-    npz_path = run_dir / COMPANION_NPZ
-    np.savez_compressed(
-        npz_path,
-        screens=archive["screens"],
-        streak_indices=archive["streak_indices"],
-        call_rms=np.asarray(trace["call_rms"], dtype=np.float64),
-        call_streak_index=np.asarray(trace["call_streak_index"], dtype=np.int32),
-        archive_factor=np.int32(archive_factor),
+    """转发到 harness 的 write_disturbance_companion (旧调用面不变)。"""
+    return write_disturbance_companion(
+        disturbance,
+        run_dir,
+        run_meta=run_meta,
+        archive_factor=archive_factor,
+        archive_max=archive_max,
     )
-
-    measured = disturbance.stats()
-    payload = {
-        "enabled": bool(disturbance.enabled),
-        "mode": disturbance.config.mode,
-        "config": disturbance.to_dict()["config"],
-        "measured": measured,
-        "run": {
-            **run_meta,
-            "screens_archived": int(archive["screens"].shape[0]),
-            "streaks_total": int(measured["streaks_used"]),
-        },
-    }
-    json_path = run_dir / COMPANION_JSON
-    json_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-
-    free = int(archive["screens"].shape[0])
-    if free < int(measured["streaks_used"]):
-        logger.info(
-            "archived {} of {} used screens (sub-sampled for size); call_rms kept in full",
-            free,
-            int(measured["streaks_used"]),
-        )
-    return json_path, npz_path
-
-
-_INJECTED_DISTURBANCE: SimDisturbance | None = None
-
-
-def _install_disturbance_reset(disturbance: SimDisturbance) -> None:
-    """Make every ``slm_pib_sim.reset_system`` call re-attach ``disturbance``.
-
-    The runner's sim patch imports ``reset_system`` *inside* the
-    function and calls it with a seed only, which replaces the process-wide
-    system and silently discards whatever disturbance the harness installed.
-    That import resolves the module attribute at call time, so wrapping the
-    attribute here is enough -- and without it the run executes disturbance-free
-    while the companion manifest claims otherwise.
-    """
-    global _INJECTED_DISTURBANCE
-    _INJECTED_DISTURBANCE = disturbance
-
-    import ao_shaping.drivers.sim.slm_pib_sim as sim_module
-
-    if getattr(sim_module.reset_system, "_disturbance_wrapper", False):
-        return
-    original = sim_module.reset_system
-
-    def _reset_with_disturbance(seed=None, *, disturbance=None):
-        if disturbance is None:
-            disturbance = _INJECTED_DISTURBANCE
-        return original(seed, disturbance=disturbance)
-
-    _reset_with_disturbance._disturbance_wrapper = True  # type: ignore[attr-defined]
-    sim_module.reset_system = _reset_with_disturbance
 
 
 def _patch_santec() -> None:

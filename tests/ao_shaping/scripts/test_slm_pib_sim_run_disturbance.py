@@ -276,9 +276,10 @@ def test_runner_reset_system_does_not_discard_the_disturbance() -> None:
     """
     mod = _load_runner()
     import ao_shaping.drivers.sim.slm_pib_sim as sim_module
+    import ao_shaping.drivers.sim.turbulence_harness as harness
 
     original = sim_module.reset_system
-    previous_injected = mod._INJECTED_DISTURBANCE
+    previous_injected = harness._injected
     try:
         # Match the default panel: reset_system builds a full-size SimPibSystem.
         dist = SimDisturbance(DisturbanceConfig(mode="static"), (1200, 1920))
@@ -293,16 +294,17 @@ def test_runner_reset_system_does_not_discard_the_disturbance() -> None:
         assert dist.stats()["calls"] == 1.0
     finally:
         sim_module.reset_system = original
-        mod._INJECTED_DISTURBANCE = previous_injected
+        harness._injected = previous_injected
         original(seed=42)
 
 
 def test_install_disturbance_reset_is_idempotent() -> None:
     mod = _load_runner()
     import ao_shaping.drivers.sim.slm_pib_sim as sim_module
+    import ao_shaping.drivers.sim.turbulence_harness as harness
 
     original = sim_module.reset_system
-    previous_injected = mod._INJECTED_DISTURBANCE
+    previous_injected = harness._injected
     try:
         dist = SimDisturbance(DisturbanceConfig(mode="none"), (120, 192))
         mod._install_disturbance_reset(dist)
@@ -311,7 +313,7 @@ def test_install_disturbance_reset_is_idempotent() -> None:
         assert sim_module.reset_system is once, "must not stack wrappers"
     finally:
         sim_module.reset_system = original
-        mod._INJECTED_DISTURBANCE = previous_injected
+        harness._injected = previous_injected
         original(seed=42)
 
 

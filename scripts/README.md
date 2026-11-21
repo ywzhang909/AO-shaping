@@ -87,6 +87,11 @@ script from the repository root so its `data/` and `report/` paths resolve.
 Three files stay at the top level because they are the directory's own
 infrastructure rather than a domain: `sync_report_provenance.py` (the provenance
 writer), `__init__.py`, and `eval_pib_hybrid_sim.py`.
+Offline generator for the #253 turbulence-shaping experiments:
+`slm/generate_turbulence_shaping_report.py` reads one `slm-turb-shaping` run
+directory (recorder pkl + `run.json` + `disturbance.json`) and writes
+`report.md` + spot/phase evolution GIFs + metric curves — pure offline, no
+drivers, no `data/` reads outside `--run-dir`.
 
 Pre-existing subdirectories keep their original meaning: `_common/` (shared
 report helpers + the provenance registry), `call_graph/` (the `main.py` call-graph

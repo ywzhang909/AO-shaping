@@ -5,8 +5,8 @@
    "qualname": "cli",
    "module": "ao_shaping.main",
    "file": "src/ao_shaping/main.py",
-   "lineno": 88,
-   "end": 107,
+   "lineno": 90,
+   "end": 109,
    "args": [
     "ctx",
     "dir",
@@ -4835,6 +4835,7 @@
   "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner.run",
   "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner.run",
   "slm_model_in_loop_run": "ao_shaping.runners.slm.model_in_loop_runner.run",
-  "slm_transfer_shapes_run": "ao_shaping.runners.slm.transfer_shapes_runner.run"
+  "slm_transfer_shapes_run": "ao_shaping.runners.slm.transfer_shapes_runner.run",
+  "slm_turb_shaping_run": "ao_shaping.runners.slm.turb_shaping_runner.run"
  }
 }
