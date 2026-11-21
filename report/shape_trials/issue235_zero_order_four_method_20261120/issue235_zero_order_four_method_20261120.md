@@ -2,9 +2,8 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/slm/issue235_zero_order_four_method_reconcile_20261120.py`](../../../scripts/slm/issue235_zero_order_four_method_reconcile_20261120.py)
-> **运行环境**: 离线
-> **说明**: #235 P1 零级中心四口径离线对账：对 data/debug/issue235_center_20261117/flat.npy 用生产函数 zero_order_center_by_method 跑 argmax/centroid/box_centroid/ellipse 四法，六组两两欧氏距离最大 3.0 px（边界通过），默认椭圆中心可用；CCD 帧与 SLM panel 刀口帧分开报告不可混减。数字来自同目录 reconciliation.json（由 issue235_zero_order_four_method_reconcile_20261120.py 产出）。
+> **运行环境**: 离线（仅读 data/debug/issue235_center_20261117/ 归档 flat.npy 与 issue235_knife_baseline_fit_20261117.json，未占用 SLM/CCD/激光）
+> **说明**: Issue #235 P1 零级中心四口径离线对账：对归档 flat.npy 用生产函数 ao_shaping.utils.image.zero_order.zero_order_center_by_method 跑 argmax/centroid/box_centroid/ellipse 四法，六组两两欧氏距离最大 3.0 px（恰在 ≤3 px 判据上，边界通过），默认椭圆中心 (x=1227, y=1106) 可用（verdict=ellipse_centre_usable）；CCD 帧中心与 SLM panel 刀口帧中心（find_beam_on_slm_centre_yx / fit_centre_yx，1920×1200）分开报告、不可混减。数字来自同目录 reconciliation.json。无独立生成脚本，四法直接调用生产函数完成。人工撰写。
 <!-- provenance:end -->
 
 ## 摘要
@@ -75,10 +74,20 @@ CCD 帧（2592×1944）与 SLM panel 刀口帧（1920×1200）坐标分开报告
 
 ## 复现与产物
 
-```bash
-PYTHONPATH=src python scripts/slm/issue235_zero_order_four_method_reconcile_20261120.py \
-  --out report/shape_trials/issue235_zero_order_four_method_20261120/reconciliation.json
+本对账无独立生成脚本（溯源头已标注「人工撰写，无生成脚本」）；四法统一直接调用生产函数
+`ao_shaping.utils.image.zero_order.zero_order_center_by_method`（与 `tests/ao_shaping/utils/image/test_zero_order.py`
+同一实现）。最小复现：
+
+```python
+import numpy as np
+from ao_shaping.utils.image.zero_order import zero_order_center_by_method
+
+frame = np.load("data/debug/issue235_center_20261117/flat.npy")
+for m in ("argmax", "centroid", "box_centroid", "ellipse"):
+    x, y = zero_order_center_by_method(frame, m)   # 返回 (x, y)，即 (cx, cy)
 ```
 
-产物：`report/shape_trials/issue235_zero_order_four_method_20261120/reconciliation.json`（含四中心、六组两两差、
-判据、交叉核对与刀口中心）。
+刀口中心两值（`find_beam_on_slm_centre_yx` / `fit_centre_yx`）直接读取既有归档
+`report/shape_trials/model_direction_hw_20261117/issue235_knife_baseline_fit_20261117.json`，
+不做重算。产物：`report/shape_trials/issue235_zero_order_four_method_20261120/reconciliation.json`
+（含四中心、六组两两差、判据、交叉核对与刀口中心）。

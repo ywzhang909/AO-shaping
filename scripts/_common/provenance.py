@@ -269,6 +269,18 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/render_ideal_path_compare_20261117.py",
         ),
     ),
+    "report/shape_trials/issue235_zero_order_four_method_20261120/issue235_zero_order_four_method_20261120.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（仅读 data/debug/issue235_center_20261117/ 归档 flat.npy 与 issue235_knife_baseline_fit_20261117.json，未占用 SLM/CCD/激光）",
+        note=(
+            "Issue #235 P1 零级中心四口径离线对账：对归档 flat.npy 用生产函数 "
+            "ao_shaping.utils.image.zero_order.zero_order_center_by_method 跑 "
+            "argmax/centroid/box_centroid/ellipse 四法，六组两两欧氏距离最大 3.0 px（恰在 ≤3 px 判据上，边界通过），"
+            "默认椭圆中心 (x=1227, y=1106) 可用（verdict=ellipse_centre_usable）；"
+            "CCD 帧中心与 SLM panel 刀口帧中心（find_beam_on_slm_centre_yx / fit_centre_yx，1920×1200）分开报告、不可混减。"
+            "数字来自同目录 reconciliation.json。无独立生成脚本，四法直接调用生产函数完成。人工撰写。"
+        ),
+    ),
     "report/shape_trials/issue247_zero_order_20261117/issue247_zero_order_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件（Santec SLM-200 #1 + Daheng CCD #0，2026-11-17 真线性 tilt 全幅采集；报告本体不占用设备）",
@@ -2841,19 +2853,6 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=(
             "scripts/slm/square_1000_model_diagnostic_20261030.py",
-        ),
-    ),
-    "report/shape_trials/issue235_zero_order_four_method_20261120/issue235_zero_order_four_method_20261120.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线",
-        note=(
-            "#235 P1 零级中心四口径离线对账：对 data/debug/issue235_center_20261117/flat.npy 用生产函数 "
-            "zero_order_center_by_method 跑 argmax/centroid/box_centroid/ellipse 四法，六组两两欧氏距离"
-            "最大 3.0 px（边界通过），默认椭圆中心可用；CCD 帧与 SLM panel 刀口帧分开报告不可混减。"
-            "数字来自同目录 reconciliation.json（由 issue235_zero_order_four_method_reconcile_20261120.py 产出）。"
-        ),
-        extra_scripts=(
-            "scripts/slm/issue235_zero_order_four_method_reconcile_20261120.py",
         ),
     ),
     "report/shape_trials/speed_decouple_capture_20261120.md": ReportProvenance(

@@ -89,7 +89,7 @@ class _Bench:
 
 
 class _Forward:
-    """把控制网格池化到分析网格的替身正向模型（与核心测试同一手法）。"""
+    """把控制网格池化到分析网格的替身物理预测模型（与核心测试同一手法）。"""
 
     def __init__(self, shape: tuple[int, int]) -> None:
         self._shape = shape

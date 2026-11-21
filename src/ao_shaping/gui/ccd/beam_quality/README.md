@@ -1,16 +1,17 @@
 # beam_quality — AO-Shaping 桌面控制台 (PySide6)
 
-两页桌面应用，共用一条窄导航栏 (`shell.DesktopShellApp`)：
+四页桌面应用，共用一条窄导航栏 (`shell.DesktopShellApp`)：
 
 | 页 | 内容 | 代码 |
 |----|------|------|
 | 0 | **光束质量分析**：实时画面 + 峰值趋势 + 剖面拟合 | `app.BeamQualityApp` |
 | 1 | **迁移学习闭环整形**：必设参数 → 校验 → 整场会话 → 分阶段进度 | `gui/slm/transfer_desktop/` |
 | 2 | **SLM 静态整形**：图案类型 → 参数 → 预览 → 下发到 SLM | `gui/slm/static_shaping_page.py` |
+| 3 | **实测闭环动态整形**：CCD 实测误差驱动相位更新 + 帧门禁 + 默认人工确认候选（自 `7b18f814` 起） | `gui/slm/closed_loop_shaping_page.py` |
 
 窗口顶部有一条菜单栏，目前只有「帮助」一组，内含「关于」（自 2026-11-09 `deb43b3d` 起，`gui/utils/about.py`）：弹出模态对话框显示版本号（取短 git commit id，打包后的非 git 环境显示「未知」）与指向 GitHub 上用户手册的「帮助文档」链接（用系统浏览器打开，文档不进 exe）。外壳刻意不设自己的状态栏，避免与页 0 的状态栏叠两条。
 
-页 1 在切过去时才创建 (`torch` 由它导入时才拉起)；两页各自管理自己的设备
+页 1 / 页 2 / 页 3 在切过去时才创建 (页 1 的 `torch` 由它导入时才拉起)；各页分别管理自己的设备
 生命周期与后台作业，切页不打断正在跑的会话或相机流。
 
 页 1 的操作手册见 [docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md](../../../../../docs/GUI/slm/transfer_desktop/transfer_desktop_user_manual.md)。
@@ -95,6 +96,16 @@ P1 只露出**必设参数**（其余字段按 `TRANSFER_RECIPE` 默认值透传
 `QThreadPool` 里调 `run_session(session, on_stage=…)` → `on_stage` 经 Qt `Signal`
 排队回 UI 线程 → 1 s `QTimer` 轮询 `collect_progress(session.out)` 刷新阶段表。
 运行中必设参数控件禁用；结束或失败后统一复位，可再次启动。
+
+## 页 3 — 实测闭环动态整形
+
+自 `7b18f814` 起新增的第四页（`gui/slm/closed_loop_shaping_page.py`）：与开环整形页
+的唯一区别是**相位下一步往哪走由 CCD 这一帧的实测形状决定** —— 每轮串行
+写相位 → 等稳定 → 取新帧 → 帧门禁 → 实测分数 → 接受或回滚。页面构造时不碰
+设备，只有操作员点「开始」并确认后，才在专用 worker 线程里打开 SLM/CCD；
+关窗时停线程、等线程、关设备。默认「人工确认候选」（每轮停下来等操作员看实测
+对比再接受/拒绝）；「自动接受」是显式开关。模型预测分数与实测分数分列显示，
+预测只是猜测，不是接受依据。
 
 ## 已知限制
 

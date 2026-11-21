@@ -325,7 +325,7 @@ def target_field(
 
 
 # --------------------------------------------------------------------------- #
-# 候选相位：MIL 式 Step B 更新，正向模型换成 transfer 的 FrozenDefocusForward
+# 候选相位：MIL 式 Step B 更新，物理预测模型换成 transfer 的 FrozenDefocusForward
 # --------------------------------------------------------------------------- #
 
 
@@ -363,7 +363,7 @@ def refine_phase(
     exposure_ms: float | None = None,
     on_iteration: Callable[[int, float], None] | None = None,
 ) -> PhaseProposal:
-    """在冻结的 transfer 正向模型上做有界相位更新（MIL Step B 的闭环版）。
+    """在冻结的 transfer 物理预测模型上做有界相位更新（MIL Step B 的闭环版）。
 
     只有相位可训练；模型参数是晋级过的检查点，本轮不更新。步长通过
     ``max_step_rad`` 的 ``tanh`` 重参数化硬限制为逐像素信赖域，``phase_rms_cap``
@@ -499,7 +499,7 @@ def promotion_decision(
 
 
 class OnlineTransferAdapter:
-    """用累计的合规样本对 transfer 正向模型做增量适配。
+    """用累计的合规样本对 transfer 物理预测模型做增量适配。
 
     这里"在线"指 **采集 → 追加合规样本 → warm-start 累计重拟合 → 独立验证 →
     晋级**，与硬件轮次同步推进；不是每帧一次梯度更新。每次重拟合都从**在位检查
@@ -807,12 +807,12 @@ class OnlineTransferAdapter:
         )
         return target
 
-    # -- 供候选生成用的正向模型 -------------------------------------------- #
+    # -- 供候选生成用的物理预测模型 -------------------------------------------- #
 
     def forward(self, xy: np.ndarray) -> Any:
         """返回当前在位检查点对应的 ``FrozenDefocusForward``（惰性、按网格缓存）。
 
-        ``xy`` 一旦变化就重建：正向模型把相机采样坐标固化在构造里，拿旧实例喂新
+        ``xy`` 一旦变化就重建：物理预测模型把相机采样坐标固化在构造里，拿旧实例喂新
         网格会静默给出错位的预测。
         """
         from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
@@ -1087,7 +1087,7 @@ class ClosedLoopRunner:
 
                 forward = self.forward if self.forward is not None else self._adapter_forward(grid)
                 if forward is None:
-                    return self._finish(LoopState.FAULT, "没有可用的正向模型，无法生成候选")
+                    return self._finish(LoopState.FAULT, "没有可用的物理预测模型，无法生成候选")
 
                 self._set_state(LoopState.UPDATING, f"生成第 {index} 轮候选")
                 proposal = refine_phase(
@@ -1158,7 +1158,7 @@ class ClosedLoopRunner:
                         self.summary.best_phase = proposal.phase
                     since_improvement = 0
                     if config.adapt and self.adapter is not None:
-                        # 验证族按**事先声明的规则**留出（每 N 个被接受的轮次留一
+                        # 验证族按**事先声明的规则**划分（每 N 个被接受的轮次留一
                         # 轮），不能事后按结果挑：用训练过的轮次做验证会系统性高估
                         # 适配效果。
                         holdout = (
