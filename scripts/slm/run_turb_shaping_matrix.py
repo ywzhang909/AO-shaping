@@ -47,7 +47,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="报告根 (默认 report/turbulence_shaping/matrix_<UTC>)",
     )
     ap.add_argument("--dry-run", action="store_true", help="只打印单元计划, 不执行")
+    ap.add_argument("--variants", default=None,
+                    help="逗号分隔覆盖扫掠变体, 缺省用冻结网格 VARIANTS")
+    ap.add_argument("--cn2-grid", default=None,
+                    help="逗号分隔覆盖 cn2 档位, 缺省用冻结网格 CN2_GRID")
     return ap.parse_args(argv)
+
+
+def axes(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[float, ...]]:
+    variants = tuple(v.strip() for v in args.variants.split(",")) if args.variants else VARIANTS
+    cn2_grid = tuple(float(x) for x in args.cn2_grid.split(",")) if args.cn2_grid else CN2_GRID
+    return variants, cn2_grid
 
 
 def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> dict:
@@ -74,11 +84,12 @@ def run_matrix(args: argparse.Namespace) -> list[dict]:
 
     results: list[dict] = []
     slot = 0
-    for cn2 in CN2_GRID:
-        for variant in VARIANTS:
+    variants, cn2_grid = axes(args)
+    for cn2 in cn2_grid:
+        for variant in variants:
             plan = cell_plan(args, variant, cn2, slot)
             slot += 1
-            print(f"== cell {slot}/{len(CN2_GRID) * len(VARIANTS)} {variant} cn2={cn2:g}", flush=True)
+            print(f"== cell {slot}/{len(cn2_grid) * len(variants)} {variant} cn2={cn2:g}", flush=True)
             summary = run_arm(TurbShapingParams(**plan))
             results.append({"variant": variant, "cn2": cn2, **summary})
     return results
@@ -141,10 +152,11 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
 def main() -> int:
     args = parse_args()
     if args.dry_run:
+        dry_variants, dry_cn2 = axes(args)
         plan = [
             cell_plan(args, variant, cn2, slot)
             for slot, (cn2, variant) in enumerate(
-                (c, v) for c in CN2_GRID for v in VARIANTS
+                (c, v) for c in dry_cn2 for v in dry_variants
             )
         ]
         print(json.dumps({"cells": plan}, ensure_ascii=False, indent=2))

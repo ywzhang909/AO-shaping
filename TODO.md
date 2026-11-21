@@ -5881,6 +5881,12 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - **标定矩阵实验 9/9 全 exit 0** 入库 `report/turbulence_shaping/matrix_20261121/` (每单元 report.md + 相位/光斑双 GIF + metrics.png, 汇总 = 三档 σ 实测对比择优表): heuristic-PSO 全面领先 (736 求值, shape -1.43→-0.56..-0.65), spgd-adamod 弱 (124 求值, -1.42→-1.15), square 高 σ (0.9 rad) 末值**低于**首值 (0.586→0.557) → 均入 M3 素材 (提 n_max / 调参 / 缩窄择优)
 - 载体: 电池 2400 pass / provenance+matrix 复跑 987 pass / ruff 0 / term 0 / modsize 0 / preflight 五通道绿
 - **ci180 (178 批 tip) Pytest 三条红复盘**: drivers doc tree (本批已修) + `test_cli_help_golden[main:slm-turb-shaping]` 与 `test_cli_contract_freeze::test_help_text_matches_golden` —— 178 批加 heuristic 选项、179 批改 `--distance-m` 默认, 都动了 help 却没重生成 golden; 漏网原因是电池只跑了 `tests/ao_shaping/runners/slm` 子目录, 而这两个契约文件在 `runners/` **顶层** (preflight 五通道亦不覆盖)。固化: **凡改 runner help/默认值, 必须 `AO_UPDATE_HELP_GOLDEN=1` 重生成并跑 `tests/ao_shaping/runners/test_cli_help_golden.py` + `test_cli_contract_freeze.py`**; 本批后续提交重生成 golden (实测 diff 仅 `main:slm-turb-shaping` 一条)
+**2026-11-21 · 8ffa6fa1 之后 · 第 180 批: #253 M3 调参轮 —— n_max=8/120ep 矩阵 + 三 issue 收尾关闭**
+- 矩阵脚本加**扫掠轴覆盖** `--variants` / `--cn2-grid` + `axes()` 解析器 (缺省回落冻结网格, dry-run 兼容) —— 后续调参轮不再需要改常量重提交; 3 项测试绿
+- **M3 实验 9/9 全 exit 0** (n_max=8, 120ep; 与基线 matrix_20261121 同轴同 dist_seed 序列, 首值逐位同=初态一致可配对): ① **spgd 三档全面大幅改善且对 σ 平坦** —— best -1.155/-1.142/-1.092 → **-0.793/-0.807/-0.796** (244 求值); ② **square 高 σ 退化修复** —— 2e-12 末值 0.557→**0.604**, 不再低于首值 0.586 (自由度不足正是 179 批注记的 n≤4 反模式); ③ **heuristic-PSO 提维反而变差** —— 2e-12 best -0.518→-0.621, 种群 12 固定时 8 维空间采样不足且求值成本 6× (1456 vs 244); 结论: **当前「质量 × 求值成本」综合最优 = n_max=8 spgd**, 已作对比择优表入 M3 汇总注记
+- M3 报告入库 `report/turbulence_shaping/matrix_20261121_m3/` (6.3 MB, PIL 直编码 24帧/160px 档生效); provenance 登记 10 条 (REPORTS 244→254) + sync 渲染
+- **三条前置 issue 收尾** (ci182 `8ffa6fa1` 三关全绿解锁, 验收逐条现测): #251 P0-A/P0-B/P1-A/P1-B/P2-A 全落地证据 (issue205 **436 passed** 含自洽元守卫与负样本 / CONTRIBUTING 两约定 / dry-run+容差守卫 / push_preflight) → 评论 7065257547 关闭; #249 A+B 双轨 (repin 49+8 / span 守卫 3 passed / 尾换行根修) → 评论 7065257819 关闭; #250 §六 7 条全过 (ruff 0 / MIL+adaptive_trust_region import 冒烟 / workflow.py ast 2016 行 / modsize EXIT=0 / tip 三 workflow 绿 / 负样本拦截) → 评论 7065258039 关闭, §五 5.1/5.3/5.4/5.5 如实标注未独立落地 (承重已被 rebase+轮询实践替代), 日后立项另开
+- 载体: 电池 2442 pass / 230 skip (含显式 drivers) / ruff 0 / term 0 / modsize 0 / preflight 五通道绿
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

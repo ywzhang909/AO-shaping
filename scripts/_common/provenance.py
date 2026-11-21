@@ -3133,6 +3133,100 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="矩阵单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.885 rad); 相位/光斑双 GIF + metrics.png",
     ),
+    "report/turbulence_shaping/matrix_20261121_m3/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M3 调参轮矩阵汇总 (n_max=8, 120 epochs, 与 matrix_20261121 基线 n_max=4/60ep 同轴同种子); "
+            "实测结论: spgd 三档全面大幅改善且对 σ 平坦, square 高 σ 退化修复, heuristic-PSO 提维反而变差"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/spgd_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 spgd x cn2=1e-14 (实测 σ≈0.064 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/spgd_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 spgd x cn2=2e-13 (实测 σ≈0.270 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/spgd_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 spgd x cn2=2e-12 (实测 σ≈0.903 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/square_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 square x cn2=1e-14 (实测 σ≈0.062 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/square_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 square x cn2=2e-13 (实测 σ≈0.284 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/square_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 square x cn2=2e-12 (实测 σ≈0.893 rad, n_max=8/120ep); 高 σ 末值退化已修复 (0.557→0.604); 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/heuristic_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 heuristic (PSO) x cn2=1e-14 (实测 σ≈0.063 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/heuristic_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 heuristic (PSO) x cn2=2e-13 (实测 σ≈0.286 rad, n_max=8/120ep); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m3/heuristic_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--out-root data/turb_matrix_m3 --report-root report/turbulence_shaping/matrix_20261121_m3"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M3 单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.894 rad, n_max=8/120ep); 提维后 best 反劣于基线 n_max=4 (维度固定种群 12 的采样不足); 双 GIF + metrics.png",
+    ),
 }
 
 
