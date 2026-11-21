@@ -2897,6 +2897,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。"
             "debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；"
             "scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。"
+            "scripts/slm/diagnose_zernike_direction_lr.py 基于 34 条历史轨迹做观察性诊断："
+            "方向余弦后 10 轮中位数 0.9978、91.2% 轨迹后段方向一致、步长-损失下降 Spearman 0.7417，"
+            "支持「早期/中期可放大 residual lr、噪声地板后收回」的一阶代理处方，不改默认学习率。"
             "口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，"
             "须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。"
         ),
@@ -2905,6 +2908,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/fit.py",
             "scripts/slm/probe_optical_path_validity.py",
             "scripts/slm/visualize_weights_tsne.py",
+            "scripts/slm/diagnose_zernike_direction_lr.py",
         ),
     ),
 }

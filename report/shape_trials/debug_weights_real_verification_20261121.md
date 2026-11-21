@@ -6,8 +6,9 @@
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/transfer/fit.py`](../../src/ao_shaping/tools/slm/transfer/fit.py)
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../scripts/slm/probe_optical_path_validity.py)
 > **数据/关联脚本**: [`scripts/slm/visualize_weights_tsne.py`](../../scripts/slm/visualize_weights_tsne.py)
+> **数据/关联脚本**: [`scripts/slm/diagnose_zernike_direction_lr.py`](../../scripts/slm/diagnose_zernike_direction_lr.py)
 > **运行环境**: 硬件
-> **说明**: --debug-weights 逐轮权重轨迹落盘的真机验证：上机前光路六步探测判定 ok，短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整跑通，weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。
+> **说明**: --debug-weights 逐轮权重轨迹落盘的真机验证：上机前光路六步探测判定 ok，短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整跑通，weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。scripts/slm/diagnose_zernike_direction_lr.py 基于 34 条历史轨迹做观察性诊断：方向余弦后 10 轮中位数 0.9978、91.2% 轨迹后段方向一致、步长-损失下降 Spearman 0.7417，支持「早期/中期可放大 residual lr、噪声地板后收回」的一阶代理处方，不改默认学习率。口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。
 <!-- provenance:end -->
 
 ## 摘要
@@ -22,6 +23,11 @@ SLM #1 + Daheng CCD 上跑通真实训练，确认 `weights_history.jsonl` /
 （18 个参数 × 7 行，含迭代 0 初始值）完整落盘，训练损失从 `0.39325` 单调优化至
 `0.34548`；产物格式与离线测试口径一致。debug 数据以标准 JSONL/NPZ 格式保存，
 支持会话后离线回放；配套 t-SNE 可视化脚本可将 Zernike 系数轨迹降维到 2D 展示。
+
+另附 **Zernike 方向一致性与 residual lr 诊断**：基于 34 条历史轨迹的观察性分析显示，
+方向余弦后 10 轮中位数 0.9978、91.2% 轨迹后段方向一致、步长与损失下降强正相关
+（Spearman 0.7417），支持"早期/中期可安全放大 residual lr 加速收敛，进入噪声地板后
+收回"的处方；但这是基于步长-收益相关的一阶代理推断，非真实重跑，故不改动默认学习率。
 
 **口径要点**：会话默认 `reuse_latest=True`，光路复用命中已有 latest 模型会**跳过
 采集+拟合**，导致 `--debug-weights` 无产物。本次通过环境变量
@@ -38,6 +44,7 @@ SLM #1 + Daheng CCD 上跑通真实训练，确认 `weights_history.jsonl` /
 - [x] T5 设备释放确认：SLM #1 与 CCD 正常关闭，设备锁释放，探测复跑 `status=idle`。
 - [x] T6 回放能力确认：`--debug-weights` 产物以标准 JSONL/NPZ 格式保存在 run 目录内，可被 `transfer replay` 及独立脚本回放处理，无需设备在线。
 - [x] T7 t-SNE 可视化：实现 `scripts/slm/visualize_weights_tsne.py`，将权重轨迹降维到 2D，展示在线调优中网络 Zernike（`residual_noll_*`）系数的变化轨迹。
+- [x] T8 Zernike 方向-lr 诊断：实现 `scripts/slm/diagnose_zernike_direction_lr.py`，基于 34 条历史轨迹的观察性分析得出 residual lr 调整处方（一阶代理，不改默认值）。
 
 ## 指标参数
 
@@ -160,6 +167,71 @@ run 目录的 `fit/debug_weights/` 子目录内，与 `iterations.pkl` / `result
   长运行的轨迹演化更具参考价值。
 - 特征维度 < 2 时脚本报错退出（t-SNE 要求至少 2 个特征）。
 - 全程离线，不操作任何硬件设备。
+
+## Zernike 方向一致性与 residual lr 调整诊断
+
+前文观察到单次真机运行的 Zernike 增量方向高度一致（相邻余弦 0.96–0.99）。为确认
+这不是单次偶然，用**全部历史轨迹**做了一次观察性诊断，并据此评估能否调整 fit
+阶段的 residual 学习率（Adam，当前 `0.03`，对应 `residual_noll_*`；注意这与整形
+阶段的 `phase_lr=0.3` 不是同一机制）。
+
+**诊断脚本**：`scripts/slm/diagnose_zernike_direction_lr.py`
+**产物**：`data/debug/slm_transfer/zernike_direction_lr_diagnosis.json` / `.png`
+**样本**：34 条历史 fit 轨迹（每条 ≥ 30 轮；排除 3 条过短历史），跨 2026-11-04 至
+2026-11-20，涵盖 61 轮与 201 轮两种长度。
+
+### 方法
+
+把每条轨迹的 `residual_noll_*`（旧版为 `residual_noll_radians` dict）按 Noll 序号展平
+成 7 维向量，计算相邻步增量的余弦相似度，并统计：方向一致性、步长、损失下降，
+以及"方向一致（cos>0.9）时步长与该步损失下降"的 Spearman 相关。为避免循环论证，
+余弦 `cos[i]`（比较 step i 与 step i+1 的方向）被对齐到 **step i+1** 的步长与损失
+下降——即用前一步的方向预测下一步的收益。
+
+### 关键数据
+
+| 指标 | 实测 | 含义 |
+|------|------|------|
+| `cos_last10_median` | **0.9978** | 后 10 轮方向余弦中位数，几乎完全同向 |
+| `frac_runs_cos_gt_0_9` | **91.2%**（31/34） | 后段方向一致的轨迹占比 |
+| `consistent_active_frac_median` | **0.9133** | "方向一致且损失仍在下降"的步占比中位数 |
+| `step_vs_lossdrop_spearman` | **0.7417**（p≈0，n=4336） | 方向一致时，步长越大损失下降越多（强正相关） |
+| `frac_runs_reach_noise_floor` | 23.5%（8/34） | 末段跌入噪声地板（余弦<0.7）的轨迹占比 |
+
+按步长四分位分桶，方向一致步的平均损失下降随步长单调递增：
+
+| 步长 `‖dZ‖` 区间 | 样本数 | 平均损失下降 |
+|------------------|--------|--------------|
+| [0.0036, 0.0110) | 1084 | +0.00020 |
+| [0.0110, 0.0177) | 1084 | +0.00044 |
+| [0.0177, 0.0333) | 1084 | +0.00120 |
+| [0.0333, 0.0780) | 1083 | +0.00681 |
+
+最大步长桶的损失下降约为最小桶的 **34 倍**——方向一致时大步确实带来大收益。
+
+### 结论与处方
+
+诊断脚本给出的结论：**方向高度一致且步长与损失下降正相关，早期/中期（余弦>0.9
+且损失仍在降）可安全放大 residual lr 加速收敛；进入噪声地板（余弦<0.7）后应恢复
+或减小，避免抖动。** 具体而言：
+
+1. **调整有据**：91% 轨迹后段方向一致、步长-收益强正相关，说明优化大部分时间沿
+   稳定弹道推进且远未到地板，放大 residual lr（如从 0.03 提到 0.05–0.06）在早期/
+   中期有明确收益空间。
+2. **必须设回收条件**：23.5% 轨迹末段跌入噪声地板，此时方向翻转、大步只会放大
+   抖动。任何放大策略都应在余弦连续跌破 0.7 时恢复或减小 lr。
+3. **建议灰度验证而非直接改默认**：先做小倍数 A/B（如 0.03 vs 0.05）对比收敛到
+   同一损失所需轮数，再决定是否改默认值。
+
+### 口径边界（重要）
+
+- 本报告为**观察性诊断**，不是真实重跑反事实。capture 目录未保存 `sample_*.npz`
+  （`save_dataset=False`），无法用真实 forward 目标函数重跑不同 lr 的对照。
+- "放大 lr → 加速收敛"是**一阶线性代理**推断（step ∝ lr、更新方向不变）：基于实测
+  步长-收益正相关外推，而非实测放大后的收敛曲线。真实收益需在完整采集数据上做
+  A/B 才能确认。
+- 若要在真实数据上验证，需先用保留样本的采集重跑（开启 dataset 保存），再对各 lr
+  做同起点的收敛对比。当前仅据此形成处方建议，**不改动 fit 默认学习率**。
 
 ## 边界与声明
 
