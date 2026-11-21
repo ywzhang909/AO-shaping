@@ -2975,8 +2975,8 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="硬件",
         note=(
-            "--debug-weights 逐轮权重轨迹落盘的真机验证：上机前光路六步探测判定 ok，"
-            "短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整跑通，"
+            "--debug-weights 逐轮权重轨迹落盘的实验系统验证：实验前光路六步探测判定 ok，"
+            "短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整在线实现，"
             "weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物"
             "在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。"
             "debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；"
@@ -3026,7 +3026,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "真实存档 20261116_114424 跑 120 轮，batch trajectory 0 对照单条串行 loss max_rel_diff=6.56e-7、"
             "最终相位 max_abs_diff=3.34e-6（容差内 PASS，非 bit-exact）；双初相 RMS 差 0.05 证明非重复计算。"
             "端到端吞吐 3.37x（batch 1486 vs 串行 441 fields/s，其中混入去掉 D2H 同步/记账的收益，"
-            "纯 batching 约 1.9x，不宣称实机帧率提升）。CPU→GPU 分析：P4 200 步全 GPU，P6b 闭环 5 步的 "
+            "纯 batching 约 1.9x，不宣称实验帧率提升）。CPU→GPU 分析：P4 200 步全 GPU，P6b 闭环 5 步的 "
             "scipy map_coordinates / numpy 可搬 torch（grid_sample 有现成先例），但秒级 SLM/CCD I/O 主导延迟；"
             "建议仅做 grid_sample 重采样 + 消除重复 D2H 同步。人工撰写。"
         ),

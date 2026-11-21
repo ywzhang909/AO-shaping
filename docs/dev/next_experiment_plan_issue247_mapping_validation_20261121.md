@@ -81,12 +81,12 @@
 ## 5. 决策出口
 
 1. 1-D blaze 两轴都复现 A，但 grating 仍异常：优先离线查二值 grating 频谱/±级选峰实现；不再用 grating 结果拟合物理映射。
-2. blaze 复现、tilt 异常：审查 `tilt_geometry/tilt_phase` 与 period clamp / 灰度编码，不上机扫新参数。
+2. blaze 复现、tilt 异常：审查 `tilt_geometry/tilt_phase` 与 period clamp / 灰度编码，不实验扫新参数。
 3. 1-D blaze 不复现：暂停任何标定写回；检查光路时间漂移、pattern→gray→SLM 写入数据链，先离线复查再提新的受控验证。
 4. 所有门通过：把本轮与独立窗口的证据作为 #247 映射验证材料；仍需 owner review 后，另行决定是否将映射转成设备校准记录。
 
 ## 6. 明确不做
 
 - 不采 #238 正式 g₂π（暗场熄灯 hook 尚未接线）；不启动 transfer `light/none`。
-- 不把节拍解耦或本实验描述成实机提速；不改闭环 GUI 串行语义。
+- 不把节拍解耦或本实验描述成实验提速；不改闭环 GUI 串行语义。
 - 不改 GitHub issue 状态、不 push、不生成 `slm_geometry_calib.npz`，除非另行授权。
