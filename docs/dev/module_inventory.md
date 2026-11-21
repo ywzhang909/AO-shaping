@@ -218,7 +218,7 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 ### 共享辅助
 
-`runner_common.py` 是共享辅助函数的主目录: `resolve_dm` (DM 解析), debug-artifact 写入器等。`model_in_loop_io.py` 是 slm-model-in-loop 的 config/result 落盘布局 helper (2026-11-19 从 `runner_common` 逐字外提, #205 批次; 公开名经 `runner_common` re-export 保持可导入, 单一实现移居本模块)。
+`runner_common.py` 是共享辅助函数的主目录: `resolve_dm` (DM 解析), debug-artifact 写入器等。
 
 > **注意**: `closed_loop.py` 不是 runner — 它是 `AOClosedLoop` 控制类, 归属 `optimizer/wf/`。
 
