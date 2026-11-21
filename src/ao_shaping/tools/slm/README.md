@@ -60,7 +60,28 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 实验系统的**�
 | 模块 | 作用 |
 |---|---|
 | `calibration/` | SLM 标定工具**子包**（2026-10 由单文件 `calibration.py` 拆出）：`calibration.py`（`SantecCalibrator`/`AutoExposureController` + shift CLI）/ `gray_response.py`（灰度→亮度响应，周期 ≈ 2π）/ `phase_capture.py`（随机相位采集）/ `lut_runner.py`（灰度→相位 LUT，**注册为 `slm-lut`**）/ `train_data_collect.py`（训练数据采集，`exposure_ms × cam_size` 交叉扫描，产物供 `ml/hwdataset` 索引；`--no-hw` 只打印采集计划）。CLI 入口不变：`python -m ao_shaping.tools.slm.calibration`（默认几何标定，`shift` 子命令做 defocus 零点标定） |
-| `calibration/diffraction_efficiency/` | **闪耀光栅衍射效率测量**（子包）：`core.py`（纯算法：图案/阶次识别/离散器件模型/拟合/诊断）/ `simulate.py`（数字孪生：填充因子/相位 LUT/面板相差/离焦，无硬件跑完整链路）/ `measure.py`（硬件后端：Santec + Daheng）/ `artifacts.py`（CSV/JSON/PNG）。CLI：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**：必须先有光路标定 `.npz`（`python -m ao_shaping.tools.slm.calibration` 产出），否则无法预测 ±1 级落点。⚠️ **可信范围**（`report/slm/diffraction_efficiency/sim_nonideality_20261022.md`）：相对效率曲线可信；拟合出的相位深度只在「幂律器件 + 在焦 + 填充因子≈1」三前提同时成立时可信。**光斑宽度门禁**（`--fwhm-gate-ratio`，默认 3×；`--reference-fwhm-px` 给一条**在焦**的绝对参照）把这类失真变成显式失败：门禁触发时越限点与「零级被熄灭」的点一并退出拟合，有效点不足即拟合报错 |
+| `calibration/diffraction_efficiency/` | **闪耀光栅衍射效率测量**（子包）：`core.py`（纯算法：图案/阶次识别/离散器件模型/拟合/诊断）/ `simulate.py`（数字孪生：填充因子/相位 LUT/面板相差/离焦，无硬件跑完整链路）/ `measure.py`（硬件后端：Santec + Daheng）/ `probe.py`（快速单点探测：BaseCamera + 未定标比值）/ `artifacts.py`（CSV/JSON/PNG）。CLI：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze,probe}`。**硬件前置条件**：完整扫描 `measure` 必须先有光路标定 `.npz`（`python -m ao_shaping.tools.slm.calibration` 产出），否则无法预测 ±1 级落点；快速 `probe` 不需要标定文件，但结果为未定标比值。⚠️ **可信范围**（`report/slm/diffraction_efficiency/sim_nonideality_20261022.md`）：相对效率曲线可信；拟合出的相位深度只在「幂律器件 + 在焦 + 填充因子≈1」三前提同时成立时可信。**光斑宽度门禁**（`--fwhm-gate-ratio`，默认 3×；`--reference-fwhm-px` 给一条**在焦**的绝对参照）把这类失真变成显式失败：门禁触发时越限点与「零级被熄灭」的点一并退出拟合，有效点不足即拟合报错 |
+| `phase_speed/` | **SLM 相位变化速度（SLM+CCD 系统响应）**：`core.py`（纯时序分析：响应/稳定时间、实测 fps）/ `measure.py`（BaseCamera 采集后端）/ `__main__.py`（CLI）。CLI：`python -m ao_shaping.tools.slm.phase_speed`。⚠️ 受相机帧率限制，测的是系统响应而非 SLM 像素上升时间；平面活塞 0→993 在 0 级可能不可见，必要时用 blaze 图案 |
+
+---
+
+## 探针工具速查（按要回答的问题找）
+
+> 2026-11-21 整理。所有条目都走 `BaseCamera` 接口（`--cam-type daheng|miicam|sim|…`）；
+> 具体驱动差异（曝光/位深/满量程）由相机后端负责，探针本体只认接口。
+
+| 要回答的问题 | 工具 | 离线可测/前置 |
+|---|---|---|
+| 实验系统本身可信吗（先跑） | `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`（见「实验系统表征」） | 支持 `--no-hw`；见 [`pre_run_characterization.md`](../../../../docs/slm/pre_run_characterization.md) |
+| 面板到底调制光没有 | `slm_tilt_probe` / `slm_phase_response` / `slm_diagnose` | tilt 比光栅可靠；`phase_response` 支持 `--render-only` |
+| 0 级在哪个像素、光斑多大 | `slm_panel_locate` / `slm_beam_extent` / `slm_phase_resolution` | 0 级一律 `argmax`，不是帧中心 |
+| 把探测器拉回焦面 | `slm/panel/focus_probe`（`focus_preflight` 提供补偿原语） | — |
+| 灰度→相位关系 / LUT | `calibration/gray_response` / `checkerboard_lut` / `lut_runner`（`slm-lut`） | — |
+| 衍射效率（完整扫描/可标定） | `calibration/diffraction_efficiency measure` | 需光路标定 `.npz` + 焦面门禁 |
+| 衍射效率（快速单点探测） | `calibration/diffraction_efficiency probe` | 无需标定 `.npz`；结果标注为未定标比值 |
+| 相位变化有多快（SLM+CCD 系统响应） | `phase_speed` | 受相机帧率限制，报告实测 fps |
+
+**共同纪律**（违反会得到看似可信的错数据）：SLM 只用内存模式（`video_mode=0`，DVI 会挂起）；用 `SlotRotator` 轮换槽位，**绝不连续显示同一槽**；平场灰度必须 `np.full((h,w), gray, dtype=np.uint16)` 直发，禁止经 `create_phase_from_array`（会 `mod 2π` 破坏 uint16）；0 级用 `argmax` 定位；满量程/饱和判据经 `cam.effective_full_scale(img)` 或 `common.full_scale(img, cam)` 取（帧 dtype 不是位深）。
 
 
 

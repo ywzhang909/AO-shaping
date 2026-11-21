@@ -16,11 +16,14 @@
     用来在没有硬件时验证整条分析链路。
 ``measure`` / ``artifacts``
     硬件后端 (Santec SLM + Daheng CCD) 与产物写出 (CSV / JSON / PNG)。
+``probe``
+    轻量探针 (单个灰度深度, 无需几何标定 .npz / 焦面门禁; 结果粗略/未定标)。
 
 命令行::
 
     python -m ao_shaping.tools.slm.calibration.diffraction_efficiency simulate
     python -m ao_shaping.tools.slm.calibration.diffraction_efficiency measure
+    python -m ao_shaping.tools.slm.calibration.diffraction_efficiency probe
     python -m ao_shaping.tools.slm.calibration.diffraction_efficiency analyze
 
 硬件前置条件
@@ -70,6 +73,9 @@ __all__ = [
     "MeasurementConfig",
     "MeasurementResult",
     "run_measurement",
+    # probe —— 轻量探针 (无需几何标定 .npz)
+    "ProbeConfig",
+    "probe_diffraction_efficiency",
     # artifacts —— 产物写出
     "plot_efficiency",
     "write_measurements_csv",
@@ -108,6 +114,8 @@ _LAZY.update(
         "MeasurementConfig": ("measure", "MeasurementConfig"),
         "MeasurementResult": ("measure", "MeasurementResult"),
         "run_measurement": ("measure", "run_measurement"),
+        "ProbeConfig": ("probe", "ProbeConfig"),
+        "probe_diffraction_efficiency": ("probe", "probe_diffraction_efficiency"),
         "plot_efficiency": ("artifacts", "plot_efficiency"),
         "write_measurements_csv": ("artifacts", "write_measurements_csv"),
         "write_summary_json": ("artifacts", "write_summary_json"),

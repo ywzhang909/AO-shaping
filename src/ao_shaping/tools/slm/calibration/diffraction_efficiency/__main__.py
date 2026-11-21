@@ -1,6 +1,6 @@
 """``python -m ao_shaping.tools.slm.calibration.diffraction_efficiency`` 入口。
 
-三个子命令:
+四个子命令:
 
 ``simulate``
     用数字孪生跑完整条链路 (图案 → 远场 → 阶次识别 → 效率 → 拟合),
@@ -8,6 +8,11 @@
 ``measure``
     硬件采集 (Santec SLM + Daheng CCD)。**前置条件**: 已有的光路标定
     ``.npz`` (由 ``python -m ao_shaping.tools.slm.calibration`` 生成)。
+``probe``
+    轻量探针: 单/少数灰度深度上测一次 0 级与 ±1 级能量占比, **无需**光路
+    标定 ``.npz``、无焦面门禁。用 ``BaseCamera`` 注册表 (``--cam-type`` 支持
+    ``daheng`` / ``miicam`` / ``sim`` ...)。结果标注为**粗略/未定标**, 只作
+    相对指标。
 ``analyze``
     对已保存的扫描 CSV 重新拟合 (离线, 不碰硬件)。
 """
@@ -394,6 +399,69 @@ def measure(params: MeasureParams) -> None:
 
 
 # ---------------------------------------------------------------------------
+# probe —— 轻量衍射效率探针 (无需几何标定 .npz, 无焦面门禁)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProbeParams:
+    """单个灰度深度的轻量探针参数。"""
+
+    out_dir: Annotated[
+        Path,
+        option("--out-dir", "-o", type=click.Path(file_okay=False, path_type=Path)),
+    ] = Path("data/diffraction_efficiency/probe")
+    slm_number: Annotated[int, option("--slm-number")] = 1
+    slm_wavelength: Annotated[int, option("--slm-wavelength")] = 1064
+    cam_type: Annotated[
+        str, option("--cam-type", type=click.Choice(["daheng", "miicam", "sim"]))
+    ] = "daheng"
+    cam_id: Annotated[int, option("--cam-id")] = 0
+    exposure_ms: Annotated[float, option("--exposure-ms")] = 5.0
+    gray_depth: Annotated[int, option("--gray-depth")] = 0
+    period_px: Annotated[int, option("--period-px")] = 32
+    axis: Annotated[str, option("--axis", type=click.Choice(["x", "y"]))] = "x"
+    frames: Annotated[int, option("--frames")] = 3
+    settle_s: Annotated[float, option("--settle-s")] = 0.25
+    save_frames: Annotated[bool, option("--save-frames/--no-save-frames")] = False
+    subtract_dark: Annotated[
+        bool, option("--subtract-dark/--no-subtract-dark")
+    ] = True
+
+
+@click.command()
+@with_params(ProbeParams, kw_name="params")
+def probe(params: ProbeParams) -> None:
+    """轻量衍射效率探针: 单个灰度深度, 不需要光路标定 .npz, 无焦面门禁。
+
+    2f 光路的零级以帧内 ``argmax`` 定位; 没有几何标定时 ±1 级落点只能靠
+    光栅周期估算, 结果标注为**粗略/未定标**, 仅作相对指标。
+    """
+    from ao_shaping.tools.slm.calibration.diffraction_efficiency.probe import (
+        ProbeConfig,
+        probe_diffraction_efficiency,
+    )
+
+    config = ProbeConfig(
+        out_dir=Path(params.out_dir),
+        slm_number=int(params.slm_number),
+        slm_wavelength=int(params.slm_wavelength),
+        cam_type=str(params.cam_type),
+        cam_id=int(params.cam_id),
+        exposure_ms=float(params.exposure_ms),
+        gray_depth=int(params.gray_depth),
+        period_px=int(params.period_px),
+        axis=str(params.axis),
+        frames=int(params.frames),
+        settle_s=float(params.settle_s),
+        save_frames=bool(params.save_frames),
+        subtract_dark=bool(params.subtract_dark),
+    )
+    result = probe_diffraction_efficiency(config)
+    logger.info("探针产物: {}", result["artifacts"])
+
+
+# ---------------------------------------------------------------------------
 # analyze
 # ---------------------------------------------------------------------------
 
@@ -532,6 +600,7 @@ def main() -> None:
 
 main.add_command(simulate)
 main.add_command(measure)
+main.add_command(probe)
 main.add_command(analyze)
 
 

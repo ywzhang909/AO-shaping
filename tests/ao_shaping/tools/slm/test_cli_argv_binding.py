@@ -1241,12 +1241,20 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # census so a *refactor* cannot quietly consolidate device sessions; adding a
     # genuinely new probe is a legitimate change and must be re-baselined here
     # deliberately.
-    assert sum(santec.values()) == 36, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 39, f"camera-open call sites changed: {camera}"
+    # 2026-11-21 re-baseline: +2 Santec / +1 camera from the two new probe tools
+    # (diffraction_efficiency/probe.py Santec+1; phase_speed/measure.py Santec+1
+    # and camera+1 — both are real device-open sites in their hardware backends).
+    # The dicts also absorb pre-existing HEAD drift from e7d9a305: open_loop.py
+    # (+1 Santec), ccd/capture_darks.py (+1 camera) and the removal of
+    # replay_disturbance.py (-1 Santec, -1 camera). Those are net-zero on the
+    # sums but had left the per-file equality stale at HEAD.
+    assert sum(santec.values()) == 38, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 40, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
         "slm/calibration/diffraction_efficiency/measure.py": 1,
+        "slm/calibration/diffraction_efficiency/probe.py": 1,
         "slm/calibration/gray_response.py": 1,
         "slm/calibration/lut_runner.py": 1,
         "slm/calibration/phase_capture.py": 1,
@@ -1262,9 +1270,10 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
-        "slm/replay_disturbance.py": 1,
+        "slm/phase_speed/measure.py": 1,
         "slm/transfer/capture.py": 1,
         "slm/transfer/capture_response.py": 1,
+        "slm/transfer/open_loop.py": 1,
         "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
@@ -1298,7 +1307,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
-        "slm/replay_disturbance.py": 1,
+        "slm/phase_speed/measure.py": 1,
         "slm/transfer/auto_reuse.py": 1,
         "slm/transfer/camera_probe.py": 1,
         "slm/transfer/capture.py": 2,
@@ -1307,6 +1316,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/transfer/optical_probe.py": 1,
         "slm/transfer/replay_phases.py": 1,
         "slm/transfer/validate.py": 1,
+        "ccd/capture_darks.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/exposure_check.py": 1,
         "ccd/floor_probe.py": 1,
