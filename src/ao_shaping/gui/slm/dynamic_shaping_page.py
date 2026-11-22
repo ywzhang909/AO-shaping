@@ -10,6 +10,12 @@
 注意「逐步变化」指的是相位分多个中间步逼近目标；远场强度是相位的傅里叶变换，
 不是灰度码的线性函数，所以界面不承诺光斑按直线均匀变形。
 
+边界
+----
+本页是**开环**：相位只沿灰度时间轴下发。右侧 CCD 面板（若启用）只并行观测，
+不回灌闭环、也不保持目标；需要按 CCD 实测保持固定目标请去「目标保持」页
+（页头的按钮会发出 :attr:`DynamicShapingPage.request_target_hold`，由外壳切页）。
+
 本页把这件事组织成一条时间轴：
 
 +-----------------+-----------------------------------------------------------+
@@ -397,6 +403,9 @@ class _ImagePanel(QFrame):
 class DynamicShapingPage(QWidget):
     """动态整形页（时间轴式交互）。所有设备操作都在确认后由后台线程执行。"""
 
+    #: 操作员想从这一页去「目标保持」页。页面自身不切页，由外壳接线切换。
+    request_target_hold = Signal()
+
     _START_LABELS: dict[str, str] = {
         "flat": "平场（波前平坦）",
         "phase": "自定义起始参数",
@@ -481,6 +490,30 @@ class DynamicShapingPage(QWidget):
         subtitle.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         layout.addWidget(title)
         layout.addWidget(subtitle)
+
+        # 开环说明：这一页只走 SLM 灰度时间轴，右侧 CCD 面板只观测、不回灌。
+        # 想去闭环保持目标，用这里的按钮去「目标保持」页（由外壳接线切页）。
+        callout = QFrame()
+        callout.setObjectName("openLoopCallout")
+        callout.setFrameShape(QFrame.Shape.StyledPanel)
+        callout_layout = QHBoxLayout(callout)
+        callout_layout.setContentsMargins(10, 8, 10, 8)
+        callout_layout.setSpacing(8)
+        callout_note = QLabel(
+            "本页是开环：相位只按 SLM 灰度时间轴逐帧下发；CCD 面板（若启用）只并行"
+            "观测，不回灌闭环，也不保持目标。需要按 CCD 实测保持固定目标，请用"
+            "「目标保持」页。"
+        )
+        callout_note.setWordWrap(True)
+        callout_note.setForegroundRole(QPalette.ColorRole.PlaceholderText)
+        callout_layout.addWidget(callout_note, 1)
+        self._target_hold_button = QPushButton("打开目标保持页")
+        self._target_hold_button.setObjectName("openTargetHold")
+        self._target_hold_button.clicked.connect(
+            lambda: self.request_target_hold.emit()
+        )
+        callout_layout.addWidget(self._target_hold_button)
+        layout.addWidget(callout)
         return host
 
     def _section(self, title: str) -> tuple[QGroupBox, QVBoxLayout]:

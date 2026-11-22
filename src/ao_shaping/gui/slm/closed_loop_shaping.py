@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -884,9 +885,11 @@ class RoundRecord:
     predicted_score: float | None = None
     phase_step_rms: float | None = None
     window_fraction: float | None = None
-    decision: str | None = None  # baseline | accept | reject | auto | gate_fail
+    decision: str | None = None  # baseline | accept | reject | auto | gate_fail | hold | rollback | invalid | fault
     adaptation: str | None = None
     note: str = ""
+    #: 采集时刻（``time.monotonic()`` 秒），hold 模式用来和 SLM 写入时刻配对。
+    captured_at_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -918,6 +921,11 @@ class ClosedLoopConfig:
     target: np.ndarray
     start_phase: np.ndarray
     max_rounds: int = 8
+    #: ``optimize``：逐轮优化，收敛后即停（旧行为）。
+    #: ``hold``：目标保持，收敛后继续锁定同一目标与固定 CCD 像素位置。
+    mode: str = "optimize"
+    #: ``hold`` 模式的位置容差，单位是 **CCD 像素**（由监督器换算到分析网格）。
+    hold_target_ccd_px: float = 5.0
     candidate_policy: str = "confirm"  # confirm | auto
     auto_accept_margin: float = 0.0
     max_consecutive_gate_failures: int = 3
@@ -934,6 +942,13 @@ class ClosedLoopConfig:
     def __post_init__(self) -> None:
         if self.candidate_policy not in {"confirm", "auto"}:
             raise ValueError("candidate_policy must be 'confirm' or 'auto'")
+        if self.mode not in {"optimize", "hold"}:
+            raise ValueError("mode must be 'optimize' or 'hold'")
+        if self.mode == "hold":
+            if not np.isfinite(self.hold_target_ccd_px) or self.hold_target_ccd_px <= 0:
+                raise ValueError("hold_target_ccd_px must be finite and positive")
+            if self.candidate_policy != "auto":
+                raise ValueError("hold mode runs unattended; candidate_policy must be 'auto'")
         if self.max_rounds < 1:
             raise ValueError("max_rounds must be >= 1")
         xy = np.asarray(self.xy)
@@ -1030,6 +1045,16 @@ class ClosedLoopRunner:
     # -- 主流程 ------------------------------------------------------------ #
 
     def run(self) -> LoopSummary:
+        """按 :attr:`ClosedLoopConfig.mode` 分派到同一设备事务下的两种语义。
+
+        ``optimize`` 逐轮优化到收敛/上限；``hold`` 保持同一目标与固定 CCD
+        像素位置。两条路径共用门禁与故障收尾，差别只在停止条件谁说了算。
+        """
+        if self.config.mode == "hold":
+            return self._run_hold()
+        return self._run_optimize()
+
+    def _run_optimize(self) -> LoopSummary:
         """跑完整场并返回摘要；任何故障都落到 ``FAULT`` 并带上原因。
 
         一条不可妥协的顺序：**帧的门禁先于一切判断**。门禁未通过的帧没有资格被
@@ -1209,6 +1234,281 @@ class ClosedLoopRunner:
             except Exception:  # 关闭失败不该掩盖主结论
                 pass
 
+    def _run_hold(self) -> LoopSummary:
+        """固定目标、固定 CCD 像素位置的保持模式。
+
+        与 :meth:`_run_optimize` 共用设备事务与门禁，但停止条件归
+        :class:`TargetLockSupervisor` 所有：位置漂移、连续无效帧与振荡由监督器
+        判定，本方法只执行它给出的 ``accept`` / ``propose`` / ``rollback``。目标在
+        ``arm()`` 时固定，容差由 ``hold_target_ccd_px`` 换算到分析网格，因此每轮
+        比较的都是同一张图的**绝对坐标**，不是"重新居中后的形状"。
+        """
+        # 惰性导入：target_lock 只依赖 numpy/stdlib；本模块顶层仍保持
+        # "只导入 numpy/stdlib" 的既有承诺。
+        from ao_shaping.gui.slm.target_lock import (
+            FixedTarget,
+            LockAction,
+            LockConfig,
+            MeasuredFrame,
+            TargetLockSupervisor,
+        )
+
+        config = self.config
+        self._set_state(LoopState.PREFLIGHT)
+        grid = np.asarray(config.xy)
+        target = np.asarray(config.target, dtype=np.float64)
+        applied_phase = np.asarray(config.start_phase, dtype=np.float64)
+        opened = False
+
+        def measured_frame(record: RoundRecord, write_seq: int) -> MeasuredFrame:
+            captured_at_s = record.captured_at_s
+            return MeasuredFrame(
+                image=sample_on_grid(self._last_frame, config.xy),
+                write_seq=int(write_seq),
+                capture_seq=int(record.frame_id),
+                # 缺失采集时刻只能当成"早于写入"：宁可判旧帧，也不放宽配对。
+                captured_at_s=(
+                    float(captured_at_s) if captured_at_s is not None else float("-inf")
+                ),
+                exposure_ms=float(record.exposure_ms),
+            )
+
+        try:
+            self.bench.open()
+            opened = True
+            info = self.bench.describe()
+            self._emit(LoopEvent("bench", info))
+
+            spacing_ccd_px = self._grid_spacing_px()
+            if spacing_ccd_px is None:
+                return self._finish(
+                    LoopState.FAULT,
+                    "分析网格没有正的有限步长，无法把保持容差换算成 CCD 像素",
+                )
+
+            supervisor = TargetLockSupervisor(
+                LockConfig(
+                    max_centroid_error_px=float(config.hold_target_ccd_px) / spacing_ccd_px
+                )
+            )
+            supervisor.arm(FixedTarget(target))
+
+            # 基线写入同样要登记：序号 0，写入时刻先于本次下发。
+            supervisor.expect_write(0, written_at_s=time.monotonic())
+            baseline = self._measure(applied_phase, "r00", 0, None)
+            if not baseline.gate.ok:
+                baseline.decision = "baseline_fail"
+                baseline.note = describe_gate(baseline.gate)
+                self._emit(LoopEvent("round", baseline))
+                return self._finish(
+                    LoopState.FAULT,
+                    f"起点相位未取得有效帧，未开始保持：{describe_gate(baseline.gate)}",
+                )
+
+            previous_centroid = baseline.gate.centroid_xy
+            self.summary.applied_phase = applied_phase
+            self.summary.best_phase = applied_phase
+            self.summary.rounds.append(baseline)
+            baseline.decision = "baseline"
+            self._emit(LoopEvent("round", baseline), state=LoopState.MEASURING)
+
+            decision = supervisor.observe(measured_frame(baseline, 0))
+            if decision is not None:
+                self._emit_lock(decision, 0, spacing_ccd_px, supervisor.target_centroid)
+            if decision is None or decision.action is LockAction.FAULT:
+                return self._finish(LoopState.FAULT, self._lock_fault_reason(supervisor, decision))
+            self.summary.applied_score = decision.score
+            self.summary.best_score = decision.best_score
+
+            consecutive_failures = 0
+            for index in range(1, int(config.max_rounds) + 1):
+                boundary = self._await_boundary()
+                if boundary == "stop":
+                    return self._finish(LoopState.STOPPED, "运行中停止：当前相位保持")
+                # hold 恒为 auto 策略：accept/reject 在本模式没有意义，忽略即可。
+
+                adaptation: AdaptationResult | None = None
+                if config.adapt and self.adapter is not None and self.adapter.ready():
+                    self._set_state(LoopState.UPDATING, "适配重拟合")
+                    adaptation = self.adapter.refit()
+                    self._emit(LoopEvent("adaptation", adaptation))
+                    if adaptation.promoted:
+                        self.forward = self.adapter.forward(grid)
+
+                forward = self.forward if self.forward is not None else self._adapter_forward(grid)
+                if forward is None:
+                    return self._finish(LoopState.FAULT, "没有可用的物理预测模型，无法生成候选")
+
+                self._set_state(LoopState.UPDATING, f"生成第 {index} 轮候选")
+                proposal = refine_phase(
+                    forward,
+                    target,
+                    self.summary.applied_phase,
+                    iterations=config.step_iterations,
+                    lr=config.step_lr,
+                    max_step_rad=config.max_step_rad,
+                    phase_rms_cap=config.phase_rms_cap,
+                    exposure_ms=config.exposure_ms,
+                )
+
+                self._set_state(LoopState.MEASURING, f"下发第 {index} 轮候选")
+                # 写入时刻必须在写之前登记：监督器据此判定"帧是否晚于写入"。
+                supervisor.expect_write(index, written_at_s=time.monotonic())
+                record = self._measure(proposal.phase, f"r{index:02d}", index, previous_centroid)
+                record.predicted_score = proposal.predicted_score
+                record.phase_step_rms = proposal.rms_rad
+                record.adaptation = adaptation.status if adaptation is not None else None
+
+                if not record.gate.ok:
+                    # 门禁失败 = 本轮没有可用证据；既不能评分，也不进适配。
+                    record.decision = "gate_fail"
+                    record.note = describe_gate(record.gate)
+                    consecutive_failures += 1
+                    self.bench.apply_phase(self.summary.applied_phase)
+                    self.summary.rounds.append(record)
+                    self._emit(LoopEvent("round", record), state=LoopState.MEASURING)
+                    if consecutive_failures >= config.max_consecutive_gate_failures:
+                        return self._finish(
+                            LoopState.FAULT,
+                            f"连续 {consecutive_failures} 轮帧门禁未通过，已停止",
+                        )
+                    continue
+
+                consecutive_failures = 0
+                previous_centroid = record.gate.centroid_xy
+
+                decision = supervisor.observe(measured_frame(record, index))
+                if decision is not None:
+                    self._emit_lock(decision, index, spacing_ccd_px, supervisor.target_centroid)
+
+                if decision is None:
+                    # 无效帧且监督器尚未冻结：本轮没有证据，回滚到最佳并计数；
+                    # 何时冻结由监督器决定，这里不自行判死。
+                    reasons = supervisor.last_gate_reasons
+                    why = ",".join(reasons) if reasons else "unknown"
+                    record.decision = "invalid"
+                    record.note = f"监督器未通过：{why}"
+                    consecutive_failures += 1
+                    self.bench.apply_phase(self.summary.applied_phase)
+                    self.summary.rounds.append(record)
+                    self._emit(LoopEvent("round", record), state=LoopState.MEASURING)
+                    if consecutive_failures >= config.max_consecutive_gate_failures:
+                        return self._finish(
+                            LoopState.FAULT,
+                            f"连续 {consecutive_failures} 轮监督器未通过（{why}），已停止",
+                        )
+                    continue
+
+                if decision.action is LockAction.FAULT:
+                    record.decision = "fault"
+                    record.note = decision.reason
+                    self.bench.apply_phase(self.summary.applied_phase)
+                    self.summary.rounds.append(record)
+                    self._emit(LoopEvent("round", record), state=LoopState.MEASURING)
+                    return self._finish(
+                        LoopState.FAULT, self._lock_fault_reason(supervisor, decision)
+                    )
+
+                if decision.action is LockAction.ACCEPT:
+                    # 监督器只在实测改善超过余量时 ACCEPT；最佳值以它持有的为准。
+                    self.summary.applied_phase = proposal.phase
+                    self.summary.best_phase = proposal.phase
+                    self.summary.applied_score = decision.score
+                    self.summary.best_score = decision.best_score
+                    record.decision = "accept"
+                elif decision.action is LockAction.PROPOSE:
+                    # 噪声内没有改善证据：设备留在最佳相位上，不把候选当成结论。
+                    record.decision = "hold"
+                    self.bench.apply_phase(self.summary.applied_phase)
+                else:  # ROLLBACK
+                    record.decision = "rollback"
+                    self.bench.apply_phase(self.summary.applied_phase)
+                self.summary.rounds.append(record)
+                self._emit(LoopEvent("round", record), state=LoopState.MEASURING)
+
+            # 保持模式不因 max_rounds_without_improvement 停止：冻结由监督器负责。
+            return self._finish(LoopState.STOPPED, "达到运行轮数上限：保持当前相位")
+        except Exception as exc:  # 设备异常必须变成可报告状态
+            try:
+                if opened and self.summary.applied_phase is not None:
+                    self.bench.apply_phase(self.summary.applied_phase)
+            except Exception:  # 收尾回滚是尽力而为
+                pass
+            return self._finish(LoopState.FAULT, f"运行异常：{exc}")
+        finally:
+            try:
+                self.bench.close()
+            except Exception:  # 关闭失败不该掩盖主结论
+                pass
+
+    def _grid_spacing_px(self) -> float | None:
+        """分析网格相邻采样点的 CCD 像素步长；无法确定时返回 ``None``。"""
+        grid = np.asarray(self.config.xy, dtype=np.float64)
+        dx = np.abs(np.diff(grid[..., 0], axis=1))
+        dy = np.abs(np.diff(grid[..., 1], axis=0))
+        steps = np.concatenate((dx[dx > 0.0], dy[dy > 0.0]))
+        if steps.size == 0:
+            return None
+        spacing = float(np.median(steps))
+        if not np.isfinite(spacing) or spacing <= 0.0:
+            return None
+        return spacing
+
+    def _emit_lock(
+        self,
+        decision: Any,
+        round_index: int,
+        spacing_ccd_px: float,
+        target_centroid: tuple[float, float] | None,
+    ) -> None:
+        """把监督器决策翻成页面可渲染的 ``lock`` 事件（键固定，缺值用 nan）。"""
+
+        def number(value: float | None) -> float:
+            return float("nan") if value is None else float(value)
+
+        error_px = decision.centroid_error_px
+        centroid = decision.centroid_xy
+        payload = {
+            "round_index": int(round_index),
+            "lock_state": decision.state.value,
+            "action": decision.action.value,
+            "score": number(decision.score),
+            "best_score": number(decision.best_score),
+            "centroid_error_ccd_px": (
+                float("nan") if error_px is None else float(error_px) * float(spacing_ccd_px)
+            ),
+            "target_centroid_xy": (
+                [float("nan"), float("nan")]
+                if target_centroid is None
+                else [float(target_centroid[0]), float(target_centroid[1])]
+            ),
+            "centroid_xy": (
+                [float("nan"), float("nan")]
+                if centroid is None
+                else [float(centroid[0]), float(centroid[1])]
+            ),
+        }
+        self._emit(LoopEvent("lock", payload))
+
+    @staticmethod
+    def _lock_fault_reason(supervisor: Any, decision: Any | None) -> str:
+        """把监督器状态、帧原因与评分历史写成一句可追责的故障原因。"""
+        state = getattr(supervisor, "state", None)
+        state_name = getattr(state, "value", str(state))
+        gate = tuple(getattr(supervisor, "last_gate_reasons", ()) or ())
+        gate_text = f"，帧原因：{','.join(gate)}" if gate else ""
+        if decision is None:
+            detail = "监督器未给出决策（已冻结或帧未通过门禁）"
+        else:
+            detail = f"{getattr(decision, 'reason', '') or '未知原因'}"
+        history = tuple(getattr(supervisor, "score_history", ()) or ())
+        recent = (
+            "尚无有效评分"
+            if not history
+            else "最近评分：" + "、".join(f"{float(s):.4f}" for s in history[-3:])
+        )
+        return f"监督器状态 {state_name}：{detail}{gate_text}；{recent}"
+
     # -- 内部 -------------------------------------------------------------- #
 
     _last_frame: np.ndarray
@@ -1247,6 +1547,7 @@ class ClosedLoopRunner:
             frame_id=captured.frame_id,
             exposure_ms=captured.exposure_ms,
             gate=gate,
+            captured_at_s=float(captured.monotonic_ns) / 1e9,
         )
         if self._on_frame is not None:
             self._on_frame(captured, record)

@@ -1,4 +1,4 @@
-"""实测闭环动态整形页（独立于开环 SLM 整形页）。
+"""CCD 闭环目标保持页（默认；逐轮优化保留为可选的旧流程）。
 
 这一页与 :mod:`dynamic_shaping_page` 的区别只有一句话：**相位下一步往哪走，由 CCD
 这一帧的实测形状决定，而不是由开环时间轴决定**。每轮严格串行地做
@@ -8,8 +8,10 @@
 --------
 * 页面构造时**绝不碰设备**。只有操作员点了「开始」并在确认框里确认后，才在专用
   worker 线程里打开 SLM/CCD；关窗时停线程、等线程、关设备。
-* 默认「人工确认候选」：每轮算出候选并实测后停下来，操作员看完实测对比再点接受
-  或拒绝。「自动接受」是显式开关，不是默认值。
+* 默认「目标保持（全程闭环）」：先收敛到固定 CCD 目标，再持续校正形状与 CCD 像素
+  位置偏差；目标在本次运行中不变，位置参考是固定 CCD 坐标，**不重新居中光斑**。
+  「逐轮优化」（每轮实测后由操作员确认接受或拒绝）保留为可选的旧流程。
+* 「目标保持」目前只在离线回放里验证过 —— 界面措辞不承诺它已在硬件上验证过拒漂移。
 * 帧门禁未通过的帧不允许被接受（核心层保证）；页面上把它标成红色并触发回滚。
 * 模型预测分数与实测分数分列显示：预测只是"下一步的猜测"，绝不是接受依据。
 * **transfer 在线适配默认关闭**。开启后必须填检查点、含 ``reference_start`` 与
@@ -32,6 +34,7 @@ import numpy as np
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -145,13 +148,17 @@ class ClosedLoopShapingPage(QWidget):
         adapter_factory: Callable[..., Any] | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("实测闭环动态整形")
+        self.setWindowTitle("CCD 闭环目标保持")
         self._bench_factory = bench_factory
         self._forward_factory = forward_factory
         self._adapter_factory = adapter_factory
         self._thread: _RunnerThread | None = None
         self._closing = False
         self._last_record: Any | None = None
+        #: 两种运行方式的轮数上限含义不同（保持要跑很多轮），各记一份，切换时不丢。
+        self._round_cap: dict[str, int] = {"hold": 120, "optimize": 8}
+        self._mode_shown: str | None = None
+        self._running = False
 
         self._build_ui()
         self._set_controls_running(False)
@@ -163,11 +170,13 @@ class ClosedLoopShapingPage(QWidget):
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(8)
 
-        title = QLabel("实测闭环动态整形 · CCD 误差驱动")
+        title = QLabel("CCD 闭环目标保持 · 实测驱动")
         title.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(title)
         note = QLabel(
-            "每轮：写相位 → 等稳定 → 取新帧 → 帧门禁 → 实测分数 → 接受/回滚。"
+            "目标保持（默认）：先收敛到固定 CCD 目标，再持续校正形状与 CCD 像素位置"
+            "偏差；目标在本次运行中不变。\n"
+            "逐轮优化：每轮实测后停下，由你确认接受或拒绝（旧流程）。"
             "模型预测仅供观察；只有实测改善才会被接受。"
         )
         note.setWordWrap(True)
@@ -183,8 +192,26 @@ class ClosedLoopShapingPage(QWidget):
         status_row.addWidget(self._decision_hint, 1)
         root.addLayout(status_row)
 
+        # 故障横幅：冻结/异常的原因留在页面正文里，不只靠一个弹窗。
+        self._fault_banner = QLabel("")
+        self._fault_banner.setObjectName("closedLoopFault")
+        self._fault_banner.setWordWrap(True)
+        self._fault_banner.setStyleSheet(
+            "color: #ffffff; background: #c0392b; border-radius: 4px; padding: 6px;"
+        )
+        self._fault_banner.hide()
+        root.addWidget(self._fault_banner)
+
+        root.addWidget(self._build_mode())
+        root.addWidget(self._build_target())
         root.addWidget(self._build_params())
         root.addWidget(self._build_adaptation())
+
+        # 相位行：运行方式为「目标保持」时显示 收敛中 → 维持中 → 已冻结。
+        self._phase_label = QLabel("")
+        self._phase_label.setObjectName("closedLoopPhase")
+        self._phase_label.setStyleSheet("font-size: 14px; font-weight: 600;")
+        root.addWidget(self._phase_label)
 
         control_row = QHBoxLayout()
         self._start_button = QPushButton("开始闭环…")
@@ -205,6 +232,8 @@ class ClosedLoopShapingPage(QWidget):
         control_row.addWidget(self._pause_button)
         self._stop_button = QPushButton("停止")
         self._stop_button.setObjectName("closedLoopStop")
+        self._stop_button.setStyleSheet("font-weight: 600;")
+        self._stop_button.setMinimumWidth(72)
         self._stop_button.clicked.connect(self.on_stop)
         control_row.addWidget(self._stop_button)
         control_row.addStretch(1)
@@ -226,9 +255,38 @@ class ClosedLoopShapingPage(QWidget):
         root.addWidget(self._log, 1)
 
         self._append_log("页面就绪，尚未打开任何设备。设置参数后点「开始闭环」。")
+        # 模式相关的可见/可用性与轮数上限在这里统一落到默认值（目标保持）。
+        self._on_mode_changed()
 
-    def _build_params(self) -> QGroupBox:
-        box = QGroupBox("运行参数")
+    def _build_mode(self) -> QGroupBox:
+        """运行方式：目标保持（默认，全程闭环）或逐轮优化（旧流程）。"""
+        box = QGroupBox("运行方式")
+        form = QFormLayout(box)
+
+        self._mode_combo = QComboBox()
+        self._mode_combo.setObjectName("closedLoopMode")
+        self._mode_combo.addItem("目标保持（全程闭环）", "hold")
+        self._mode_combo.addItem("逐轮优化", "optimize")
+        self._mode_combo.setCurrentIndex(0)
+        self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        form.addRow("模式", self._mode_combo)
+
+        self._hold_tolerance = QDoubleSpinBox()
+        self._hold_tolerance.setRange(0.5, 50.0)
+        self._hold_tolerance.setSingleStep(0.5)
+        self._hold_tolerance.setDecimals(1)
+        self._hold_tolerance.setValue(5.0)
+        form.addRow("位置容差（CCD px）", self._hold_tolerance)
+
+        self._mode_hint = QLabel("")
+        self._mode_hint.setWordWrap(True)
+        self._mode_hint.setStyleSheet("color: #888;")
+        form.addRow("", self._mode_hint)
+        return box
+
+    def _build_target(self) -> QGroupBox:
+        """固定 CCD 目标：中心与尺寸在整场运行中不变（开跑后控件冻结）。"""
+        box = QGroupBox("固定 CCD 目标（运行中不变）")
         form = QFormLayout(box)
 
         self._span = QSpinBox()
@@ -247,7 +305,7 @@ class ClosedLoopShapingPage(QWidget):
         centre_row.addWidget(self._centre_x)
         centre_row.addWidget(QLabel("y"))
         centre_row.addWidget(self._centre_y)
-        form.addRow("光斑中心（相机像素）", centre_row)
+        form.addRow("中心（CCD 像素 x、y）", centre_row)
 
         self._half_width = QDoubleSpinBox()
         self._half_width.setRange(0.5, 60.0)
@@ -261,6 +319,11 @@ class ClosedLoopShapingPage(QWidget):
         shape_row.addWidget(QLabel("高"))
         shape_row.addWidget(self._half_height)
         form.addRow("目标矩形半宽/半高（px）", shape_row)
+        return box
+
+    def _build_params(self) -> QGroupBox:
+        box = QGroupBox("运行参数")
+        form = QFormLayout(box)
 
         self._grid_size = QSpinBox()
         self._grid_size.setRange(8, 512)
@@ -268,9 +331,8 @@ class ClosedLoopShapingPage(QWidget):
         form.addRow("SLM 控制网格边长", self._grid_size)
 
         self._rounds = QSpinBox()
-        self._rounds.setRange(1, 200)
-        self._rounds.setValue(8)
-        form.addRow("最大轮数", self._rounds)
+        self._rounds_cap_label = QLabel("运行轮数上限")
+        form.addRow(self._rounds_cap_label, self._rounds)
 
         self._exposure_ms = QDoubleSpinBox()
         self._exposure_ms.setRange(0.1, 1000.0)
@@ -281,6 +343,62 @@ class ClosedLoopShapingPage(QWidget):
         self._auto_accept.setChecked(False)
         form.addRow("", self._auto_accept)
         return box
+
+    # -- 运行方式 ---------------------------------------------------------- #
+
+    def _run_mode(self) -> str:
+        """当前运行方式：``hold``（目标保持）或 ``optimize``（逐轮优化）。"""
+        data = self._mode_combo.currentData()
+        return str(data) if data else "hold"
+
+    def _on_mode_changed(self, *_args: Any) -> None:
+        """切换运行方式：轮数上限、确认控件与提示随之收口。"""
+        mode = self._run_mode()
+        if self._mode_shown is not None and self._mode_shown != mode:
+            # 两种模式的轮数上限含义不同，离开前先记住当前值。
+            self._round_cap[self._mode_shown] = self._rounds.value()
+        self._mode_shown = mode
+        if mode == "hold":
+            self._rounds_cap_label.setText("运行轮数上限")
+            self._rounds.setRange(1, 500)
+            # 保持模式的自动接受由 ``candidate_policy="auto"`` 承担, 与这个复选框无关:
+            # 复选框在保持模式下隐藏, 且保持为未勾选 —— 切回逐轮优化时不会被悄悄打开。
+        else:
+            self._rounds_cap_label.setText("最大轮数")
+            self._rounds.setRange(1, 200)
+        self._rounds.setValue(self._round_cap[mode])
+        self._apply_mode_ui()
+
+    def _apply_mode_ui(self) -> None:
+        """按运行方式调整可见/可用性；开跑后再由 ``_set_controls_running`` 冻结。"""
+        hold = self._run_mode() == "hold"
+        # 目标保持在跑完之前不需要逐轮确认；逐轮优化保持旧行为。
+        self._accept_button.setVisible(not hold)
+        self._reject_button.setVisible(not hold)
+        self._auto_accept.setVisible(not hold)
+        self._hold_tolerance.setEnabled(hold and not self._running)
+        self._phase_label.setVisible(hold)
+        if hold:
+            self._decision_hint.clear()
+            self._mode_hint.setText(
+                "全程闭环：先收敛到固定 CCD 目标，再维持形状与 CCD 像素位置；"
+                "目标在本次运行中不变。保持模式自动接受实测改善。"
+            )
+        else:
+            self._mode_hint.setText(
+                "逐轮优化：每轮算出候选并实测后停下，由你确认接受或拒绝（旧流程）。"
+            )
+
+    # -- 故障横幅 ---------------------------------------------------------- #
+
+    def _show_fault(self, reason: str) -> None:
+        self._fault_banner.setText(f"已冻结：{reason}")
+        self._fault_banner.show()
+        self._append_log(f"冻结：{reason}")
+
+    def _clear_fault(self) -> None:
+        self._fault_banner.clear()
+        self._fault_banner.hide()
 
     def _build_adaptation(self) -> QGroupBox:
         """transfer 在线适配的显式配置：检查点、会话输出目录、标定数据集。
@@ -587,12 +705,17 @@ class ClosedLoopShapingPage(QWidget):
             half_height=self._half_height.value(),
         )
         start_phase = np.zeros((self._grid_size.value(), self._grid_size.value()))
+        mode = self._run_mode()
+        hold = mode == "hold"
         config = ClosedLoopConfig(
             xy=xy,
             target=target,
             start_phase=start_phase,
             max_rounds=self._rounds.value(),
-            candidate_policy="auto" if self._auto_accept.isChecked() else "confirm",
+            mode=mode,
+            hold_target_ccd_px=self._hold_tolerance.value(),
+            # 目标保持无人值守，核心层要求 auto；逐轮优化沿用人工确认开关。
+            candidate_policy="auto" if hold or self._auto_accept.isChecked() else "confirm",
             adapt=self._adapt.isChecked(),
             exposure_ms=self._exposure_ms.value(),
         )
@@ -607,10 +730,18 @@ class ClosedLoopShapingPage(QWidget):
                 QMessageBox.warning(self, "适配配置未通过校验", problem)
                 return
 
+        mode_text = "目标保持（全程闭环）" if hold else "逐轮优化"
+        cap_text = f"运行轮数上限 {config.max_rounds} 轮" if hold else f"最多 {config.max_rounds} 轮"
         confirm_text = (
             "闭环将独占 SLM 与 CCD，期间请勿启动其他占用同一设备的进程。\n"
-            f"最多 {config.max_rounds} 轮，曝光 {config.exposure_ms} ms。"
+            f"固定目标中心（CCD 像素 x、y）= ({self._centre_x.value():.1f}, "
+            f"{self._centre_y.value():.1f})，矩形半宽/半高 = "
+            f"{self._half_width.value():.1f}/{self._half_height.value():.1f} px；"
+            "目标在本次运行中不变。\n"
+            f"运行方式：{mode_text}；{cap_text}，曝光 {config.exposure_ms} ms。"
         )
+        if hold:
+            confirm_text += f"\n位置容差 {config.hold_target_ccd_px:.1f} CCD px（固定像素参考，不重新居中）。"
         if config.adapt and self._adapter_factory is None:
             session = self._session_dir_edit.text().strip()
             confirm_text += (
@@ -650,6 +781,9 @@ class ClosedLoopShapingPage(QWidget):
         self._thread.signals.failed.connect(self._on_failed)
         self._set_controls_running(True)
         self._clear_rounds()
+        self._clear_fault()
+        if hold:
+            self._phase_label.setText(f"收敛中 · 第 1/{config.max_rounds} 轮")
         self._append_log("已确认设备占用，闭环开始。")
         self._thread.start()
 
@@ -661,10 +795,14 @@ class ClosedLoopShapingPage(QWidget):
         return HardwareBench(exposure_ms=self._exposure_ms.value())
 
     def on_accept(self) -> None:
+        if self._run_mode() == "hold":
+            return
         if self._thread is not None and self._thread.isRunning():
             self._thread.runner.request_accept()
 
     def on_reject(self) -> None:
+        if self._run_mode() == "hold":
+            return
         if self._thread is not None and self._thread.isRunning():
             self._thread.runner.request_reject()
 
@@ -696,22 +834,67 @@ class ClosedLoopShapingPage(QWidget):
             self._state_label.setText(
                 f"状态：{_STATE_TEXT.get(event.state, event.state.value)}"
             )
-        if event.kind == "round":
+        if event.kind == "lock":
+            self._render_lock(event.payload)
+        elif event.kind == "round":
             self._append_round(event.payload)
         elif event.kind == "bench":
             self._append_log(f"设备：{event.payload}")
         elif event.kind == "awaiting_decision":
-            self._decision_hint.setText(
-                f"第 {event.payload.round_index} 轮实测分数 "
-                f"{event.payload.measured_score:.4f}，请确认接受或拒绝。"
-            )
-            self._append_log(f"第 {event.payload.round_index} 轮等待人工确认。")
+            if self._run_mode() == "hold":
+                # 保持模式无人值守；旧事件即便到达也不该把页面拉回逐轮确认。
+                self._append_log(
+                    f"第 {event.payload.round_index} 轮到达逐轮确认事件，目标保持下忽略。"
+                )
+            else:
+                self._decision_hint.setText(
+                    f"第 {event.payload.round_index} 轮实测分数 "
+                    f"{event.payload.measured_score:.4f}，请确认接受或拒绝。"
+                )
+                self._append_log(f"第 {event.payload.round_index} 轮等待人工确认。")
         elif event.kind == "adaptation":
             self._append_log(
                 f"transfer 适配：{event.payload.status} — {event.payload.detail}"
             )
         elif event.kind == "state":
             self._append_log(str(event.payload))
+
+    @staticmethod
+    def _payload_value(payload: Any, key: str, default: Any = None) -> Any:
+        """lock 事件的 payload 既可能是 dict 也可能是对象；缺键一律走默认值。"""
+        if isinstance(payload, dict):
+            return payload.get(key, default)
+        return getattr(payload, key, default)
+
+    def _render_lock(self, payload: Any) -> None:
+        """把目标保持的相位事件画成一行结论：收敛中 → 维持中 → 已冻结。"""
+        state = str(self._payload_value(payload, "lock_state", "") or "")
+        action = str(self._payload_value(payload, "action", "") or "")
+        index = self._payload_value(payload, "round_index")
+        cap = self._rounds.value()
+        phase = {
+            "converging": "收敛中",
+            "maintaining": "维持中",
+            "frozen": "已冻结",
+        }.get(state, "")
+        if phase:
+            if index is not None and state != "frozen":
+                phase = f"{phase} · 第 {index}/{cap} 轮"
+            self._phase_label.setText(phase)
+        if state == "frozen" or action == "fault":
+            reason = str(self._payload_value(payload, "reason", "") or "")
+            if not reason:
+                error = self._payload_value(payload, "centroid_error_ccd_px")
+                try:
+                    value = float(error) if error is not None else float("nan")
+                except (TypeError, ValueError):
+                    value = float("nan")
+                if np.isfinite(value):
+                    prefix = f"第 {index} 轮" if index is not None else "闭环"
+                    reason = f"{prefix}位置偏差 {value:.1f} CCD px"
+                else:
+                    reason = "闭环进入冻结状态，未给出原因。"
+            self._show_fault(reason)
 
     def _append_round(self, record: Any) -> None:
         self._last_record = record
@@ -737,17 +920,25 @@ class ClosedLoopShapingPage(QWidget):
         self._state_label.setText(f"状态：{_STATE_TEXT.get(summary.state, summary.state.value)}")
         self._set_controls_running(False)
         self._decision_hint.clear()
+        self._phase_label.setText("已结束")
+        if summary.state is LoopState.FAULT:
+            self._show_fault(summary.reason or "闭环以故障结束。")
+        else:
+            self._clear_fault()
         self._append_log(f"闭环结束（{summary.state.value}）：{summary.reason}")
         self._clear_thread()
 
     def _on_failed(self, message: str) -> None:
         self._state_label.setText("状态：故障")
+        self._phase_label.setText("已冻结")
         self._set_controls_running(False)
+        self._show_fault(message)
         self._append_log(f"闭环异常：{message}")
         QMessageBox.warning(self, "闭环异常", message)
         self._clear_thread()
 
     def _set_controls_running(self, running: bool) -> None:
+        self._running = running
         for widget in (
             self._start_button, self._accept_button, self._reject_button,
             self._pause_button, self._stop_button,
@@ -760,7 +951,15 @@ class ClosedLoopShapingPage(QWidget):
             self._source_dataset_edit, self._source_dataset_button,
         ):
             widget.setEnabled(not running)
+        # 目标与运行方式开跑后冻结：目标在本次运行中不允许改变，位置参考不重居中。
+        for widget in (
+            self._mode_combo, self._span, self._centre_x, self._centre_y,
+            self._half_width, self._half_height, self._rounds, self._grid_size,
+        ):
+            widget.setEnabled(not running)
         self._pause_button.setText("暂停")
+        # 模式相关（位置容差、确认按钮可见性）最后统一收口。
+        self._apply_mode_ui()
 
     def _clear_rounds(self) -> None:
         self._table.setRowCount(0)

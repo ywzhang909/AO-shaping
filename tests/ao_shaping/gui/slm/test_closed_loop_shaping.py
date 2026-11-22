@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import numpy as np
@@ -662,3 +663,194 @@ def test_adapter_rejects_bad_round_arguments(tmp_path: Path) -> None:
             phase=np.zeros((8, 8)), frame=_embed(_good()), exposure_ms=1.0,
             spot_xy=_CENTRE, label="x", split="test",
         )
+
+
+# --------------------------------------------------------------------------- #
+# hold 模式（同一固定目标 + 固定 CCD 像素位置）
+# --------------------------------------------------------------------------- #
+
+
+class _TimedBench(_Bench):
+    """假光路：采集时刻取自真实的单调时钟，hold 模式据此判定帧是否晚于写入。
+
+    ``stale_after`` 不为 None 时，第 ``stale_after`` 帧之后的帧都带上一个
+    **构造时**的旧时刻 —— 也就是早于本次运行的任何相位写入。
+    """
+
+    def __init__(self, frames, *, stale_after: int | None = None) -> None:
+        super().__init__(frames)
+        self._stale_after = stale_after
+        self._stale_ns = time.monotonic_ns() if stale_after is not None else None
+
+    def capture(self) -> CapturedFrame:
+        self.calls.append("capture")
+        self._frame_id += 1
+        stale = self._stale_after is not None and self._frame_id > self._stale_after
+        return CapturedFrame(
+            frame=np.asarray(self._frames(len(self.applied)), dtype=np.float64),
+            frame_id=self._frame_id,
+            exposure_ms=self.exposure_ms,
+            full_scale=self.full_scale,
+            monotonic_ns=int(self._stale_ns) if stale else time.monotonic_ns(),
+        )
+
+
+def test_hold_config_rejects_unattended_conflicts_and_bad_values() -> None:
+    with pytest.raises(ValueError, match="candidate_policy"):
+        _config(mode="hold", candidate_policy="confirm")
+    with pytest.raises(ValueError, match="hold_target_ccd_px"):
+        _config(mode="hold", hold_target_ccd_px=0.0)
+    with pytest.raises(ValueError, match="hold_target_ccd_px"):
+        _config(mode="hold", hold_target_ccd_px=float("nan"))
+    with pytest.raises(ValueError, match="mode"):
+        _config(mode="stare")
+
+
+def test_hold_runs_to_the_round_cap_without_confirmation() -> None:
+    events: list = []
+    bench = _TimedBench(lambda n: _embed(_good()))
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(mode="hold", max_rounds=4),
+        forward=_SquareForward(_target()),
+        on_event=events.append,
+    )
+    summary = runner.run()
+
+    assert summary.state is LoopState.STOPPED
+    assert "轮数上限" in summary.reason
+    # 基线 + 4 轮全部跑完，且从不进入"等待人工确认"。
+    assert len(summary.rounds) == 5
+    assert [r.decision for r in summary.rounds[1:]] == ["hold"] * 4
+    assert all(event.kind != "awaiting_decision" for event in events)
+    assert bench.closed
+
+
+def test_hold_never_accepts_a_frame_captured_before_the_write() -> None:
+    bench = _TimedBench(lambda n: _embed(_good()), stale_after=1)
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(mode="hold", max_rounds=1),
+        forward=_SquareForward(_target()),
+    )
+    summary = runner.run()
+
+    # 旧帧不构成证据：不 ACCEPT、不改善最佳，设备回滚到最佳（起点）。
+    assert summary.state is LoopState.STOPPED
+    assert summary.rounds[-1].decision == "invalid"
+    assert "old_frame" in summary.rounds[-1].note
+    assert np.allclose(summary.applied_phase, summary.best_phase)
+    assert np.allclose(summary.applied_phase, np.zeros((8, 8)))
+    assert np.allclose(bench.applied[-1], np.zeros((8, 8)))
+
+
+def test_hold_reports_a_rollback_with_ccd_pixel_centroid_error() -> None:
+    events: list = []
+    bench = _TimedBench(lambda n: _embed(_good()) if n == 1 else _embed(_blob()))
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(mode="hold", max_rounds=1),
+        forward=_SquareForward(_target()),
+        on_event=events.append,
+    )
+    summary = runner.run()
+
+    assert summary.state is LoopState.STOPPED
+    assert summary.rounds[-1].decision == "rollback"
+    assert np.allclose(bench.applied[-1], np.zeros((8, 8)))
+
+    payloads = [event.payload for event in events if event.kind == "lock"]
+    rollbacks = [payload for payload in payloads if payload["action"] == "rollback"]
+    assert len(rollbacks) == 1
+    payload = rollbacks[0]
+    assert payload["round_index"] == 1
+    assert payload["lock_state"] == "converging"
+    assert set(payload) == {
+        "round_index",
+        "lock_state",
+        "action",
+        "score",
+        "best_score",
+        "centroid_error_ccd_px",
+        "target_centroid_xy",
+        "centroid_xy",
+    }
+    # 分析网格步长是 2 CCD px：CCD 误差必须是网格误差的两倍。
+    assert payload["centroid_error_ccd_px"] > 0.0
+    gx, gy = payload["centroid_xy"]
+    tx, ty = payload["target_centroid_xy"]
+    grid_error = float(np.hypot(gx - tx, gy - ty))
+    assert payload["centroid_error_ccd_px"] == pytest.approx(2.0 * grid_error, rel=1e-9)
+
+
+def test_hold_freezes_after_repeated_invalid_frames() -> None:
+    events: list = []
+    bench = _TimedBench(lambda n: _embed(_good()), stale_after=1)
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(mode="hold", max_rounds=6),
+        forward=_SquareForward(_target()),
+        on_event=events.append,
+    )
+    summary = runner.run()
+
+    assert summary.state is LoopState.FAULT
+    assert "监督器" in summary.reason
+    assert "repeated_invalid_frames" in summary.reason
+    # 基线 + 3 个无效帧后由监督器冻结；冻结后不再生成、不再下发候选。
+    assert len(summary.rounds) == 4
+    assert [r.decision for r in summary.rounds[1:]] == ["invalid", "invalid", "fault"]
+    assert bench.calls.count("capture") == 4
+    assert bench.calls.count("apply_phase") == 1 + 2 * 3
+    assert np.allclose(bench.applied[-1], np.zeros((8, 8)))
+    faults = [event.payload for event in events if event.kind == "lock" and event.payload["action"] == "fault"]
+    assert len(faults) == 1
+    assert faults[0]["lock_state"] == "frozen"
+
+
+def test_hold_stops_on_request_and_keeps_the_last_accepted_phase() -> None:
+    events: list = []
+    holder: dict[str, ClosedLoopRunner] = {}
+
+    def on_event(event) -> None:
+        events.append(event)
+        if (
+            event.kind == "lock"
+            and isinstance(event.payload, dict)
+            and event.payload.get("action") == "accept"
+            and event.payload.get("round_index") == 1
+        ):
+            holder["runner"].request_stop()
+
+    bench = _TimedBench(lambda n: _embed(_blob()) if n == 1 else _embed(_good()))
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(mode="hold", max_rounds=4),
+        forward=_SquareForward(_target()),
+        on_event=on_event,
+    )
+    holder["runner"] = runner
+    summary = runner.run()
+
+    assert summary.state is LoopState.STOPPED
+    assert "停止" in summary.reason
+    assert summary.rounds[-1].decision == "accept"
+    # 只在轮次边界停：设备上留下的是最后被接受的那个最佳相位。
+    assert np.allclose(summary.applied_phase, bench.applied[-1])
+    assert not np.allclose(summary.applied_phase, np.zeros((8, 8)))
+    assert "stop_requested" in [event.kind for event in events]
+
+
+def test_optimize_mode_still_stops_when_candidates_stop_improving() -> None:
+    bench = _TimedBench(lambda n: _embed(_good()) if n == 1 else _embed(_blob()))
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(max_rounds=6, max_rounds_without_improvement=2),
+        forward=_SquareForward(_target()),
+    )
+    assert runner.config.mode == "optimize"
+    summary = runner.run()
+
+    assert summary.state is LoopState.STOPPED
+    assert "未被接受" in summary.reason
+    assert [r.decision for r in summary.rounds[1:]] == ["reject", "reject"]

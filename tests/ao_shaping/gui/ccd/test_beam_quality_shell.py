@@ -171,13 +171,18 @@ def test_rail_is_compressed_and_single_line(app, shell) -> None:
 
 
 def test_rail_has_four_nav_items(app, shell) -> None:
-    """导航栏四页齐在: 光束质量 / 迁移学习闭环整形 / SLM 动态整形 / 实测闭环动态整形。"""
+    """导航栏四页齐在: 光束质量 / 迁移学习闭环整形 / SLM 动态整形 / 目标保持。
+
+    页 3 的短标签在 2026-11-22 由「实测闭环」改为「目标保持」: 该页现在以
+    ``ClosedLoopConfig(mode="hold")`` 全程锁定同一个固定 CCD 目标, 旧标签
+    「实测闭环」不再描述它的语义。
+    """
     from ao_shaping.gui.ccd.beam_quality.shell import _NAV_ITEMS
 
     assert len(_NAV_ITEMS) == 4
     assert len(shell._rail._items) == 4
     assert shell._rail._items[2].accessibleName() == "SLM动态整形"
-    assert shell._rail._items[3]._title.text() == "实测闭环"
+    assert shell._rail._items[3]._title.text() == "目标保持"
 
 
 def test_rail_labels_fit_without_clipping(app, shell) -> None:
@@ -227,7 +232,7 @@ def test_static_shaping_page_stays_cached(app, shell) -> None:
 
 
 def test_closed_loop_page_is_lazy_and_switches(app, shell) -> None:
-    """页 3 (实测闭环动态整形) 惰性创建: 冷启动不建, 点到才实例化并成为当前页。"""
+    """页 3 (CCD 闭环目标保持) 惰性创建: 冷启动不建, 点到才实例化并成为当前页。"""
     assert shell._closed_loop_page is None  # 冷启动不建闭环页
     _click_item(shell, 3, app)
     app.processEvents()

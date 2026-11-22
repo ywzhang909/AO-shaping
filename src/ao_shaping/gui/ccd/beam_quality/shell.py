@@ -15,8 +15,8 @@
   状态栏上下叠在一起, 像两个应用挤在一个框里。切页只更新导航项的选中态,
   不再显示额外提示。
 * **页 1 / 页 2 / 页 3 惰性创建**。迁移学习闭环整形页在导入时会拉起 torch (物理预测
-  模型的拟合与可微合成都在 torch 上), 冷启动要多花好几秒; SLM 整形页与实测闭环
-  动态整形页也只在实际切到时创建 —— 后者还会拉 SLM/CCD 驱动, 更不该为冷启动买单。
+  模型的拟合与可微合成都在 torch 上), 冷启动要多花好几秒; SLM 整形页与 CCD 闭环
+  目标保持页也只在实际切到时创建 —— 后者还会拉 SLM/CCD 驱动, 更不该为冷启动买单。
   看光束质量页的人不该为这些页面的初始化代价付费, 更不该因为没打算用的页而被碰设备。
 * **窄导航栏**: 120 px 一列, 每项只有一行短标题与状态点, 不放副标题或底部提示,
   把尽可能多的横向空间留给页面内容。超过可用宽度的长名 (如「迁移学习闭环整形」)
@@ -70,15 +70,16 @@ _NAV_ITEMS: tuple[tuple[str, str], ...] = (
     ("光束质量", "光束质量"),
     ("闭环整形", "迁移学习闭环整形"),
     ("SLM动态整形", "SLM动态整形"),
-    ("实测闭环", "实测闭环动态整形"),
+    ("目标保持", "CCD 闭环目标保持"),
 )
 
 #: 切页说明（保留给程序性索引访问，导航栏本身不再显示 —— 见模块 docstring）。
 _NAV_HINTS: tuple[str, ...] = (
     "光束质量: 选信号源后点「打开」; 相机操作在后台线程, 不冻界面",
     "迁移学习闭环整形: 需要 torch; 切页不会打断正在跑的会话",
-    "SLM动态整形: 设目标与起点, 相位分中间步逼近目标; 可暂停、续播、停止",
-    "实测闭环动态整形: CCD 实测误差驱动下一步; 开始前确认占用 SLM 与 CCD",
+    "SLM动态整形: 开环时间轴, 相位分中间步逼近目标; 不闭环、不保持目标",
+    "CCD 闭环目标保持: 先收敛到固定 CCD 目标, 再持续校正形状与位置偏差; "
+    "目标在本次运行中不变",
 )
 
 #: 导航栏宽度 (px)。压缩到只放单行标题 + 状态点, 不抢页面。
@@ -293,7 +294,7 @@ class DesktopShellApp(QMainWindow):
 
     页 0 是既有的光束质量分析 (整个窗口嵌进来), 页 1 是 SLM 迁移学习闭环整形
     (惰性创建), 页 2 是 SLM 整形 (惰性创建, 会拉 SLM 驱动只在下发时), 页 3 是
-    实测闭环动态整形 (惰性创建, 只在操作员确认后占用 SLM 与 CCD)。
+    CCD 闭环目标保持 (惰性创建, 只在操作员确认后占用 SLM 与 CCD)。
     窗口标题由外壳统一持有, 切页不会换标题 —— 操作员在各页之间移动时, 标题栏始终
     说明「这是哪个应用」。
     """
@@ -332,7 +333,7 @@ class DesktopShellApp(QMainWindow):
         # 页 2: SLM 整形（动态过渡为主 tab）—— 惰性, 切过去才建。
         self._static_page: QWidget | None = None
 
-        # 页 3: 实测闭环动态整形 —— 惰性, 切过去才建; 开跑前不碰任何设备。
+        # 页 3: CCD 闭环目标保持 —— 惰性, 切过去才建; 开跑前不碰任何设备。
         self._closed_loop_page: QWidget | None = None
 
         central = QWidget(self)
@@ -455,10 +456,14 @@ class DesktopShellApp(QMainWindow):
             self._static_page = ShapingPage(
                 optical_path=OpticalPathSnapshot(source="model_forward")
             )
+            # 开环动态页自己说清「不闭环」，并把想闭环的操作员送到页 3。
+            self._static_page.dynamic_page.request_target_hold.connect(
+                lambda: self.select_page(3)
+            )
         return self._static_page
 
     def _closed_loop(self) -> QWidget:
-        """惰性创建页 3 (实测闭环动态整形); 建好之后缓存, 切回来不重建。
+        """惰性创建页 3 (CCD 闭环目标保持); 建好之后缓存, 切回来不重建。
 
         构造页面只搭控件: 不 import torch、不打开 SLM 或 CCD。设备占用发生在
         操作员点「开始闭环」并在确认框里确认之后 (页面内部专用 worker 线程)。
@@ -495,7 +500,7 @@ class DesktopShellApp(QMainWindow):
 
     def select_page(self, index: int) -> None:
         """切页 (0 = 光束质量, 1 = 迁移学习闭环整形, 2 = SLM 动态整形,
-        3 = 实测闭环动态整形)。"""
+        3 = CCD 闭环目标保持)。"""
         self._sync_stack(max(0, min(index, len(_NAV_ITEMS) - 1)))
 
     # ------------------------------------------------------------------ 事件

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from ao_shaping.gui.slm.closed_loop_shaping import (
     CapturedFrame,
+    LoopEvent,
     LoopState,
     analysis_grid,
     target_field,
@@ -119,6 +120,13 @@ def _make_page(**kwargs):
     return page
 
 
+def _select_mode(page, mode: str) -> None:
+    """按数据值选运行方式（hold / optimize），而不是猜下拉框顺序。"""
+    index = page._mode_combo.findData(mode)
+    assert index >= 0, f"未知运行方式：{mode}"
+    page._mode_combo.setCurrentIndex(index)
+
+
 def test_page_construction_touches_no_devices(app) -> None:
     """构造页面只搭控件：工厂一次都不该被调用，也没有起线程。"""
     calls: list[str] = []
@@ -195,6 +203,8 @@ def test_confirmed_run_renders_measured_rounds_and_closes_devices(
         bench_factory=lambda: bench,
         forward_factory=lambda xy: _Forward(xy.shape[:2]),
     )
+    # 这条测试守的是旧的人工确认流程，必须显式切到「逐轮优化」。
+    _select_mode(page, "optimize")
     page._rounds.setValue(2)
     page._auto_accept.setChecked(False)
     monkeypatch.setattr(
@@ -433,4 +443,201 @@ def test_stop_request_ends_the_loop_and_reports_reason(app, monkeypatch) -> None
         assert bench.closed is True
     finally:
         page.close()
+        app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# 运行方式：目标保持（默认） / 逐轮优化（旧流程）
+# ---------------------------------------------------------------------------
+
+
+def _start_and_grab_config(app, page, monkeypatch):
+    """在确认框点「是」后开跑，返回这一刻的不可变配置。"""
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+    )
+    page.on_start()
+    assert page._thread is not None
+    return page._thread.runner.config
+
+
+def _stop_and_wait(app, page) -> None:
+    page.on_stop()
+    assert _wait_until(app, lambda: page._thread is None, timeout_s=120.0)
+
+
+def test_hold_is_the_default_run_mode(app, monkeypatch) -> None:
+    """默认就是「目标保持」：配置带 mode=hold 且强制自动接受。"""
+    page = _make_page(
+        bench_factory=_Bench,
+        forward_factory=lambda xy: _Forward(xy.shape[:2]),
+    )
+    try:
+        assert page._run_mode() == "hold"
+        assert page._rounds_cap_label.text() == "运行轮数上限"
+        assert page._rounds.maximum() == 500
+        assert page._rounds.value() == 120
+        # 保持模式无人值守：逐轮确认控件不该出现。
+        assert page._accept_button.isHidden() is True
+        assert page._reject_button.isHidden() is True
+
+        config = _start_and_grab_config(app, page, monkeypatch)
+        assert config.mode == "hold"
+        assert config.candidate_policy == "auto"
+        assert config.hold_target_ccd_px == pytest.approx(5.0)
+    finally:
+        if page._thread is not None:
+            _stop_and_wait(app, page)
+        page.close()
+        app.processEvents()
+
+
+def test_switching_to_optimize_restores_the_confirm_flow(app, monkeypatch) -> None:
+    """切回逐轮优化：旧标签/旧轮数上限/人工确认控件都回来。"""
+    page = _make_page(
+        bench_factory=_Bench,
+        forward_factory=lambda xy: _Forward(xy.shape[:2]),
+    )
+    try:
+        _select_mode(page, "optimize")
+        assert page._rounds_cap_label.text() == "最大轮数"
+        assert page._rounds.maximum() == 200
+        assert page._rounds.value() == 8
+        assert page._accept_button.isHidden() is False
+        assert page._reject_button.isHidden() is False
+
+        config = _start_and_grab_config(app, page, monkeypatch)
+        assert config.mode == "optimize"
+        assert config.candidate_policy == "confirm"
+        # 跑起来后人工接受按钮可用（旧行为不变）。
+        assert page._accept_button.isEnabled() is True
+    finally:
+        if page._thread is not None:
+            _stop_and_wait(app, page)
+        page.close()
+        app.processEvents()
+
+
+def test_hold_position_tolerance_reaches_the_config(app, monkeypatch) -> None:
+    """「位置容差（CCD px）」控件必须一路传到 hold_target_ccd_px。"""
+    page = _make_page(
+        bench_factory=_Bench,
+        forward_factory=lambda xy: _Forward(xy.shape[:2]),
+    )
+    try:
+        page._hold_tolerance.setValue(3.5)
+        config = _start_and_grab_config(app, page, monkeypatch)
+        assert config.mode == "hold"
+        assert config.hold_target_ccd_px == pytest.approx(3.5)
+    finally:
+        if page._thread is not None:
+            _stop_and_wait(app, page)
+        page.close()
+        app.processEvents()
+
+
+def test_target_widgets_are_frozen_while_a_run_is_in_flight(app, monkeypatch) -> None:
+    """目标在本次运行中不变：中心与尺寸控件开跑后必须锁住。"""
+    page = _make_page(
+        bench_factory=_Bench,
+        forward_factory=lambda xy: _Forward(xy.shape[:2]),
+    )
+    try:
+        assert page._centre_x.isEnabled() is True
+        _start_and_grab_config(app, page, monkeypatch)
+        for widget in (
+            page._centre_x, page._centre_y, page._half_width, page._half_height,
+            page._span, page._mode_combo,
+        ):
+            assert widget.isEnabled() is False
+        _stop_and_wait(app, page)
+        assert page._centre_x.isEnabled() is True
+    finally:
+        if page._thread is not None:
+            _stop_and_wait(app, page)
+        page.close()
+        app.processEvents()
+
+
+def test_lock_events_drive_the_phase_line_and_a_visible_fault(app) -> None:
+    """收敛中 → 维持中 → 已冻结；冻结原因留在正文红色横幅里。"""
+    page = _make_page()
+    try:
+        page._on_event(
+            LoopEvent(
+                "lock",
+                payload={
+                    "round_index": 3,
+                    "lock_state": "converging",
+                    "action": "propose",
+                    "score": 0.42,
+                    "best_score": 0.40,
+                    "centroid_error_ccd_px": 6.0,
+                    "target_centroid_xy": [10.0, 10.0],
+                    "centroid_xy": [12.0, 11.0],
+                },
+            )
+        )
+        assert "收敛中" in page._phase_label.text()
+        assert "3/120" in page._phase_label.text()
+
+        page._on_event(
+            LoopEvent(
+                "lock",
+                payload={
+                    "round_index": 4,
+                    "lock_state": "maintaining",
+                    "action": "accept",
+                    "score": 0.41,
+                    "best_score": 0.41,
+                    "centroid_error_ccd_px": 0.8,
+                    "target_centroid_xy": [10.0, 10.0],
+                    "centroid_xy": [10.2, 10.1],
+                },
+            )
+        )
+        assert "维持中" in page._phase_label.text()
+        assert "4/120" in page._phase_label.text()
+
+        # 不认识的 kind 只应被忽略，不能把页面弄崩。
+        page._on_event(LoopEvent("mystery", payload={"x": 1}))
+
+        page._on_event(
+            LoopEvent(
+                "lock",
+                payload={
+                    "round_index": 5,
+                    "lock_state": "frozen",
+                    "action": "fault",
+                    "score": 0.30,
+                    "best_score": 0.41,
+                    "centroid_error_ccd_px": 7.5,
+                    "target_centroid_xy": [10.0, 10.0],
+                    "centroid_xy": [17.5, 10.0],
+                },
+            )
+        )
+        assert "已冻结" in page._phase_label.text()
+        assert page._fault_banner.isHidden() is False
+        assert "7.5" in page._fault_banner.text()
+        # 红色横幅来自内联样式：原因必须在正文可见，而不只在弹窗里。
+        assert "c0392b" in page._fault_banner.styleSheet()
+    finally:
+        page.close()
+        app.processEvents()
+
+
+def test_dynamic_page_requests_the_target_hold_page(app) -> None:
+    """开环动态页的按钮只发信号；切页由外壳负责。"""
+    from ao_shaping.gui.slm.dynamic_shaping_page import DynamicShapingPage
+
+    page = DynamicShapingPage()
+    hits: list[str] = []
+    page.request_target_hold.connect(lambda: hits.append("hold"))
+    try:
+        page._target_hold_button.click()
+        assert hits == ["hold"]
+    finally:
+        page.close()
+        page._pool.waitForDone(5000)
         app.processEvents()
