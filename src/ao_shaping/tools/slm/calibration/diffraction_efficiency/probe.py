@@ -76,14 +76,14 @@ def _bench_lock_context(
     slm_factory: Callable[[], Any] | None,
     cam_factory: Callable[..., Any] | None,
 ) -> Iterator[Any]:
-    """真实硬件路径拿台面跨进程互斥锁; 注入工厂 (= 离线/测试路径) 不碰真锁。
+    """实验路径拿台面跨进程互斥锁; 注入工厂 (= 离线/测试路径) 不碰真锁。
 
     SLM 的 USB 句柄是**独占**的: 两个进程同时 open 会直接被驱动拒绝
     (``-10002``/``-200``), 而且失败方式看起来像"设备没插", 很难查。所以凡是
     真开设备的入口都必须先拿 :class:`DeviceLock`, 并在 ``finally`` 里释放。
     """
     if lock_factory is None and (slm_factory is not None or cam_factory is not None):
-        # 调用方注入了设备工厂 ⇒ 这次不碰真实硬件, 也就不该占台面锁。
+        # 调用方注入了设备工厂 ⇒ 这次不碰实验, 也就不该占台面锁。
         yield None
         return
 

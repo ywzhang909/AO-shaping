@@ -2,7 +2,7 @@
 
 全程离线：不连接、不操作 SLM / CCD / 激光。本脚本所有相位都来自**离线逐位
 精确重放**（复用 :mod:`scripts.slm.render_differentiable_opt_animation` 的重放
-设施与 ``hw_differentiable_phase_opt.py`` 的前向模型），已验证可逐位复现存档
+设施与 ``hw_differentiable_phase_opt.py`` 的物理预测模型），已验证可逐位复现存档
 loss / 最终相位。因此"逐轮相位"虽未落盘，却能被精确重建。
 
 分析口径（与硬件实际下发一致）：先按 ``phase_model_to_panel`` 把模型网格相位

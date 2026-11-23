@@ -153,7 +153,7 @@
 | `tools/slm_bench_fingerprint.md` | 光路指纹：平场 FWHM + 已知倾斜位移 + 质心，判定标定所量光路是否仍是当前光路（防过期标定被静默复用） |
 | `tools/micro_dm_image_collect.md` | Micro-DM 逐单元加电压采集远场光斑（响应矩阵/影响函数/系统标定） |
 | `tools/slm_beam_extent.md` | 光束范围测量 |
-| `tools/slm_diffraction_efficiency.md` | 闪耀光栅衍射效率 / 相位响应标定：一维闪耀光栅测器件相位调制深度与 ±1 级效率（`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`；measure 需光路标定 `.npz` 前置） |
+| `tools/slm_diffraction_efficiency.md` | 闪耀光栅衍射效率 / 相位响应标定：一维闪耀光栅测器件相位调制深度与 ±1 级效率（`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze,probe}`；measure 需光路标定 `.npz` 前置，`probe` 为 2026-11-21 新增轻量探针——无需标定 `.npz`、结果为未定标相对指标） |
 | `tools/slm_drift_probe.md` | SLM 漂移探测 |
 | `tools/slm_exposure_check.md` | 曝光检查 |
 | `tools/slm_floor_probe.md` | 本底（floor）探测 |
