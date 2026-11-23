@@ -262,10 +262,12 @@ S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段�
 `DeviceLock`、也没有 `--wait-until-idle`；`scripts/slm/issue238_gray_phase_probes.py`
 自带锁与等待，但一个窗口里连续跑多周期需要「一把锁贯穿 + 段间冷却」。两条纪律原先都没有实现。
 
-### 7.3 数据采集状态（截至 2026-11-19）
+### 7.3 数据采集状态（截至 2026-11-23）
 
-**本轮（2026-11-19 午后）未占用任何设备**：激光已关，主动采集按用户指示暂停，须另行授权；
-因此本节没有新增数据，下列「已完成」全部来自 11-17 / 11-18 / 11-19 早间已释放的窗口。
+**2026-11-23 本轮**：占用 SLM #1 + 大恒 cam 0 + 1064 nm 激光，完成效率匹配窗口
+（16 帧，verdict `undeterminable`）与 #247 波形判别窗口（60 帧，verdict
+`patch_position_specific`）；两次采集均正常释放设备与锁。2026-11-20 另外完成动态解耦
+T4/T5 速度窗口（30 条 transition，2.3 fps，`data/debug/slm_transfer/speed_decouple_capture_20261120_v2/`）。
 
 | 段 | 状态 | 数据路径 | 备注 |
 |---|------|---------|------|
@@ -281,6 +283,8 @@ S0 之后，S1–S3 由**一个**窗口脚本串起来（它负责等锁、段�
 | S1 K=1/K=4 闭环 | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/{k1,k4}/` | 脚本就绪 |
 | S2 ccd_mode light | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/light/` | 脚本就绪；强度门 δ=0.20 已预注册，硬件验证仍暂停 |
 | S3 ccd_mode none | ⬜ 未采集 | 计划 `data/experiments/transfer_window_<date>/none/` | 脚本就绪；硬件验证仍暂停 |
+| 效率匹配 ηs/ηd（2026-11-23） | ✅ 已采集 + 已判读 | `data/debug/efficiency_match/20261123_050735Z/`（`analysis.json` / `EM_REPORT.md`） | 16 帧、0.04 ms、库内同曝光暗帧；verdict `undeterminable`（ηs 越界 + G1 组内离散 + 漂移轮 4），不作物理解释，不改门控 |
+| #247 波形判别（2026-11-23） | ✅ 已采集 + 已判读 | `data/debug/hw_window_20261123_issue247_waveform_probe/`（`waveform_probe_analysis.json` / `WAVEFORM_PROBE_REPORT.md`） | 15 图样 × 4 帧 = 60 帧、0 饱和；verdict `patch_position_specific`，axis/scale/patch 门未过；不改映射标定与双门 |
 
 ### 7.4 仍未准备脚本的段
 

@@ -13,7 +13,10 @@
 8. 倾斜：真实棱镜斜坡（2*pi/period）、跨轴相位跨度、条纹数 >= 10、
    严格反对称，且在最悲观 (pitch, focal) 组合下位移 >= 5 CCD px；
    被否决的 0.5 rad 峰值弱设计必须判为不可行；
-9. plan / summary schema 键齐全。
+9. plan / summary schema 键齐全；
+10. 波形判别计划（``--plan waveform``）：15 个 id 的顺序/数量/帧数、局部 blaze patch
+    只沿单轴变化且 patch 外为 0、period=128 时 blaze_x_plus 与 tilt_x_plus 相位
+    逐元素相同、``--patterns`` 子集与未知 id 硬失败。
 
 本测试只用 ``tmp_path``，不 import 任何驱动，也不读写 ``data/``。
 """
@@ -73,6 +76,8 @@ def test_help_exits_zero():
         "--out",
         "--execute",
         "--self-test",
+        "--plan",
+        "--patterns",
         "--tilt-period-px",
         "--exposure-ms",
         "--settle-s",
@@ -372,3 +377,157 @@ def test_named_pattern_axes_match_panel_column_row_semantics():
             assert col_gradient > row_gradient, name
         else:
             assert row_gradient > col_gradient, name
+
+
+# ---------------------------------------------------------------------------
+# 10. 波形判别计划（--plan waveform）
+# ---------------------------------------------------------------------------
+WAVEFORM_IDS = (
+    "flat_pre",
+    "blaze_x_plus",
+    "blaze_x_minus",
+    "blaze_y_plus",
+    "blaze_y_minus",
+    "grating_x_p128",
+    "grating_y_p128",
+    "tilt_x_plus",
+    "tilt_y_plus",
+    "flat_mid",
+    "grating_x_p256",
+    "grating_y_p256",
+    "blaze_patch_x",
+    "blaze_patch_y",
+    "flat_post",
+)
+
+
+def test_default_plan_stays_frozen(tmp_path: Path):
+    """不加 --plan 时仍必须是原 15 图样冻结清单（顺序与 id 一律不变）。"""
+    result = _run("--out", str(tmp_path / "frozen-plan"))
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    assert plan["plan_name"] == "frozen"
+    assert tuple(plan["pattern_ids"]) == EXPECTED_PATTERN_IDS
+
+
+def test_waveform_plan_ids_order_and_frames(tmp_path: Path):
+    result = _run("--plan", "waveform", "--out", str(tmp_path / "wf-plan"))
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "wf-plan").exists(), "plan-only 模式不得创建 --out"
+    plan = json.loads(result.stdout)
+    assert plan["plan_name"] == "waveform"
+    assert tuple(plan["pattern_ids"]) == WAVEFORM_IDS
+    assert plan["n_patterns"] == 15
+    assert plan["n_frames_expected"] == 60
+    for pid in WAVEFORM_IDS:
+        assert plan["frames_per_pattern"][pid] == 4, pid
+    # 波形计划里没有 blaze2d 图样，派生清单不得残留。
+    assert plan["blaze2d_designs"] == []
+
+    by_id = {p["id"]: p for p in plan["patterns"]}
+    for pid, source in (
+        ("blaze_x_plus", "tilt_x_plus"),
+        ("blaze_x_minus", "tilt_x_minus"),
+        ("blaze_y_plus", "tilt_y_plus"),
+        ("blaze_y_minus", "tilt_y_minus"),
+    ):
+        assert by_id[pid]["identical_builder_to"] == source, pid
+        assert by_id[pid]["period_px"] == 128.0, pid
+        assert by_id[pid]["requested_period_px"] == 128.0, pid
+    for pid in ("flat_pre", "flat_mid", "flat_post"):
+        assert by_id[pid]["kind"] == "flat", pid
+
+
+def test_waveform_plan_subset_and_unknown_id(tmp_path: Path):
+    ok = _run(
+        "--plan",
+        "waveform",
+        "--patterns",
+        "flat_pre,blaze_patch_x",
+        "--out",
+        str(tmp_path / "wf-subset"),
+    )
+    assert ok.returncode == 0, ok.stderr
+    subset = json.loads(ok.stdout)
+    assert subset["plan_name"] == "waveform"
+    assert subset["pattern_ids"] == ["flat_pre", "blaze_patch_x"]
+    assert subset["n_patterns"] == 2
+
+    bad = _run(
+        "--plan",
+        "waveform",
+        "--patterns",
+        "flat_pre,bogus_id",
+        "--out",
+        str(tmp_path / "wf-bad"),
+    )
+    assert bad.returncode != 0
+    assert "unknown pattern id" in bad.stderr
+    assert not (tmp_path / "wf-bad").exists()
+
+
+def test_blaze_patch_phase_is_zero_outside_and_single_axis_inside():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    row, col = SCRIPT.LADDER_PATCH_ORIGINS[0]
+    side = SCRIPT.LADDER_PATCH_SIZE_PX
+    inside = np.zeros(shape, dtype=bool)
+    inside[row : row + side, col : col + side] = True
+    for axis in (1, 0):
+        phase = SCRIPT.blaze_patch_phase(shape, axis=axis)
+        assert np.all(phase[~inside] == 0.0), axis
+        patch = phase[row : row + side, col : col + side]
+        row_delta = float(np.abs(np.diff(patch, axis=0)).sum())
+        col_delta = float(np.abs(np.diff(patch, axis=1)).sum())
+        if axis == 1:
+            assert row_delta == 0.0 and col_delta > 0.0, axis
+        else:
+            assert col_delta == 0.0 and row_delta > 0.0, axis
+
+
+def test_blaze_patch_phase_rejects_bad_arguments():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    with pytest.raises(ValueError):
+        SCRIPT.blaze_patch_phase(shape, axis=2)
+    with pytest.raises(ValueError):
+        SCRIPT.blaze_patch_phase(shape, axis=1, period_px=0)
+    with pytest.raises(ValueError):
+        # patch 落到面板外：与 ladder_phase 一样抛 ValueError，不静默裁剪。
+        SCRIPT.blaze_patch_phase(shape, axis=1, origin=(int(shape[0]) - 10, 0))
+
+
+def test_waveform_pattern_phases_follow_declared_axis():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    by_id = {p["id"]: p for p in SCRIPT.build_waveform_patterns()}
+    # period 恰 128 px 时，blaze_x_plus 与 tilt_x_plus 是同一份数组。
+    assert np.array_equal(
+        SCRIPT.pattern_phase(by_id["blaze_x_plus"], shape),
+        SCRIPT.pattern_phase(by_id["tilt_x_plus"], shape),
+    )
+    for pid, expected_axis in (
+        ("grating_x_p128", 1),
+        ("grating_y_p128", 0),
+    ):
+        phase = SCRIPT.pattern_phase(by_id[pid], shape)
+        row_delta = float(np.abs(np.diff(phase, axis=0)).sum())
+        col_delta = float(np.abs(np.diff(phase, axis=1)).sum())
+        if expected_axis == 1:
+            assert row_delta == 0.0 and col_delta > 0.0, pid
+        else:
+            assert col_delta == 0.0 and row_delta > 0.0, pid
+
+    # 局部 patch：差分只在 patch 内部量（patch 边界与 patch 外的 0 之外
+    # 必然产生一条非零差分，这正是「patch 外为 0」的推论，不是轴错位）。
+    row0, col0 = SCRIPT.LADDER_PATCH_ORIGINS[0]
+    side = SCRIPT.LADDER_PATCH_SIZE_PX
+    for pid, expected_axis in (("blaze_patch_x", 1), ("blaze_patch_y", 0)):
+        phase = SCRIPT.pattern_phase(by_id[pid], shape)
+        inside = np.zeros(shape, dtype=bool)
+        inside[row0 : row0 + side, col0 : col0 + side] = True
+        assert np.all(phase[~inside] == 0.0), pid
+        patch = phase[row0 : row0 + side, col0 : col0 + side]
+        row_delta = float(np.abs(np.diff(patch, axis=0)).sum())
+        col_delta = float(np.abs(np.diff(patch, axis=1)).sum())
+        if expected_axis == 1:
+            assert row_delta == 0.0 and col_delta > 0.0, pid
+        else:
+            assert col_delta == 0.0 and row_delta > 0.0, pid

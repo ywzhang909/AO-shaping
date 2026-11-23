@@ -158,6 +158,34 @@ BLAZE2D_DESIGNS: tuple[dict[str, float | int], ...] = (
     {"period_x_px": 192.0, "period_y_px": 128.0, "sign_x": 1, "sign_y": -1},
 )
 
+# ---------------------------------------------------------------------------
+# 波形判别计划：以波形（灰度分布）为自变量、面板轴为控制变量。
+# 见 docs/dev/issue247_waveform_diagnostic_plan_20261121.md §4.1（15 图样 x 4 帧）。
+# ---------------------------------------------------------------------------
+WAVEFORM_FRAMES = 4
+#: blaze± 用的连续单轴 ramp 周期，恰 128 px。故意**不**走
+#: ``effective_tilt_period`` 的 clamp：它必须与同轴 tilt 在 128 px 时逐字节相同。
+WAVEFORM_BLAZE_PERIOD_PX = 128.0
+#: 冻结顺序（15 项）。顺序本身是设计的一部分：前后 flat 为漂移参考，
+#: blaze / grating / tilt / patch 交错放置，同一个采集窗口内才可比。
+WAVEFORM_PATTERN_IDS: tuple[str, ...] = (
+    "flat_pre",
+    "blaze_x_plus",
+    "blaze_x_minus",
+    "blaze_y_plus",
+    "blaze_y_minus",
+    "grating_x_p128",
+    "grating_y_p128",
+    "tilt_x_plus",
+    "tilt_y_plus",
+    "flat_mid",
+    "grating_x_p256",
+    "grating_y_p256",
+    "blaze_patch_x",
+    "blaze_patch_y",
+    "flat_post",
+)
+
 DEFAULT_EXPOSURE_MS = 0.05
 DEFAULT_SATURATION_FRACTION = 0.9
 DEFAULT_SETTLE_S = 0.8
@@ -171,6 +199,7 @@ GEOMETRY_CALIB_REL = "data/slm_geometry_calib.npz"
 PLAN_KEYS: tuple[str, ...] = (
     "schema",
     "task",
+    "plan_name",
     "patterns",
     "pattern_ids",
     "n_patterns",
@@ -381,6 +410,46 @@ def ladder_phase(
     return phase
 
 
+def blaze_patch_phase(
+    shape: tuple[int, int],
+    *,
+    axis: int,
+    period_px: float = LADDER_BASE_PERIOD_PX,
+    side: int = LADDER_PATCH_SIZE_PX,
+    origin: tuple[int, int] = LADDER_PATCH_ORIGINS[0],
+) -> np.ndarray:
+    """单个 600x600 blaze patch：patch 内沿指定轴 2*pi/period 连续 ramp，patch 外 0。
+
+    与 ``ladder_phase`` 的区别只有「一个 patch vs 多个 patch」：用于对照 ladder，
+    检验 §H4 假设（patch 位置是否被误当成相位）。patch 的 panel 原点同样只带来
+    远场不可见的线性相位，故远场应为 0 级 + 单一 +1 级斑。越界与非法参数一律
+    抛 ``ValueError``（不静默裁剪）。原始弧度，`phase_to_gray` 是唯一 wrap 点。
+    """
+    if axis not in (0, 1):
+        raise ValueError("axis must be 0 or 1")
+    period = float(period_px)
+    if period <= 0:
+        raise ValueError("blaze patch period_px must be positive")
+    block_side = int(side)
+    if block_side <= 0:
+        raise ValueError("blaze patch side must be positive")
+    height, width = int(shape[0]), int(shape[1])
+    row, col = int(origin[0]), int(origin[1])
+    if row < 0 or col < 0:
+        raise ValueError("blaze patch origin must be non-negative")
+    if row + block_side > height or col + block_side > width:
+        raise ValueError("blaze patch falls outside the panel")
+    n = axis_length((block_side, block_side), axis)
+    coord = np.arange(n, dtype=np.float64)
+    ramp = TWO_PI * coord / period
+    phase = np.zeros((height, width), dtype=np.float64)
+    block = np.broadcast_to(
+        ramp.reshape((1, n) if axis == 1 else (n, 1)), (block_side, block_side)
+    )
+    phase[row : row + block_side, col : col + block_side] = block
+    return phase
+
+
 def ladder_spot_orders(axis: int, sign: int = 1) -> list[tuple[int, int]]:
     """Predicted far-field spots (dx, dy) in units of the fundamental deflection.
 
@@ -475,6 +544,15 @@ def pattern_phase(item: dict[str, Any], shape: tuple[int, int]) -> np.ndarray:
         )
     if kind == "ladder":
         return ladder_phase(shape, axis=int(item["axis"]), sign=1)
+    if kind == "blaze_patch":
+        origin = item.get("origin", LADDER_PATCH_ORIGINS[0])
+        return blaze_patch_phase(
+            shape,
+            axis=int(item["axis"]),
+            period_px=float(item.get("period_px", LADDER_BASE_PERIOD_PX)),
+            side=int(item.get("side_px", LADDER_PATCH_SIZE_PX)),
+            origin=(int(origin[0]), int(origin[1])),
+        )
     if kind == "blaze2d":
         return blaze2d_phase(
             shape,
@@ -573,16 +651,30 @@ def build_patterns(only: list[str] | None = None) -> list[dict[str, Any]]:
             ),
         )
 
-    if only:
-        wanted = {str(pid).strip() for pid in only if str(pid).strip()}
-        unknown = sorted(wanted - {p["id"] for p in patterns})
-        if unknown:
-            raise SystemExit(
-                f"--patterns: unknown pattern id(s) {unknown}; "
-                f"known: {sorted(p['id'] for p in patterns)}"
-            )
-        patterns = [p for p in patterns if p["id"] in wanted]
+    return _finalize_patterns(_narrow_patterns(patterns, only))
 
+
+def _narrow_patterns(
+    patterns: list[dict[str, Any]], only: list[str] | None
+) -> list[dict[str, Any]]:
+    """按 ``only`` 缩小图样子集；未知 id 硬失败（拼错绝不能静默缩小一次运行）。
+
+    过滤后仍保持计划顺序：``only`` 只表达批准范围，不重排设计好的采集顺序。
+    """
+    if not only:
+        return patterns
+    wanted = {str(pid).strip() for pid in only if str(pid).strip()}
+    unknown = sorted(wanted - {p["id"] for p in patterns})
+    if unknown:
+        raise SystemExit(
+            f"--patterns: unknown pattern id(s) {unknown}; "
+            f"known: {sorted(p['id'] for p in patterns)}"
+        )
+    return [p for p in patterns if p["id"] in wanted]
+
+
+def _finalize_patterns(patterns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """为每个图样补上原始 phase 摘要与（离散族才有的）灰阶清单。"""
     for item in patterns:
         item["phase_sha256"] = digest(pattern_phase(item, DEFAULT_PANEL_SHAPE))
         arr = pattern_array(item, DEFAULT_PANEL_SHAPE)
@@ -592,6 +684,92 @@ def build_patterns(only: list[str] | None = None) -> list[dict[str, Any]]:
             else None
         )
     return patterns
+
+
+def build_waveform_patterns(
+    only: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """波形判别计划：15 个图样，顺序固定（``WAVEFORM_PATTERN_IDS``），每项 4 帧。
+
+    设计要点（docs/dev/issue247_waveform_diagnostic_plan_20261121.md §4.1）：同一
+    panel 轴、尽量匹配空间频率，分别下发二值 grating、连续单轴 ramp、局部 blaze
+    patch，再加 panel 轴对照；blaze 与 tilt 是**同一个构造函数**，plan 条目用
+    ``identical_builder_to`` 显式写出这一事实（不隐藏），其价值只在于同窗口重复性
+    对照。``only`` 只能缩小到该计划内的子集，未知 id 硬失败。
+    """
+    patterns: list[dict[str, Any]] = []
+
+    def add(pid: str, kind: str, frames: int, **params: Any) -> None:
+        patterns.append(dict(id=pid, kind=kind, frames=int(frames), **params))
+
+    # 1) 前参考：全平相位，靠时间位置做漂移参考。
+    add("flat_pre", "flat", WAVEFORM_FRAMES)
+    # 2-5) 连续单轴 ramp，period 恰 128 px，± 方向各一。直接复用 ``tilt_phase``：
+    #      blaze± 在本实现里等同 tilt±，只作同窗口重复性对照，不是独立构造路径。
+    for axis, name in ((1, "x"), (0, "y")):
+        for sign, sname in ((1, "plus"), (-1, "minus")):
+            add(
+                f"blaze_{name}_{sname}",
+                "tilt",
+                WAVEFORM_FRAMES,
+                axis=axis,
+                sign=sign,
+                period_px=WAVEFORM_BLAZE_PERIOD_PX,
+                requested_period_px=WAVEFORM_BLAZE_PERIOD_PX,
+                identical_builder_to=f"tilt_{name}_{sname}",
+            )
+    # 6-7) 二值 0/pi grating，周期 128 px：与同轴连续 blaze 对照，测波形依赖。
+    for axis, name in ((1, "x"), (0, "y")):
+        add(
+            f"grating_{name}_p128",
+            "grating",
+            WAVEFORM_FRAMES,
+            period_px=128,
+            axis=axis,
+        )
+    # 8-9) 既有连续 tilt（保留 effective period 语义）：区分 tilt builder 与 blaze
+    #      路径。x 轴 effective 仍是 128 px（与 blaze_x_* 完全相同），y 轴 1200 行
+    #      只有 9.375 个条纹，故被 clamp 到 120 px。
+    for axis, name in ((1, "x"), (0, "y")):
+        geometry = tilt_geometry(
+            DEFAULT_PANEL_SHAPE, period_px=DEFAULT_TILT_PERIOD_PX, axis=axis
+        )
+        add(
+            f"tilt_{name}_plus",
+            "tilt",
+            WAVEFORM_FRAMES,
+            axis=axis,
+            sign=1,
+            period_px=geometry["period_px"],
+            requested_period_px=geometry["requested_period_px"],
+        )
+    # 10) 中段漂移参考。
+    add("flat_mid", "flat", WAVEFORM_FRAMES)
+    # 11-12) 二值 grating 周期 256 px：测 1/period 标度与二值选峰口径。
+    for axis, name in ((1, "x"), (0, "y")):
+        add(
+            f"grating_{name}_p256",
+            "grating",
+            WAVEFORM_FRAMES,
+            period_px=256,
+            axis=axis,
+        )
+    # 13-14) 局部 blaze patch（与 ladder 同尺寸/周期，只取第一个原点）：对照 ladder，
+    #        检验 patch 位置相位（§H4）。
+    for axis, name in ((1, "x"), (0, "y")):
+        add(
+            f"blaze_patch_{name}",
+            "blaze_patch",
+            WAVEFORM_FRAMES,
+            axis=axis,
+            period_px=float(LADDER_BASE_PERIOD_PX),
+            side_px=int(LADDER_PATCH_SIZE_PX),
+            origin=list(LADDER_PATCH_ORIGINS[0]),
+        )
+    # 15) 后参考。
+    add("flat_post", "flat", WAVEFORM_FRAMES)
+
+    return _finalize_patterns(_narrow_patterns(patterns, only))
 
 
 def tilt_expected_ccd_formula() -> str:
@@ -780,7 +958,28 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     only: list[str] | None = None
     if raw_only:
         only = [s.strip() for s in str(raw_only).split(",") if s.strip()]
-    patterns = build_patterns(only)
+    plan_name = str(getattr(args, "plan", "frozen") or "frozen")
+    if plan_name == "waveform":
+        patterns = build_waveform_patterns(only)
+        task = (
+            "issue #247 waveform discrimination: binary 0/pi gratings vs "
+            "continuous single-axis ramps vs a local blaze patch on the same "
+            "panel axis (waveform as the independent variable, panel axis as the "
+            "control). Descriptive only; no fitting, no calibration."
+        )
+    elif plan_name == "frozen":
+        patterns = build_patterns(only)
+        task = (
+            "issue #247 geometry capture: per-axis panel->CCD scale (binary "
+            "gratings), 180-deg disambiguation (blazed spot ladder), tilt "
+            "sign/handedness (panel +/- prismatic ramps). Descriptive only; no "
+            "fitting, no calibration."
+        )
+    else:
+        raise SystemExit(
+            f"--plan: unknown plan {plan_name!r}; known: ['frozen', 'waveform']"
+        )
+    planned_ids = {p["id"] for p in patterns}
     declared, missing = build_declared_constants()
     frames = {p["id"]: int(p["frames"]) for p in patterns}
     out = getattr(args, "out", None)
@@ -789,12 +988,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     )
     return {
         "schema": PLAN_SCHEMA,
-        "task": (
-            "issue #247 geometry capture: per-axis panel->CCD scale (binary "
-            "gratings), 180-deg disambiguation (blazed spot ladder), tilt "
-            "sign/handedness (panel +/- prismatic ramps). Descriptive only; no "
-            "fitting, no calibration."
-        ),
+        "task": task,
+        "plan_name": plan_name,
         "out": None if out is None else str(out),
         "patterns": patterns,
         "pattern_ids": [p["id"] for p in patterns],
@@ -806,9 +1001,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "grating_periods_px": list(GRATING_PERIODS_PX),
         "grating_duty": 0.5,
         "blaze2d_designs": [
-            d
-            for d in build_blaze2d_designs()
-            if only is None or d["id"] in set(only)
+            d for d in build_blaze2d_designs() if d["id"] in planned_ids
         ],
         "blaze2d_frames": int(BLAZE2D_FRAMES),
         "tilt": build_tilt_plan(tilt_period),
@@ -995,9 +1188,110 @@ def run_self_test() -> int:
         "blaze2d_px192_py128_sx+1_sy-1",
     }
     assert set(plan["pattern_ids"]) == expected_ids
+    assert plan["plan_name"] == "frozen", "default plan must stay the frozen list"
     assert plan["declared_constants"]["focal_magnification"] is None
     assert plan["declared_constants"]["camera_pixel_size_um"] is None
     assert plan["declared_constants"]["slm_pixel_pitch_um"] is None
+
+    # 5) 波形判别计划：15 个 id、顺序固定、每项 4 帧。
+    expected_waveform_ids = [
+        "flat_pre",
+        "blaze_x_plus",
+        "blaze_x_minus",
+        "blaze_y_plus",
+        "blaze_y_minus",
+        "grating_x_p128",
+        "grating_y_p128",
+        "tilt_x_plus",
+        "tilt_y_plus",
+        "flat_mid",
+        "grating_x_p256",
+        "grating_y_p256",
+        "blaze_patch_x",
+        "blaze_patch_y",
+        "flat_post",
+    ]
+    waveform = build_waveform_patterns()
+    assert [p["id"] for p in waveform] == expected_waveform_ids
+    assert list(WAVEFORM_PATTERN_IDS) == expected_waveform_ids
+    assert len(waveform) == 15, len(waveform)
+    assert all(int(p["frames"]) == 4 for p in waveform)
+    by_id = {p["id"]: p for p in waveform}
+
+    # 5a) blaze± 与同轴 tilt 是同一个构造函数：period=128 时相位必须逐元素相同。
+    assert float(by_id["blaze_x_plus"]["period_px"]) == 128.0
+    assert float(by_id["blaze_x_plus"]["requested_period_px"]) == 128.0
+    assert np.array_equal(
+        pattern_phase(by_id["blaze_x_plus"], DEFAULT_PANEL_SHAPE),
+        pattern_phase(by_id["tilt_x_plus"], DEFAULT_PANEL_SHAPE),
+    ), "blaze_x_plus must be the same array as tilt_x_plus at period 128"
+    for pid, source in (
+        ("blaze_x_plus", "tilt_x_plus"),
+        ("blaze_x_minus", "tilt_x_minus"),
+        ("blaze_y_plus", "tilt_y_plus"),
+        ("blaze_y_minus", "tilt_y_minus"),
+    ):
+        assert by_id[pid]["identical_builder_to"] == source, pid
+
+    # 5b) 局部 blaze patch：patch 外全 0；patch 内只沿指定轴变化（有限差分，
+    #     另一方向必须严格 0），斜率恰 2*pi/period_px。
+    for pid, axis in (("blaze_patch_x", 1), ("blaze_patch_y", 0)):
+        item = by_id[pid]
+        phase = pattern_phase(item, DEFAULT_PANEL_SHAPE)
+        row, col = item["origin"]
+        side = int(item["side_px"])
+        assert side == LADDER_PATCH_SIZE_PX, pid
+        inside = np.zeros(phase.shape, dtype=bool)
+        inside[row : row + side, col : col + side] = True
+        assert np.all(phase[~inside] == 0.0), f"{pid}: patch 外必须为 0"
+        patch = phase[row : row + side, col : col + side]
+        along_rows = float(np.abs(np.diff(patch, axis=0)).sum())
+        along_cols = float(np.abs(np.diff(patch, axis=1)).sum())
+        if axis == 1:
+            assert along_rows == 0.0, f"{pid}: 行方向差分必须为 0"
+            assert along_cols > 0.0, f"{pid}: 列方向差分必须非 0"
+            line = patch[0, :]
+        else:
+            assert along_cols == 0.0, f"{pid}: 列方向差分必须为 0"
+            assert along_rows > 0.0, f"{pid}: 行方向差分必须非 0"
+            line = patch[:, 0]
+        expected_step = TWO_PI / float(item["period_px"])
+        assert np.allclose(np.diff(line), expected_step, rtol=0, atol=1e-9), pid
+
+    # 5c) 二值 grating p128：x 只随列变化、y 只随行变化。
+    for pid, axis in (("grating_x_p128", 1), ("grating_y_p128", 0)):
+        phase = pattern_phase(by_id[pid], DEFAULT_PANEL_SHAPE)
+        along_rows = float(np.abs(np.diff(phase, axis=0)).sum())
+        along_cols = float(np.abs(np.diff(phase, axis=1)).sum())
+        if axis == 1:
+            assert along_rows == 0.0 and along_cols > 0.0, f"{pid}: x 只随列变化"
+        else:
+            assert along_cols == 0.0 and along_rows > 0.0, f"{pid}: y 只随行变化"
+
+    # 5d) --plan waveform 下的 --patterns：子集保序、未知 id 硬失败。
+    subset = build_plan(
+        argparse.Namespace(
+            out=Path("__selftest__"),
+            plan="waveform",
+            patterns="flat_pre,blaze_patch_x",
+        )
+    )
+    assert subset["plan_name"] == "waveform"
+    assert subset["pattern_ids"] == ["flat_pre", "blaze_patch_x"]
+    assert subset["n_patterns"] == 2
+    assert subset["blaze2d_designs"] == []
+    try:
+        build_plan(
+            argparse.Namespace(
+                out=Path("__selftest__"),
+                plan="waveform",
+                patterns="flat_pre,bogus_id",
+            )
+        )
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("--patterns must reject unknown ids in the waveform plan")
 
     logger.info("issue247 geometry capture self-test: all invariants passed")
     return 0
@@ -1211,8 +1505,14 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
         def grab() -> np.ndarray:
             return np.asarray(cam.get_numpy_image(1, True), dtype=np.uint16).copy()
 
-        # Pre-flight saturation probe on the flat pattern, same fixed exposure.
-        display(next(p for p in plan["patterns"] if p["id"] == "flat"))
+        # Pre-flight saturation probe on a flat pattern of the selected plan
+        # (frozen: "flat"; waveform: "flat_pre"/"flat_mid"/"flat_post"); if the
+        # approved subset has no flat, fall back to its first planned pattern.
+        probe_item = next(
+            (p for p in plan["patterns"] if p["kind"] == "flat"),
+            plan["patterns"][0],
+        )
+        display(probe_item)
         time.sleep(float(args.settle_s))
         for _ in range(3):
             grab()
@@ -1425,12 +1725,24 @@ def main(argv: list[str] | None = None) -> int:
         "--self-test", action="store_true", help="assert offline invariants; no devices, no --out"
     )
     parser.add_argument(
+        "--plan",
+        choices=("frozen", "waveform"),
+        default="frozen",
+        help=(
+            "pattern plan: 'frozen' = the 15-pattern frozen probe list "
+            "(geometry capture; default, unchanged); 'waveform' = the 15-pattern "
+            "waveform-discrimination list (binary gratings vs continuous ramps "
+            "vs a local blaze patch on the same panel axis)"
+        ),
+    )
+    parser.add_argument(
         "--patterns",
         default=None,
         help=(
-            "comma-separated pattern ids to run (default: the whole frozen "
-            "list). Unknown ids abort. Used to keep a run inside the currently "
-            "approved scope, e.g. 'flat,blaze2d_px128_py192_sx+1_sy+1,...'"
+            "comma-separated pattern ids to run within the selected --plan "
+            "(default: that plan's whole list). Unknown ids abort. Used to keep a "
+            "run inside the currently approved scope, e.g. "
+            "'flat,blaze2d_px128_py192_sx+1_sy+1,...'"
         ),
     )
     parser.add_argument(
