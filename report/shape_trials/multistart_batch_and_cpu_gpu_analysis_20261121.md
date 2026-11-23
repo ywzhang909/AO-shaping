@@ -9,7 +9,7 @@
 > **数据/关联脚本**: [`scripts/slm/hw_differentiable_phase_opt.py`](../../scripts/slm/hw_differentiable_phase_opt.py)
 > **数据/关联脚本**: [`src/ao_shaping/utils/wavefront/calibration_terms.py`](../../src/ao_shaping/utils/wavefront/calibration_terms.py)
 > **运行环境**: 离线
-> **说明**: 可微光束整形 B=2 多起点批量并行 + CPU→GPU 整合分析：scripts/slm/sweep_differentiable_multistart_batch.py 复用 differentiable_problem 重建入口，一次 batch FFT 前向+一次反传+单 Adam(B,M,M)，每条 trajectory 独立峰值归一化、独立 copy 初相；真实存档 20261116_114424 跑 120 轮，batch trajectory 0 对照单条串行 loss max_rel_diff=6.56e-7、最终相位 max_abs_diff=3.34e-6（容差内 PASS，非 bit-exact）；双初相 RMS 差 0.05 证明非重复计算。端到端吞吐 3.37x（batch 1486 vs 串行 441 fields/s，其中混入去掉 D2H 同步/记账的收益，纯 batching 约 1.9x，不宣称实机帧率提升）。CPU→GPU 分析：P4 200 步全 GPU，P6b 闭环 5 步的 scipy map_coordinates / numpy 可搬 torch（grid_sample 有现成先例），但秒级 SLM/CCD I/O 主导延迟；建议仅做 grid_sample 重采样 + 消除重复 D2H 同步。人工撰写。
+> **说明**: 可微光束整形 B=2 多起点批量并行 + CPU→GPU 整合分析：scripts/slm/sweep_differentiable_multistart_batch.py 复用 differentiable_problem 重建入口，一次 batch FFT 前向+一次反传+单 Adam(B,M,M)，每条 trajectory 独立峰值归一化、独立 copy 初相；真实存档 20261116_114424 跑 120 轮，batch trajectory 0 对照单条串行 loss max_rel_diff=6.56e-7、最终相位 max_abs_diff=3.34e-6（容差内 PASS，非 bit-exact）；双初相 RMS 差 0.05 证明非重复计算。端到端吞吐 3.37x（batch 1486 vs 串行 441 fields/s，其中混入去掉 D2H 同步/记账的收益，纯 batching 约 1.9x，不宣称实验帧率提升）。CPU→GPU 分析：P4 200 步全 GPU，P6b 闭环 5 步的 scipy map_coordinates / numpy 可搬 torch（grid_sample 有现成先例），但秒级 SLM/CCD I/O 主导延迟；建议仅做 grid_sample 重采样 + 消除重复 D2H 同步。人工撰写。
 <!-- provenance:end -->
 
 > 类型：离线吞吐与架构诊断报告 · 日期：2026-11-21 · 环境：离线（不操作任何硬件）
@@ -76,7 +76,7 @@
 - 串行侧每步是完整 `DifferentiableBeamOptimizer.update()`：含 4 次 `float(loss.detach().cpu())` 标量 D2H 同步、`current_phase` 的 `.detach().cpu().numpy()` 相位拷贝、以及 loss/grad 记账；
 - batch 侧是精简 `batch_step`：`zero_grad` + 批量前向 + 一次反传 + `step()`，**不含**这些同步/记账。
 
-因此 3.37x = 纯 batching 收益（≈1.90x，见此前一致的临时基准）× 去掉同步/记账开销的收益。若要在实际优化器里落地 B=2，需要同步保留这些记账路径，届时端到端收益会回落到接近 1.9x 量级。**本报告不宣称 SLM 实机帧率提升**——真机闭环端到端主要卡在 CCD 采集等待（硬件瓶颈），并行化仿真对真机总时长帮助更小。
+因此 3.37x = 纯 batching 收益（≈1.90x，见此前一致的临时基准）× 去掉同步/记账开销的收益。若要在实际优化器里落地 B=2，需要同步保留这些记账路径，届时端到端收益会回落到接近 1.9x 量级。**本报告不宣称 SLM 实验帧率提升**——实验系统闭环端到端主要卡在 CCD 采集等待（硬件瓶颈），并行化仿真对实验系统总时长帮助更小。
 
 ### 1.4 适用场景
 
@@ -117,13 +117,13 @@ B=2（多起点批量）适合**批量扫描实验**：多个 lr / 种子 / 目�
 
 1. **批量扫描可用**：B=2 多起点批量在 1e-4 容差内与串行一致（非 bit-exact），适合批量扫 lr / 种子 / 目标，吞吐近翻倍至 3.37x（口径见 §1.3，实际优化器落地后约 1.9x 量级）。
 2. **CPU→GPU 优先级**：只做两件——`grid_sample` 替 `resample_ccd_to_model`（可微 + 代码质量）、消除重复 D2H 同步（纯提速）；`prepare_frame` 居中；`phase_model_to_panel` 收益低且需守住最近邻口径。
-3. **不要指望 CPU→GPU 解决真机延迟**：真机端到端主要卡 CCD 采集与 SLM 上屏等待，并行化仿真对总时长帮助有限。
+3. **不要指望 CPU→GPU 解决实验系统延迟**：实验系统端到端主要卡 CCD 采集与 SLM 上屏等待，并行化仿真对总时长帮助有限。
 4. **与 lr 结论独立**：本报告是吞吐问题；此前"可微相位 lr=0.05 近最优、不放大"是收敛问题，两者不混谈。
 
 ## 4. 口径边界（重要）
 
 - **非 bit-exact**：batch 与串行的 6.56e-7 / 3.34e-6 差异来自 cuFFT plan 归约顺序；容差内一致，但不宣称逐位相同。
-- **吞吐口径混合**：3.37x 含"去掉同步/记账"收益，纯 batching 约 1.90x；不宣称实机帧率提升。
+- **吞吐口径混合**：3.37x 含"去掉同步/记账"收益，纯 batching 约 1.90x；不宣称实验帧率提升。
 - **CPU vs I/O 占比未实测**：现有日志未单独计时硬件 I/O，I/O 主导是依据调用次数与数组规模的推断，非计时实证。
 - **单一存档**：数值结论基于一次 run（lr=0.05 flat，1024² 网格）；其他目标/网格需重跑确认。
 - **未改默认参数**：优化器源码、`build_optimizer`、lr 默认值均未动；全程离线，未操作任何硬件。

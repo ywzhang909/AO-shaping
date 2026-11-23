@@ -1,4 +1,4 @@
-# `--debug-weights` 真机验证报告（2026-11-21）
+# `--debug-weights` 实验系统验证报告（2026-11-21）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
@@ -8,14 +8,14 @@
 > **数据/关联脚本**: [`scripts/slm/visualize_weights_tsne.py`](../../scripts/slm/visualize_weights_tsne.py)
 > **数据/关联脚本**: [`scripts/slm/diagnose_zernike_direction_lr.py`](../../scripts/slm/diagnose_zernike_direction_lr.py)
 > **运行环境**: 硬件
-> **说明**: --debug-weights 逐轮权重轨迹落盘的真机验证：上机前光路六步探测判定 ok，短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整跑通，weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。scripts/slm/diagnose_zernike_direction_lr.py 基于 34 条历史轨迹做观察性诊断：方向余弦后 10 轮中位数 0.9978、91.2% 轨迹后段方向一致、步长-损失下降 Spearman 0.7417，支持「早期/中期可放大 residual lr、噪声地板后收回」的一阶代理处方，不改默认学习率。口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。
+> **说明**: --debug-weights 逐轮权重轨迹落盘的实验系统验证：实验前光路六步探测判定 ok，短时冷启动采集+拟合 6 轮在 SLM #1 + Daheng CCD 上完整在线实现，weights_history.jsonl / weights_trajectory.npz / weights_summary.json 三份产物在真实采集数据上落地，训练损失 0.39325→0.34548；聚焦离线测试 6 用例通过。debug 数据以标准 JSONL/NPZ 格式保存，支持会话后离线回放；scripts/slm/visualize_weights_tsne.py 用 t-SNE 将 Zernike 系数轨迹降维到 2D 可视化。scripts/slm/diagnose_zernike_direction_lr.py 基于 34 条历史轨迹做观察性诊断：方向余弦后 10 轮中位数 0.9978、91.2% 轨迹后段方向一致、步长-损失下降 Spearman 0.7417，支持「早期/中期可放大 residual lr、噪声地板后收回」的一阶代理处方，不改默认学习率。口径要点：reuse_latest 命中已有 latest 模型会跳过采集+拟合导致无权重产物，须用 AO_SHAPING_WEIGHTS_DIR 重定向到空目录强制冷启动。人工撰写。
 <!-- provenance:end -->
 
 ## 摘要
 
-本报告记录 `--debug-weights`（逐轮权重轨迹落盘）在**真实硬件**上的验证结果：按
-`ao-optical-path-calibration` 六步探测上机前检查，随后以短时冷启动采集+拟合在
-SLM #1 + Daheng CCD 上跑通真实训练，确认 `weights_history.jsonl` /
+本报告记录 `--debug-weights`（逐轮权重轨迹落盘）在**实验**上的验证结果：按
+`ao-optical-path-calibration` 六步探测实验前检查，随后以短时冷启动采集+拟合在
+SLM #1 + Daheng CCD 上在线实现真实训练，确认 `weights_history.jsonl` /
 `weights_trajectory.npz` / `weights_summary.json` 三份产物在真实采集数据上完整落地，
 离线聚焦测试 6 项全过，设备全部正常释放。
 
@@ -33,12 +33,12 @@ SLM #1 + Daheng CCD 上跑通真实训练，确认 `weights_history.jsonl` /
 采集+拟合**，导致 `--debug-weights` 无产物。本次通过环境变量
 `AO_SHAPING_WEIGHTS_DIR` 将权重目录重定向到空临时目录，使复用探测返回
 "没有 latest 模型，走正常全流程"，强制走真实冷启动采集+拟合。这是本报告与后续
-真机验证该功能时的标准口径。
+实验系统验证该功能时的标准口径。
 
 ## 任务完成情况
 
-- [x] T1 上机前光路六步探测：Step 1–5 全部通过，判定 `ok`；设备锁 `status=idle`，无冲突进程。
-- [x] T2 短时真实训练验证：冷启动采集+拟合（强制绕过光路复用）在 SLM #1 + Daheng CCD 上完整跑通；model 验收与 CCD 锚定块（sequential_ccd）验收均产出记录。
+- [x] T1 实验前光路六步探测：Step 1–5 全部通过，判定 `ok`；设备锁 `status=idle`，无冲突进程。
+- [x] T2 短时真实训练验证：冷启动采集+拟合（强制绕过光路复用）在 SLM #1 + Daheng CCD 上完整在线实现；model 验收与 CCD 锚定块（sequential_ccd）验收均产出记录。
 - [x] T3 `--debug-weights` 三份产物核验：`weights_history.jsonl`（7 行）、`weights_trajectory.npz`（18 参数 × 7 轮）、`weights_summary.json` 均在真实采集数据上落地，内容合理。
 - [x] T4 聚焦验证：`tests/ao_shaping/tools/slm/transfer/test_debug_weights.py` 6 用例全部通过（`--import-mode=importlib`）。
 - [x] T5 设备释放确认：SLM #1 与 CCD 正常关闭，设备锁释放，探测复跑 `status=idle`。
@@ -57,7 +57,7 @@ SLM #1 + Daheng CCD 上跑通真实训练，确认 `weights_history.jsonl` /
 | 激光 | 沿用当前低功率设定 | **未做任何功率调整**，仅在用户授权的低功率可控环境下使用 |
 | 设备锁 | `device_mutex` / `probe_devices` | 运行前后 `status=idle`，无其他硬件进程持锁 |
 
-### 上机前光路探测（Step 1–5）
+### 实验前光路探测（Step 1–5）
 
 | 步骤 | 判据 | 实测 | 结论 |
 |------|------|------|------|
@@ -170,7 +170,7 @@ run 目录的 `fit/debug_weights/` 子目录内，与 `iterations.pkl` / `result
 
 ## Zernike 方向一致性与 residual lr 调整诊断
 
-前文观察到单次真机运行的 Zernike 增量方向高度一致（相邻余弦 0.96–0.99）。为确认
+前文观察到单次实验运行的 Zernike 增量方向高度一致（相邻余弦 0.96–0.99）。为确认
 这不是单次偶然，用**全部历史轨迹**做了一次观察性诊断，并据此评估能否调整 fit
 阶段的 residual 学习率（Adam，当前 `0.03`，对应 `residual_noll_*`；注意这与整形
 阶段的 `phase_lr=0.3` 不是同一机制）。
@@ -236,7 +236,7 @@ run 目录的 `fit/debug_weights/` 子目录内，与 `iterations.pkl` / `result
 ## 边界与声明
 
 - 激光功率**未做任何调整**，沿用实验台当前低功率设定，符合用户授权的"低功率、可控环境"边界。
-- 本报告**不宣称** SLM 实机帧率提升，也**不宣称** CCD 与 SLM 逐帧一一对应。
+- 本报告**不宣称** SLM 实验帧率提升，也**不宣称** CCD 与 SLM 逐帧一一对应。
 - 运行期间未改动其他车道的未提交/未跟踪改动；本次验证产物位于
   `data/debug/slm_transfer/debug_weights_real_force_20261121/`，权重目录重定向为
   临时目录，真实 `data/slm_models` 无副作用。

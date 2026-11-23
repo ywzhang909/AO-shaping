@@ -1,6 +1,10 @@
 # #247 波形依赖判别实验计划：定位 grating/tilt 与 blaze 轴方向矛盾（2026-11-21）
 
-> 状态：**离线计划，尚未授权上机**。任何 `--execute`、设备占用与 laser/SLM/CCD 开启须等用户新的明确批准。
+> 状态：**已于 2026-11-23 按预注册窗口完成采集 + 离线判读**。当时用户授权来自
+> `docs/dev/hw_window_20261123_issue247_waveform_prereg.md` 抬头（「设备上线，开始采集」）及
+> 本轮「扫描未完成采集计划并采集」指令；窗口判据以该预注册文件为准，不回改判据。
+> 数据 `data/debug/hw_window_20261123_issue247_waveform_probe/`，报告同目录
+> `WAVEFORM_PROBE_REPORT.md`（verdict `patch_position_specific`，轴/标度/patch 门未过）。
 > 本计划只回答「异常来自波形/灰度链还是面板轴映射」，**不改变**当前「映射仍歧义、不冻结」的结论。
 > 依据：`docs/dev/agent_notes_20261121.md` §5，`data/debug/hw_window_20261121b/issue247_axis/`，
 > `data/debug/hw_window_20261121/issue247_axis_b2d/`。
@@ -10,14 +14,14 @@
 同一 session 的两组数据出现系统性矛盾：2-D 对角 blaze（及 ladder）把 panel-x 放在 CCD 行、
 panel-y 放在 CCD 列，两轴分离约 88.5°；而 grating/tilt 族把两条面板轴都放到 CCD 列，
 `tilt_x` 与 `tilt_y` 仅差 0.46°。这**不是**残差大小问题，而是模型适用域/族间矛盾，
-不能靠给正向模型增加矫正参数解决：用 10 个方向再拟合若干补偿系数会把矛盾吸收进参数、
+不能靠给物理预测模型增加矫正参数解决：用 10 个方向再拟合若干补偿系数会把矛盾吸收进参数、
 却失去独立验证，按用户的冻结口径仍不通过。
 
 本计划以**波形（灰度分布）为自变量、面板轴为控制变量**做最小判别：同一 panel-x 轴、
 匹配空间频率，分别下发二值 0/π grating、连续线性 tilt、局部 blaze patch，
 各测 ± 方向，并加 panel-y 对照。若偏转方向随波形而非面板轴变化，指向灰度/LUT/载频链路；
 若只有某一族异常，指向该族生成或下发路径。先用未参与拟合的方向独立验证，再谈是否可能
-给正向模型加矫正。
+给物理预测模型加矫正。
 
 ## 1. 已知事实（读数据，不重拟合）
 
@@ -46,7 +50,7 @@ panel-y 放在 CCD 列，两轴分离约 88.5°；而 grating/tilt 族把两条�
 | H3 tilt/grating 生成或下发路径错轴 | 只有 tilt 或只有 grating 族方向异常；连续单轴 blaze 正常 | 查 phase→gray→面板写入链与 pattern id→axis 绑定 |
 | H4 局部 blaze patch 的位置相位被误用 | ladder/blaze patch 方向随 patch 位置变化 | 查 `ladder_phase` 注释所述「patch 位置线性相位于远场不可见」是否成立 |
 
-任何假设成立都**不自动**给正向模型加矫正；先完成第 5 节决策出口。
+任何假设成立都**不自动**给物理预测模型加矫正；先完成第 5 节决策出口。
 
 ## 3. 先做的离线准备（零设备）
 
@@ -58,7 +62,7 @@ panel-y 放在 CCD 列，两轴分离约 88.5°；而 grating/tilt 族把两条�
    不允许只挑更符合 A 的一侧。
 4. 扩展 capture 入口支持以下冻结图样顺序与 `--patterns` 显式批准范围；未知 id 硬失败。
 
-## 4. 冻结候选设计（待批准后上机）
+## 4. 冻结候选设计（待批准后实验）
 
 ### 4.1 图样（15 pattern × 4 帧 = 60 帧）
 
@@ -99,12 +103,12 @@ panel-y 放在 CCD 列，两轴分离约 88.5°；而 grating/tilt 族把两条�
 采集前六步探测 verdict 必须 `ok`；`finally` 顺序 `set_grayscale(0)→cam.close→slm.close→lock.release`，
 结束后确认锁释放、无 bench 进程，并在回复中报告 SLM/CCD/激光占用与释放。
 
-## 6. 决策出口（何时才谈正向模型矫正）
+## 6. 决策出口（何时才谈物理预测模型矫正）
 
-1. 连续 blaze 两轴复现 A，仅二值 grating 异常 → 查灰度/LUT/选峰，不动正向模型。
-2. tilt 异常但 blaze 正常 → 查 tilt builder / period clamp / 灰度编码，不动正向模型。
+1. 连续 blaze 两轴复现 A，仅二值 grating 异常 → 查灰度/LUT/选峰，不动物理预测模型。
+2. tilt 异常但 blaze 正常 → 查 tilt builder / period clamp / 灰度编码，不动物理预测模型。
 3. 波形依赖确认为灰度/LUT/载频 → 先按 `#238` 的共享 LUT 方案分实现分验收；
-   只有在**独立窗口**验证后，才评估把已标定响应写入正向模型，且需独立数据证明预测准确率提升。
+   只有在**独立窗口**验证后，才评估把已标定响应写入物理预测模型，且需独立数据证明预测准确率提升。
 4. 连续 blaze 也不复现 → 暂停任何写回，先查光路漂移与 pattern→gray→SLM 写入链。
 5. 所有门通过 → 作为 #247 映射验证材料提交 owner review；仍不自动冻结。
 

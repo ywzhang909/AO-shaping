@@ -118,6 +118,14 @@ classDiagram
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 | multishape_campaign_ui.py | 独立的多形状整形 campaign 操作台（形状 + 尺寸是唯一必填，参数由 `tools/slm/transfer/campaign.py` 派生；不在本说明书范围） |
 | precheck.py             | 上述操作台的运行前检查卡（六项，红停 + 黄勾选；无设备可用） |
+| diagnostics_tab.py      | 固定尾 tab「设备诊断」（subheader「实验诊断」）：集成衍射效率与相位响应两个测量工具（收集参数、拼装命令、跑子进程并展示产物） |
+
+固定尾 tab「设备诊断」（`render_diagnostics_tab()`，`diagnostics_tab.py`）的主区 subheader 为
+「实验诊断」，把**衍射效率**与**相位响应**两个实验测量工具收在一页。页面本身不实现
+采集与分析口径：只收集参数、拼装命令、以 `python -m` 启动子进程并展示产物（工具口径见
+[`docs/tools/slm_diffraction_efficiency.md`](../tools/slm_diffraction_efficiency.md)，其中相位响应走
+`python -m ao_shaping.tools.slm.phase_speed`，图案固定 blaze）。两工具共用 `diag_running`
+门闩与 `with_slm_ownership`（Santec USB 句柄不可重入），同一时刻只能运行一个。
 
 ---
 
@@ -207,6 +215,33 @@ classDiagram
 | msc_summary / msc_error / msc_optical_path | dict | 三种终态回传：完成摘要 / 异常 / 光路无光（`reason`,`cause`,`report`） |
 | msc_history_choice          | str             | ⑦ 历史会话选中的 campaign 目录（widget 键） |
 | msc_start / msc_stop / msc_reset_overrides | —（button） | 该页三个按钮（widget 键） |
+| diag_* | — | 「实验诊断」页（`diagnostics_tab.py`，固定尾 tab「设备诊断」）新增的 26 个 widget 键（共享设备设置 4 / 衍射效率 12 / 相位响应 10）；同页 `diag_running`、`diag_*_params`、`diag_*_result` 为运行期非 widget 记录，未列入 |
+| diag_slm_number | int | 共享设备设置：SLM 编号（widget 键） |
+| diag_wavelength_nm | int | 共享设备设置：工作波长（nm，widget 键） |
+| diag_cam_type | str | 共享设备设置：相机类型（widget 键） |
+| diag_cam_id | int | 共享设备设置：相机编号（widget 键） |
+| diag_diff_exposure_ms | float | 衍射效率：曝光时间（ms，widget 键） |
+| diag_diff_period_px | int | 衍射效率：光栅周期（px，widget 键） |
+| diag_diff_axis | str | 衍射效率：光栅轴向（x / y，widget 键） |
+| diag_diff_separation_px | float | 衍射效率：±1 级间距（px，0 = 不定标，widget 键） |
+| diag_diff_lobe_axis | str | 衍射效率：±1 级位移方向（auto / x / y，widget 键） |
+| diag_diff_frames | int | 衍射效率：每点帧数（widget 键） |
+| diag_diff_gray_depth | int | 衍射效率：灰度深度（高级参数，widget 键） |
+| diag_diff_settle_s | float | 衍射效率：稳定等待（s，高级参数，widget 键） |
+| diag_diff_save_frames | bool | 衍射效率：保存原始帧（高级参数，widget 键） |
+| diag_diff_subtract_dark | bool | 衍射效率：扣除暗场（高级参数，widget 键） |
+| diag_diff_ack | bool | 衍射效率：运行前设备独占一次性确认（widget 键） |
+| diag_diff_run | —（button） | 衍射效率：「运行衍射效率测量」按钮（widget 键） |
+| diag_phase_exposure_ms | float | 相位响应：曝光时间（ms，widget 键） |
+| diag_phase_gray_a | int | 相位响应：阶跃前灰度 gray_a（widget 键） |
+| diag_phase_gray_b | int | 相位响应：阶跃后灰度 gray_b（widget 键） |
+| diag_phase_n_frames | int | 相位响应：阶跃后帧数（widget 键） |
+| diag_phase_period_px | float | 相位响应：blaze 周期（px，widget 键） |
+| diag_phase_settle_s | float | 相位响应：写入后额外稳定等待（s，高级参数，widget 键） |
+| diag_phase_save_frames | bool | 相位响应：保存原始帧（高级参数，widget 键） |
+| diag_phase_tag | str | 相位响应：产物标签（高级参数，widget 键） |
+| diag_phase_ack | bool | 相位响应：运行前设备独占一次性确认（widget 键） |
+| diag_phase_run | —（button） | 相位响应：「运行相位响应测量」按钮（widget 键） |
 
 > `msc_*` 这些键属于**独立的** `gui/slm/multishape_campaign_ui.py`
 > （`streamlit run` 单独启动，不挂进本页）；列在这里是因为它复用本节的

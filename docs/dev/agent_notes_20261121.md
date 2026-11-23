@@ -32,7 +32,7 @@ SLM #1 正常 close（16:29:01）、相机经 `finally` 释放、锁 mtime 刷�
 `frozen=false, verdict=mapping_still_ambiguous`，**未写 `issue247_axis_map.json`**，#247 保持 open。
 逻辑/显示侧已排除：三 builder 均 `axis=1→列/axis=0→行`，显示链 `pattern_array→phase_to_gray→slm.display_data` 无转置。
 
-下一步（需新的上机批准，不在本轮）：采 2-D 对角 blaze（`blaze2d_sx+1_sy+1` 与 `sx+1_sy-1`，周期 128/192 px，
+下一步（需新的实验批准，不在本轮）：采 2-D 对角 blaze（`blaze2d_sx+1_sy+1` 与 `sx+1_sy-1`，周期 128/192 px，
 A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义；再复采一拍 `grating_x_p128` 确认 ±列结果稳定。
 残差 RMS ≤1.0 px、相对 ≤2% 才可冻结。
 
@@ -49,8 +49,8 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
 ## 4. 仍阻塞项（沿用 2026-11-20 结论，本轮未动）
 
 - **B1 / #238 正式 g₂π**：`dark_capture_hook` 无硬件熄灯实现，`--dark-frames N>0` 直接 fail-fast；
-  需先接照明熄灯 + 再次上机批准。未发布任何新 g₂π。
-- **#234 / #236 双门复跑**：离线仍失败，修复门禁后再谈上机；未据既有数据宣称增益。
+  需先接照明熄灯 + 再次实验批准。未发布任何新 g₂π。
+- **#234 / #236 双门复跑**：离线仍失败，修复门禁后再谈实验；未据既有数据宣称增益。
 
 ## 5. #247 A1b 复采 + 2-D 对角 blaze（verdict=映射仍歧义，未冻结）
 
@@ -97,11 +97,11 @@ A0-3 已实现），单个离轴对角点一次读出两轴、无对称对歧义
 
 ## SLM 工具整理：衍射效率探针 + 相位速度（2026-11-21 晚）
 
-本轮设备占用：**未开任何设备**（最后一次真机尝试在打开设备前就失败，见下）——SLM/CCD/激光
+本轮设备占用：**未开任何设备**（最后一次实验系统尝试在打开设备前就失败，见下）——SLM/CCD/激光
 均为空闲，无锁持有者、无残留 bench 进程。
 
 - **新建 `tools/slm/phase_speed/`**（`core.py` 纯算法 + `measure.py` 硬件后端 + CLI）：相位阶跃
-  A→B 逐帧追踪远场 0 级指标，解算响应/稳定时间与实测 fps。真机 `blaze 0→993, 0.1 ms, 60 帧`：
+  A→B 逐帧追踪远场 0 级指标，解算响应/稳定时间与实测 fps。实验系统 `blaze 0→993, 0.1 ms, 60 帧`：
   `fps=22.16`、`t_response=45.1 ms`、`t_settle=2526.9 ms`、`saturated=0`。⚠️ 测的是 **SLM+CCD
   系统响应**（受相机帧率量化），不是 SLM 像素上升时间；`flat` 活塞在 0 级不可见，必须 `--pattern blaze`。
 - **`calibration/diffraction_efficiency/probe.py` 重构出的单点探针**新增 `separation_px` /

@@ -154,6 +154,18 @@ def main() -> None:
         default=2,
         help="曝光阶梯的最大步数（传给 capture）。",
     )
+    parser.add_argument(
+        "--bit-depth",
+        type=int,
+        default=12,
+        choices=(8, 12, 16),
+        metavar="BITS",
+        help=(
+            "下发给相机的位深（经 capture._resolve_capture_exposure 与 "
+            "_verify_capture_bit_depth 回读校验）。默认 12（Mono12 纪律）；"
+            "8 仅用于复跑历史 Mono8 数据。"
+        ),
+    )
     parser.add_argument("--camera", default="daheng")
     parser.add_argument("--cam-id", type=int, default=0)
     parser.add_argument("--slm-number", type=int, default=1)
@@ -194,6 +206,7 @@ def main() -> None:
             "（reference_start, ramps, reference_end）。"
         )
         print(f"Resolved --out: {args.out}")
+        print(f"Resolved --bit-depth: {args.bit_depth}（采集前回读校验）")
         print("Re-run with --execute to open hardware and acquire.")
         print(
             f"Device lock: --wait-until-idle {args.wait_until_idle:g}s "
@@ -210,6 +223,7 @@ def main() -> None:
         execute=True,
         camera=args.camera,
         cam_id=args.cam_id,
+        bit_depth=args.bit_depth,
         slm_number=args.slm_number,
         grid=args.grid,
         ramp_periods=(64, 128),

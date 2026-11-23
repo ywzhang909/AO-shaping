@@ -213,12 +213,12 @@ algorithm/     算法基础层  — 纯数学优化器 (update/grad), 无硬件�
 
 | 类型 | 说明 |
 |------|------|
-| 已注册 CLI 命令 | main.py 注册 **20** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
+| 已注册 CLI 命令 | main.py 注册 **21** 个命令（逐个 `cli.add_command`，见 `main.py` 的 `# Register subcommands` 段；名单由 `tests/ao_shaping/runners/test_cli_contract_freeze.py::EXPECTED_COMMANDS` 冻结），见 Entry Points 节 |
 | 独立 Runner (未注册) | 需直接运行 `python -m ao_shaping.runners.<name>` 或 standalone 脚本; `runners/slm/offset_runner.py` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现以 `slm-pib` **命令组**注册（子命令 `spgd` / `heuristic` / `square`）；⚠️ 无 `slm-pib` 之外的 `spgd-square` 顶层命令 ⇒ 写 `slm-pib square` |
 
 ### 共享辅助
 
-`runner_common.py` 是共享辅助函数的主目录: `resolve_dm` (DM 解析), debug-artifact 写入器等。`model_in_loop_io.py` 是 slm-model-in-loop 的 config/result 落盘布局 helper (2026-11-19 从 `runner_common` 逐字外提, #205 批次; 公开名经 `runner_common` re-export 保持可导入, 单一实现移居本模块)。
+`runner_common.py` 是共享辅助函数的主目录: `resolve_dm` (DM 解析), debug-artifact 写入器等。
 
 > **注意**: `closed_loop.py` 不是 runner — 它是 `AOClosedLoop` 控制类, 归属 `optimizer/wf/`。
 

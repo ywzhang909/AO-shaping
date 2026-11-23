@@ -1,6 +1,6 @@
 # SLM 闪耀光栅衍射效率 / 相位响应标定 (diffraction_efficiency)
 
-> **运行环境**: `simulate` 纯数字孪生（无硬件）；`measure` 硬件实测（需 Santec SLM + 相机 + 光路标定 `.npz`）；`analyze` 离线（读已保存 CSV）
+> **运行环境**: `simulate` 纯数字孪生（无硬件）；`measure` 硬件实测（需 Santec SLM + 相机 + 光路标定 `.npz`）；`analyze` 离线（读已保存 CSV）；`probe` 轻量硬件探针（需 Santec SLM + 相机，**无需** 光路标定 `.npz`，结果为未定标相对指标）
 
 ## 1. 这条工具做什么
 
@@ -17,23 +17,28 @@
 
 ```mermaid
 graph TD
-    MAIN["tools/slm/calibration/diffraction_efficiency/__main__.py · simulate/measure/analyze"]
+    MAIN["tools/slm/calibration/diffraction_efficiency/__main__.py · simulate/measure/analyze/probe"]
     SIM["simulate.py · 数字孪生后端"]
     MEA["measure.py · Santec SLM + Daheng 硬件后端"]
+    PRB["probe.py · 轻量硬件探针 (单灰度深度, 无标定 .npz)"]
     CORE["core.py · 纯算法 (图案/阶次识别/离散器件模型/拟合/诊断)"]
     ART["artifacts.py · CSV/JSON/PNG"]
     CAL["tools/slm/calibration/calibration.py · 光路标定 .npz (前置)"]
 
     MAIN --> SIM
     MAIN --> MEA
+    MAIN --> PRB
     SIM --> CORE
     MEA --> CORE
+    PRB --> CORE
     CORE --> ART
     MEA --> CAL
 ```
 
-CLI 入口：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。
-`simulate` 与 `measure` 共用 `core` 的同一套代码路径 —— 仿真验证的就是实验系统要走的那条路。
+CLI 入口：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze,probe}`。
+`simulate` 与 `measure` 共用 `core` 的同一套代码路径 —— 仿真验证的就是实验系统要走的那条路。`probe` 是
+2026-11-21 新增的轻量硬件探针：只下发单个灰度深度，**不需要**光路标定 `.npz`、无焦面门禁，
+零级以帧内 `argmax` 定位，±1 级落点靠周期/pupil（瞳面） 几何估算，结果标注**粗略/未定标**、仅作相对指标。
 
 ## 3. 两种测量模式
 
@@ -61,6 +66,7 @@ CLI 入口：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency 
 | `simulate` | `--period-px`(32) `--axis`(x/y) `--n-steps`(21) `--mode`(gray/phase) `--depth-max-rad`(2π) `--gamma`(1.0) `--defocus-coeff`(0.0) `--peak-adu`(18000) `--read-noise-adu`(25) `--seed`(0) `--reference-fwhm-px` `--fwhm-gate-ratio`(3.0) |
 | `measure` | `--slm-number`(1) `--slm-wavelength`(1064) `--cam-type`(daheng/miicam/sim) `--cam-id`(0) `--exposure-ms`(0.4) `--period-px`(16) `--n-steps`(21) `--frames`(4) `--discard`(3) `--settle-s`(0.4) `--pupil-center` `--pupil-radius`(480) `--defocus-focal-mm`(inf) `--reference-fwhm-px` `--fwhm-gate-ratio`(3.0) |
 | `analyze` | `--csv`(data/diffraction_efficiency/hw/measurements.csv) `--command-max`(1023) `--period-px`(16) `--reference-fwhm-px` `--fwhm-gate-ratio`(3.0) |
+| `probe` | `--slm-number`(1) `--slm-wavelength`(1064) `--cam-type`(daheng/miicam/sim) `--cam-id`(0) `--exposure-ms`(5.0) `--gray-depth`(0) `--period-px`(32) `--axis`(x/y) `--separation-px`(0.0, 0=周期估算) `--lobe-axis`(auto/x/y) `--frames`(3) `--settle-s`(0.25) `--save-frames`(off) `--subtract-dark`(on) |
 
 - `measure` 前需先跑 `python -m ao_shaping.tools.slm.calibration` 生成光路标定 `.npz`。
 - `analyze` 对已保存的扫描 CSV 重新拟合（离线，不碰硬件），用于复算与门禁复核。
