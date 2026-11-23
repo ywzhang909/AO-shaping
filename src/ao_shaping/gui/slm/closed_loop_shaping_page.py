@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+from loguru import logger
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -63,6 +64,7 @@ from ao_shaping.gui.slm.closed_loop_shaping import (
     analysis_grid,
     describe_gate,
     grid_spacing_px,
+    sample_on_grid,
     target_field,
 )
 from ao_shaping.gui.slm.target_lock import (
@@ -70,7 +72,6 @@ from ao_shaping.gui.slm.target_lock import (
     LockConfig,
     calibrate_lock_thresholds,
     calibration_stats_from_frames,
-    target_on_frame,
 )
 
 __all__ = ["ClosedLoopShapingPage"]
@@ -179,23 +180,24 @@ class _CalibrationThread(QThread):
             self._bench.open()
             self._bench.apply_phase(np.zeros((self._grid_size, self._grid_size)))
             captured = [self._bench.capture() for _ in range(self._frame_count)]
-            # 硬件帧是整幅 CCD，目标是窗口图；统计要求同形，先按绝对像素铺回整帧。
-            target_frame = target_on_frame(
-                self._xy, self._target, captured[0].frame.shape
-            )
+            # 统计口径与 hold 门禁一致：监督器看的是 sample_on_grid 后的窗口图，
+            # 标定也按窗口帧推导（total/peak 是窗口尺度），否则整帧 2% 的
+            # min_total_counts 会把窗口帧全部判成 low_signal。目标本就是窗口图，
+            # 与窗口帧同形，直接使用。
+            window_frames = [sample_on_grid(item.frame, self._xy) for item in captured]
             sample = calibration_stats_from_frames(
-                [item.frame for item in captured],
-                target=target_frame,
+                window_frames,
+                target=self._target,
                 full_scale=float(captured[0].full_scale),
             )
-        except Exception as exc:
+        except Exception as exc:  # 标定失败必须回到页面，不能静默吞掉
             self.signals.failed.emit(str(exc))
             return
         finally:
             try:
                 self._bench.close()
-            except Exception:  # 关闭失败不该掩盖主结论
-                pass
+            except Exception as exc:  # 关闭失败不该掩盖主结论
+                logger.warning("标定线程关闭设备失败（统计结论照常返回）: {}", exc)
         self.signals.done.emit(sample)
 
 

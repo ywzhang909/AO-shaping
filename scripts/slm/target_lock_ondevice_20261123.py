@@ -11,8 +11,10 @@
 ``TargetLockSupervisor``）搬到命令行，分两段采集，每段都留可复核的证据：
 
 ``calibrate``
-    零相位、N 帧（默认 8），算 :class:`CalibrationSample` 并按固定倍数推导
-    :class:`LockConfig`。饱和或信噪比不足时**直接失败**，不写出一份"看起来能用"
+    零相位、N 帧（默认 8），先采样到分析窗口（与 hold 的 ``config.xy`` 同一
+    网格）再算 :class:`CalibrationSample` 并按固定倍数推导 :class:`LockConfig`
+    —— 统计口径与监督器门禁一致，min_total_counts 是窗口总量的 2%，不是
+    整帧的 2%。饱和或信噪比不足时**直接失败**，不写出一份"看起来能用"
     的阈值。原始帧落盘，公式可以事后用同一段帧重算。
 
 ``hold``
@@ -60,6 +62,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import json
 import math
 import sys
@@ -200,13 +203,116 @@ def resolve_checkpoint(path: Path, *, span: int | None) -> CheckpointSpec:
 # --------------------------------------------------------------------------- #
 
 
+#: ``--centre`` 的特殊值：从一帧零相位采集里定位光斑，把窗口开在光斑上。
+AUTO_SPOT = "auto-spot"
+
+
 def _parse_centre(text: str, fallback: tuple[float, float]) -> tuple[float, float]:
     if text.strip().lower() in {"", "auto"}:
         return fallback
     parts = [piece for piece in text.replace(";", ",").split(",") if piece.strip()]
     if len(parts) != 2:
-        raise ValueError("--centre 需写成 'x,y'（CCD 像素）")
+        raise ValueError(f"--centre 需写成 'x,y'（CCD 像素）或 {AUTO_SPOT}")
     return float(parts[0]), float(parts[1])
+
+
+def _is_auto_spot(text: str) -> bool:
+    return text.strip().lower() == AUTO_SPOT
+
+
+@dataclass(frozen=True)
+class SpotLocation:
+    """一帧零相位 CCD 上定位到的光斑（CCD 像素，x 为列、y 为行）。"""
+
+    centroid_xy: tuple[float, float]
+    argmax_xy: tuple[float, float]
+    window_centre: tuple[int, int]
+    signal_pixels: int
+    threshold: float
+    dark_level: float
+
+
+@dataclass(frozen=True)
+class SpotRegistration:
+    """spot 窗口相对冻结 origin 的整数平移，以及前向模型要吃的 registration。
+
+    ``registration_shift_ccd_px`` 的顺序是 ``(dy, dx)``（见
+    :func:`differentiable_defocus_uniformity.FrozenDefocusParameters`），而
+    ``dx, dy`` 是 ``round(spot) − round(origin)``。两者同号：spot 窗口 + 该
+    registration 与 origin 窗口 + 无 registration 逐点等价；分数平移会引入
+    ~0.5 px 的采样错位（锐利 PSF 上 ~11% 归一化差异），因此这里强制整数。
+    """
+
+    origin_xy: tuple[float, float]
+    spot_xy: tuple[float, float]
+    dx: int
+    dy: int
+    registration_shift_ccd_px: tuple[float, float]
+    fractional_dx_dy: tuple[float, float]
+
+
+def locate_spot_xy(frame: np.ndarray, *, sigma_threshold: float = 5.0) -> SpotLocation:
+    """从整帧里定位零相位光斑：暗地板以上的掩膜质心 + argmax 交叉核对。
+
+    与同目录探针脚本的 item① 同法（``target_lock_probe_20261123.py``）。整帧暗地板
+    加权质心会被大面积背景拖偏（run b 的整帧门禁质心 (1299.6, 963.7) 即此陷
+    阱），所以只取显著高于暗地板的像素。窗口中心取 ``round(质心)``，与
+    :func:`analysis_grid` 的 ``np.rint`` 口径一致。
+    """
+    arr = np.asarray(frame, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"光斑定位需要单帧 2D 数组，got {arr.shape}")
+    dark = float(np.median(arr))
+    sigma = float(arr.std())
+    threshold = dark + float(sigma_threshold) * sigma
+    mask = arr > threshold
+    if not mask.any():
+        raise ValueError(
+            f"零相位帧未检出光斑：峰值 {arr.max():.1f} 未超过暗地板+"
+            f"{sigma_threshold:g}σ = {threshold:.1f}（检查曝光/光路）"
+        )
+    ys, xs = np.nonzero(mask)
+    weights = arr[mask] - dark
+    total = float(np.sum(weights))
+    if total <= 0.0:
+        raise ValueError("光斑掩膜权重合计为 0，无法算质心")
+    cx = float(np.sum(xs * weights) / total)
+    cy = float(np.sum(ys * weights) / total)
+    iy, ix = np.unravel_index(int(np.argmax(arr)), arr.shape)
+    return SpotLocation(
+        centroid_xy=(cx, cy),
+        argmax_xy=(float(ix), float(iy)),
+        window_centre=(int(np.rint(cx)), int(np.rint(cy))),
+        signal_pixels=int(mask.sum()),
+        threshold=threshold,
+        dark_level=dark,
+    )
+
+
+def spot_registration(
+    spot_xy: tuple[float, float], origin_xy: tuple[float, float]
+) -> SpotRegistration:
+    """由光斑质心与冻结 origin 推出整数平移 + ``(dy, dx)`` registration。"""
+    dx = int(np.rint(float(spot_xy[0])) - np.rint(float(origin_xy[0])))
+    dy = int(np.rint(float(spot_xy[1])) - np.rint(float(origin_xy[1])))
+    return SpotRegistration(
+        origin_xy=(float(origin_xy[0]), float(origin_xy[1])),
+        spot_xy=(float(spot_xy[0]), float(spot_xy[1])),
+        dx=dx,
+        dy=dy,
+        registration_shift_ccd_px=(float(dy), float(dx)),
+        fractional_dx_dy=(
+            float(spot_xy[0]) - float(origin_xy[0]),
+            float(spot_xy[1]) - float(origin_xy[1]),
+        ),
+    )
+
+
+def registered_forward_params(params: Any, registration: SpotRegistration) -> Any:
+    """把整数 registration 写进冻结参数（不原地改，两处 forward 构建共用）。"""
+    return dataclasses.replace(
+        params, registration_shift_ccd_px=registration.registration_shift_ccd_px
+    )
 
 
 def _load_array(path: Path) -> np.ndarray:
@@ -451,12 +557,16 @@ def run_calibration(
     grid_size: int,
     out: Path,
 ) -> tuple[Any, Any, dict[str, Any]]:
-    """零相位 N 帧 → CalibrationSample → LockConfig；返回 (sample, config, 证据)。"""
-    from ao_shaping.gui.slm.closed_loop_shaping import grid_spacing_px
+    """零相位 N 帧在分析窗口上统计 → CalibrationSample → LockConfig。
+
+    统计口径与 hold 门禁一致：每帧先 ``sample_on_grid`` 到 ``xy``（与
+    ``config.xy`` 同一网格），total/peak/dark 因此是窗口尺度；整帧只用于
+    落盘留证。返回 (sample, config, 证据)。
+    """
+    from ao_shaping.gui.slm.closed_loop_shaping import grid_spacing_px, sample_on_grid
     from ao_shaping.gui.slm.target_lock import (
         calibrate_lock_thresholds,
         calibration_stats_from_frames,
-        target_on_frame,
     )
 
     frames: list[np.ndarray] = []          # 原始 dtype，落盘不丢 12-bit 精度
@@ -481,9 +591,12 @@ def run_calibration(
         )
     elapsed = time.monotonic() - t0
 
-    target_frame = target_on_frame(xy, target, frames[0].shape)
+    # 统计与门禁同口径：监督器在 hold 里看到的是 sample_on_grid 后的窗口图，
+    # 阈值也必须按窗口帧推导，否则 min_total_counts 是整帧 2%（run b 的
+    # 30,916 vs 窗口帧 ~22k → 必判 low_signal）。
+    window_frames = [sample_on_grid(frame, xy) for frame in frames_float]
     sample = calibration_stats_from_frames(
-        frames_float, target=target_frame, full_scale=float(captured_meta[0]["full_scale"])
+        window_frames, target=target, full_scale=float(captured_meta[0]["full_scale"])
     )
     spacing = grid_spacing_px(xy)
     if spacing is None:
@@ -508,6 +621,9 @@ def run_calibration(
         "elapsed_s": round(elapsed, 3),
         "frames": captured_meta,
         "sample": asdict(sample),
+        # 统计口径：与 hold 门禁同一分析窗口网格，而不是整帧。
+        "stats_basis": "analysis_window",
+        "window_shape": [int(xy.shape[0]), int(xy.shape[1])],
         "grid_spacing_px": spacing,
         "position_tolerance_ccd_px": float(args.hold_tolerance),
         "lock_config": asdict(config),
@@ -545,6 +661,37 @@ class FrameQualityError(RuntimeError):
 # --------------------------------------------------------------------------- #
 
 
+def _saturation_fraction(captured: Any, record: Any) -> float | None:
+    """真实饱和像素占比 = ``gate.saturation_pixels`` / 整帧元素数。
+
+    分子来自门禁（同一条生产路径数的饱和像素），分母用整帧元素数而不是分析
+    窗口：口径必须与门禁一致，比例才可复核。``captured.frame`` 或
+    ``gate.saturation_pixels`` 拿不到时返回 ``None``（序列化成 null），
+    不伪造 0 —— "未测" 与 "测了是 0" 在证据里必须可区分。
+    """
+    frame = getattr(captured, "frame", None)
+    gate = getattr(record, "gate", None)
+    pixels = getattr(gate, "saturation_pixels", None) if gate is not None else None
+    if frame is None or pixels is None:
+        return None
+    size = int(np.asarray(frame).size)
+    if size <= 0:
+        return None
+    return _finite_or_none(float(int(pixels)) / float(size))
+
+
+def _record_row(captured: Any, record: Any) -> dict[str, Any]:
+    """``on_frame`` 的序列化核心：先算饱和比例挂到 record，再转 dict。
+
+    比例记在 record 上（``RoundRecord`` 非 frozen，允许附加属性）：之后
+    ``run()`` 发出的 ``round`` 事件携带的是同一对象，``events.jsonl`` 因此
+    拿到同一个真值，而不是退回 null。``rounds.csv`` 的列契约里必须有
+    ``saturated_fraction``，本函数保证它始终存在（可为 ``None``）。
+    """
+    record.saturated_fraction = _saturation_fraction(captured, record)
+    return _round_to_dict(record)
+
+
 def _round_to_dict(record: Any) -> dict[str, Any]:
     gate = record.gate
     return {
@@ -559,6 +706,8 @@ def _round_to_dict(record: Any) -> dict[str, Any]:
         "peak_counts": _finite_or_none(gate.peak),
         "full_scale": _finite_or_none(gate.full_scale),
         "saturation_pixels": int(gate.saturation_pixels),
+        # on_frame 现算后挂在 record 上；未经 on_frame 的事件路径保持 None（→ null）
+        "saturated_fraction": _finite_or_none(getattr(record, "saturated_fraction", None)),
         "metrics": dict(record.metrics) if record.metrics else None,
         "measured_score": _finite_or_none(record.measured_score),
         "predicted_score": _finite_or_none(record.predicted_score),
@@ -625,6 +774,33 @@ def _summarise(rounds: list[dict[str, Any]], events: list[dict[str, Any]]) -> di
     return summary
 
 
+class _RegisteredAdapter:
+    """代理 ``OnlineTransferAdapter``，只覆盖 ``forward()`` 注入整数 registration。
+
+    适配器自己从 checkpoint 建 ``FrozenDefocusForward``、不接受 registration；
+    这里保持其余接口（``ready`` / ``refit`` / ``add_round`` / ``rows``）全部委托，
+    从而不必修改生产路径的 ``closed_loop_shaping.py``。
+    """
+
+    def __init__(self, inner: Any, registration: SpotRegistration) -> None:
+        self._inner = inner
+        self.registration = registration
+
+    def forward(self, xy: np.ndarray) -> Any:
+        from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+            FrozenDefocusForward,
+            load_frozen_parameters,
+        )
+
+        params = registered_forward_params(
+            load_frozen_parameters(self._inner.checkpoint), self.registration
+        )
+        return FrozenDefocusForward(params, np.asarray(xy), device=self._inner.device)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 def run_hold(
     args: argparse.Namespace,
     *,
@@ -635,6 +811,7 @@ def run_hold(
     lock_config: Any,
     bench: Any,
     out: Path,
+    registration: SpotRegistration | None = None,
 ) -> dict[str, Any]:
     from ao_shaping.gui.slm.closed_loop_shaping import (
         ClosedLoopConfig,
@@ -659,6 +836,9 @@ def run_hold(
             if adapter.seeded
             else f"适配未就绪：{adapter.seed_error}"
         )
+        if registration is not None:
+            # 适配器在 hold 中会按网格重建 forward；代理层保证它也用同一平移。
+            adapter = _RegisteredAdapter(adapter, registration)
     elif args.adapt:
         raise ValueError("--adapt 需要 --source-dataset（否则没有可用的标定行）")
     else:
@@ -669,6 +849,8 @@ def run_hold(
         )
 
         params = load_frozen_parameters(spec.params_path)
+        if registration is not None:
+            params = registered_forward_params(params, registration)
         forward = FrozenDefocusForward(params, xy, device=args.device)
         adapter_note = "未启用在线适配：使用冻结 defocus 物理预测模型（不随漂移重拟合）"
 
@@ -712,7 +894,7 @@ def run_hold(
                 full_scale=float(captured.full_scale),
             )
         if record is not None:
-            row = _round_to_dict(record)
+            row = _record_row(captured, record)
             with lock:
                 rounds.append(row)
                 with rounds_jsonl.open("a", encoding="utf-8") as handle:
@@ -764,12 +946,15 @@ def run_hold(
             "grid_size": int(np.asarray(start_phase).shape[0]),
             "target_peak": float(np.max(target)),
             "target_fraction": float(np.mean(np.asarray(target) > 0.0)),
+            # 与 config.xy / forward 共用同一套整数平移（auto-spot 时非空）。
+            "registration": asdict(registration) if registration is not None else None,
         },
         "drift": {
             "axis": args.drift,
             "total_rad": float(args.drift_rad),
             "start_write": int(args.drift_start_write),
             "ramp_writes": int(args.drift_ramp_writes),
+            "grid_size": int(np.asarray(start_phase).shape[0]),
             "writes": len(drift_trace) if drift_trace else 0,
             "final_injected_peak_to_peak_rad": (
                 float(drift_trace[-1]["peak_to_peak_rad"]) if drift_trace else 0.0
@@ -780,7 +965,18 @@ def run_hold(
     }
     _write_json(out / "summary.json", payload)
 
-    with (out / "rounds.csv").open("w", encoding="utf-8", newline="") as handle:
+    _write_rounds_csv(out / "rounds.csv", rounds)
+    return payload
+
+
+def _write_rounds_csv(path: Path, rounds: list[dict[str, Any]]) -> None:
+    """把逐轮记录写成 CSV。列契约含 ``saturated_fraction``，可为空（null）。
+
+    单独成函数是为了回归测试：拒绝/饱和帧也要能走完序列化与 CSV 路径
+    （此前 ``on_frame`` 产出的行缺该键，写出时直接 ``KeyError``，summary
+    证据半途而废）。
+    """
+    with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(
             [
@@ -800,7 +996,6 @@ def run_hold(
                     row["window_fraction"],
                 ]
             )
-    return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -828,7 +1023,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     # 窗口与目标
     parser.add_argument("--span", type=int, default=None, help="分析窗口半宽（CCD px，偶数）")
-    parser.add_argument("--centre", default="auto", help="分析窗口中心 'x,y'；auto = 检查点 origin")
+    parser.add_argument(
+        "--centre", default="auto",
+        help=(
+            "分析窗口中心 'x,y'（CCD 像素）；auto = 检查点 origin（缺省，行为不变）；"
+            f"{AUTO_SPOT} = 标定前采一帧零相位图定位光斑，窗口开在 round(质心) 并"
+            "把同一整数平移写进物理前向的 registration"
+        ),
+    )
     parser.add_argument("--grid-size", type=int, default=None, help="SLM 控制网格边长；缺省取检查点")
     parser.add_argument("--target", choices=("field", "npy", "frame"), default="field")
     parser.add_argument("--target-path", type=Path, default=None, help="npy/frame 目标来源")
@@ -892,7 +1094,19 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     span = int(args.span or (spec.span if spec else 120))
     if span < 2 or span % 2:
         raise ValueError("--span 必须是 >= 2 的偶数")
-    centre = _parse_centre(args.centre, spec.centre if spec else (0.0, 0.0))
+    auto_spot = _is_auto_spot(args.centre)
+    if auto_spot and spec is None:
+        raise ValueError(
+            f"--centre {AUTO_SPOT} 需要 --checkpoint：整数 registration 以检查点 "
+            "origin 为基准"
+        )
+    # auto-spot 的真实中心要等开设备采一帧才知道；plan 里先放 origin 作为占位，
+    # execute() 会用定位结果覆盖它，并同时记下 spot/registration 证据。
+    centre = (
+        spec.centre  # type: ignore[union-attr]  # auto_spot 已保证 spec 非 None
+        if auto_spot
+        else _parse_centre(args.centre, spec.centre if spec else (0.0, 0.0))
+    )
     if spec is None and args.centre.strip().lower() in {"", "auto"}:
         raise ValueError("没有 --checkpoint 时必须显式 --centre x,y（CCD 像素）")
     if args.target == "field" and max(args.half_width, args.half_height) >= span:
@@ -949,7 +1163,13 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
                 "note": spec.origin_spacing_note,
             }
         ),
-        "window": {"span": span, "centre": list(centre), "grid_size": grid_size},
+        "window": {
+            "span": span,
+            "centre": list(centre),
+            "grid_size": grid_size,
+            "centre_mode": AUTO_SPOT if auto_spot else "explicit/auto",
+            "centre_is_provisional": bool(auto_spot),
+        },
         "target": {
             "mode": args.target,
             "path": str(args.target_path) if args.target_path else None,
@@ -982,6 +1202,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "total_rad": args.drift_rad,
             "start_write": args.drift_start_write,
             "ramp_writes": args.drift_ramp_writes,
+            # 注入斜坡跑在控制网格上，必须与 start_phase / forward 同一 grid_size
+            "grid_size": grid_size,
         },
         "warnings": warnings,
     }
@@ -1062,13 +1284,59 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
 
     lock_config = _load_lock_config(args.lock_config) if args.lock_config else None
     # 全流程只有一个 HardwareBench 实例：标定用裸 bench，保持在外面叠漂移层；
-    # stage=both 时用 PreopenedBench 让 runner 的 open() 变成 no-op。
+    # stage=both / auto-spot 时用 PreopenedBench 让 runner 的 open() 变成 no-op。
     base_bench = make_hardware_bench(args)
+    auto_spot = _is_auto_spot(args.centre)
+    registration: SpotRegistration | None = None
+    preopened = False  # base_bench 是否已经被打开（auto-spot 会提前打开）
     exit_code = 0
     try:
-        if args.stage in {"calibrate", "both"}:
-            logger.info("打开 SLM + CCD（一次），阶段={}", args.stage)
+        if auto_spot:
+            # 零相位一帧定位光斑：窗口开在 round(质心)，同一整数平移写进 forward。
+            # 必须在标定之前做，标定与 hold 才共用同一个 spot 窗口。
+            if spec is None:  # build_plan 已挡住；这里是执行期二次保护
+                raise ValueError(f"--centre {AUTO_SPOT} 需要 --checkpoint")
+            logger.info("auto-spot：先置零相位采一帧定位光斑")
             base_bench.open()
+            preopened = True
+            try:
+                base_bench.apply_phase(np.zeros((grid_size, grid_size), dtype=np.float64))
+                probe_capture = base_bench.capture()
+                spot = locate_spot_xy(np.asarray(probe_capture.frame))
+            except Exception:
+                base_bench.close()
+                preopened = False
+                raise
+            centre = spot.window_centre
+            xy = analysis_grid(centre, int(window["span"]))
+            target = build_target(args, xy=xy)
+            registration = spot_registration(spot.centroid_xy, spec.centre)
+            plan["window"].update({
+                "centre": list(centre),
+                "centre_is_provisional": False,
+                "auto_spot": asdict(spot),
+                "registration": asdict(registration),
+            })
+            _write_json(out / "plan.json", plan)
+            _write_json(out / "spot_detection.json", {
+                "created_at": _utc_now(),
+                "spot": asdict(spot),
+                "registration": asdict(registration),
+                "window_centre": list(centre),
+                "exposure_ms": float(getattr(probe_capture, "exposure_ms", args.exposure_ms)),
+            })
+            logger.info(
+                "auto-spot：质心 {} argmax {} → 窗口中心 {}，整数平移 (dx {}, dy {}) "
+                "→ registration_shift_ccd_px {}",
+                spot.centroid_xy, spot.argmax_xy, centre,
+                registration.dx, registration.dy, registration.registration_shift_ccd_px,
+            )
+
+        if args.stage in {"calibrate", "both"}:
+            if not preopened:
+                logger.info("打开 SLM + CCD（一次），阶段={}", args.stage)
+                base_bench.open()
+                preopened = True
             try:
                 sample, derived, evidence = run_calibration(
                     args, bench=base_bench, xy=xy, target=target,
@@ -1084,15 +1352,17 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             finally:
                 if args.stage == "calibrate":
                     base_bench.close()
+                    preopened = False
 
         if exit_code == 0 and args.stage in {"hold", "both"}:
             hold_bench = make_bench(args, grid_size=grid_size, base=base_bench)
-            if args.stage == "both":
-                # 标定与保持共用同一次设备打开，避免背对背 open/close 假死。
+            if args.stage == "both" or preopened:
+                # 标定/auto-spot 与保持共用同一次设备打开，避免背对背 open/close 假死。
                 hold_bench = PreopenedBench(hold_bench)
             payload = run_hold(
                 args, spec=spec, xy=xy, target=target, start_phase=start_phase,
                 lock_config=lock_config, bench=hold_bench, out=out / "hold",
+                registration=registration,
             )
             print(
                 f"保持结束：state={payload['state']} reason={payload['reason']} "

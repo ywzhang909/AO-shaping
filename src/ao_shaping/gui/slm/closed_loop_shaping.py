@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import threading
 import time
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -33,8 +34,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
+from loguru import logger
 
-if TYPE_CHECKING:  # 只在类型检查期导入，运行时仍保持"顶层只 numpy/stdlib"
+if TYPE_CHECKING:  # 只在类型检查期导入，运行时仍保持轻量顶层（numpy/loguru/stdlib）
     from ao_shaping.gui.slm.target_lock import LockConfig
 
 __all__ = [
@@ -91,6 +93,10 @@ _GATE_TEXT: dict[str, str] = {
     "exposure_invalid": "曝光不是正的有限值",
     "grid_out_of_bounds": "分析窗口超出传感器范围",
 }
+
+#: 漂移反馈 Jacobian 的奇异判定上限（条件数）。tilt 两轴近似相关（如一轴无响应）
+#: 时条件数骤增，反演会把噪声放大成离谱的反馈倾斜，宁可跳过本轮。
+_DRIFT_COND_LIMIT: float = 1.0e6
 
 
 @dataclass(frozen=True)
@@ -248,6 +254,42 @@ def grid_spacing_px(xy: np.ndarray) -> float | None:
     if not np.isfinite(spacing) or spacing <= 0.0:
         return None
     return spacing
+
+
+def _tilt_ramp(shape: tuple[int, ...], axis: int) -> np.ndarray:
+    """峰谷恰为 1 rad 的线性斜坡（与 ``DriftBench.tilt()`` 同形）。
+
+    ``axis=1`` 得到沿列（x）的斜坡，``axis=0`` 得到沿行（y）的斜坡。长度为 1 的
+    轴上峰谷为 0（J 该列必为 0，由奇异判定接管）。
+    """
+    n = int(shape[axis])
+    ramp = np.arange(n, dtype=np.float64) / float(max(n - 1, 1))
+    if axis == 1:
+        return np.broadcast_to(ramp[None, :], shape).astype(np.float64).copy()
+    return np.broadcast_to(ramp[:, None], shape).astype(np.float64).copy()
+
+
+def _camera_centroid(intensity: np.ndarray, xy: np.ndarray) -> tuple[float, float] | None:
+    """相机像素坐标系（与 ``analysis_grid`` 同一坐标表）下的强度加权质心。
+
+    闭环门禁里的 ``_centroid`` 用的是**整帧像素索引**；这里拿预测强度在分析窗口
+    的实际 CCD 坐标（``xy``）加权，两者落在同一套相机像素上，Jacobian 的
+    px/rad 才能直接作用到实测残差 ``record.gate.centroid_xy`` 上。
+    """
+    weights = np.asarray(intensity, dtype=np.float64)
+    grid = np.asarray(xy, dtype=np.float64)
+    if weights.shape != grid.shape[:2]:
+        raise ValueError(
+            f"predicted intensity shape {weights.shape} does not match the "
+            f"analysis grid {grid.shape[:2]}"
+        )
+    total = float(weights.sum())
+    if not np.isfinite(total) or total <= 0.0:
+        return None
+    return (
+        float((weights * grid[..., 0]).sum() / total),
+        float((weights * grid[..., 1]).sum() / total),
+    )
 
 
 def compare_to_target(measured: np.ndarray, target: np.ndarray) -> dict[str, float]:
@@ -914,6 +956,10 @@ class RoundRecord:
     note: str = ""
     #: 采集时刻（``time.monotonic()`` 秒），hold 模式用来和 SLM 写入时刻配对。
     captured_at_s: float | None = None
+    #: 本轮漂移反馈倾斜的峰值（rad，相位网格上的 max|tilt|）；未启用反馈时为 ``None``。
+    drift_feedback_tilt_rad: float | None = None
+    #: 本轮反馈据以计算的质心残差 (x, y)，单位是 **相机像素**（相对基线帧）。
+    drift_residual_px: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -966,6 +1012,13 @@ class ClosedLoopConfig:
     exposure_ms: float | None = None
     validation_every: int = 3
     thresholds: GateThresholds = GateThresholds()
+    #: 漂移反馈：hold 模式下用 Jacobian + P 控制器把实测质心拉回基线位置。
+    #: 默认关闭 —— 关闭时既不计算 Jacobian，也不改写下发相位，旧行为逐位不变。
+    drift_feedback: bool = False
+    #: P 控制器增益（无量纲）。反馈项每轮按最新残差重算，不累加到已下发相位。
+    drift_feedback_gain: float = 0.5
+    #: 单轮反馈倾斜的峰值上限（rad）；超过即判故障，宁可停机也不下发离谱相位。
+    drift_feedback_max_rad: float = 10.0
 
     def __post_init__(self) -> None:
         if self.candidate_policy not in {"confirm", "auto"}:
@@ -994,6 +1047,14 @@ class ClosedLoopConfig:
                 raise ValueError("exposure_ms must be finite and positive")
         if self.validation_every < 0:
             raise ValueError("validation_every must be >= 0")
+        if self.drift_feedback:
+            if not np.isfinite(self.drift_feedback_gain) or self.drift_feedback_gain <= 0:
+                raise ValueError("drift_feedback_gain must be finite and positive")
+            if (
+                not np.isfinite(self.drift_feedback_max_rad)
+                or self.drift_feedback_max_rad <= 0
+            ):
+                raise ValueError("drift_feedback_max_rad must be finite and positive")
 
 
 class ClosedLoopRunner:
@@ -1028,6 +1089,9 @@ class ClosedLoopRunner:
         self._pause = threading.Event()
         self._pause.set()
         self._stop = threading.Event()
+        # 漂移反馈：Jacobian 按 forward 实例（id）缓存；适配晋级换实例后会重新测。
+        self._drift_jac: dict[int, np.ndarray | None] = {}
+        self._drift_warned: set[int] = set()
 
     # -- 外部控制（GUI 线程） ---------------------------------------------- #
 
@@ -1253,14 +1317,14 @@ class ClosedLoopRunner:
             try:
                 if opened and self.summary.applied_phase is not None:
                     self.bench.apply_phase(self.summary.applied_phase)
-            except Exception:  # 收尾回滚是尽力而为
-                pass
+            except Exception as exc:  # 收尾回滚是尽力而为
+                logger.warning("故障回滚相位失败，SLM 可能停在未确认相位: {}", exc)
             return self._finish(LoopState.FAULT, f"运行异常：{exc}")
         finally:
             try:
                 self.bench.close()
-            except Exception:  # 关闭失败不该掩盖主结论
-                pass
+            except Exception as exc:  # 关闭失败不该掩盖主结论
+                logger.warning("收尾关闭设备失败（结论照常落盘）: {}", exc)
 
     def _run_hold(self) -> LoopSummary:
         """固定目标、固定 CCD 像素位置的保持模式。
@@ -1383,13 +1447,48 @@ class ClosedLoopRunner:
                     exposure_ms=config.exposure_ms,
                 )
 
+                # 漂移反馈（hold 模式可选）：残差 = 上一有效帧（首轮即基线帧）相对
+                # 基线质心的位移，每轮按最新残差重算，不累加到 applied_phase。
+                feedback_tilt: np.ndarray | None = None
+                feedback_peak_rad: float | None = None
+                residual_px: tuple[float, float] | None = None
+                if config.drift_feedback:
+                    baseline_xy = baseline.gate.centroid_xy
+                    current_xy = previous_centroid
+                    if baseline_xy is not None and current_xy is not None:
+                        residual_px = (
+                            float(current_xy[0]) - float(baseline_xy[0]),
+                            float(current_xy[1]) - float(baseline_xy[1]),
+                        )
+                        feedback_tilt, feedback_peak_rad = self._drift_feedback(
+                            forward, residual_px
+                        )
+                        if (
+                            feedback_peak_rad is not None
+                            and feedback_peak_rad > float(config.drift_feedback_max_rad)
+                        ):
+                            # 超限不走门禁，直接走既有 FAULT 收尾（回滚到纯形状）。
+                            note = (
+                                f"第 {index} 轮漂移反馈倾斜 {feedback_peak_rad:.3f} rad "
+                                f"超过上限 {float(config.drift_feedback_max_rad):.3f} rad，已停止"
+                            )
+                            self.bench.apply_phase(self.summary.applied_phase)
+                            return self._finish(LoopState.FAULT, note)
+
                 self._set_state(LoopState.MEASURING, f"下发第 {index} 轮候选")
                 # 写入时刻必须在写之前登记：监督器据此判定"帧是否晚于写入"。
                 supervisor.expect_write(index, written_at_s=time.monotonic())
-                record = self._measure(proposal.phase, f"r{index:02d}", index, previous_centroid)
+                command = (
+                    proposal.phase
+                    if feedback_tilt is None
+                    else proposal.phase + feedback_tilt
+                )
+                record = self._measure(command, f"r{index:02d}", index, previous_centroid)
                 record.predicted_score = proposal.predicted_score
                 record.phase_step_rms = proposal.rms_rad
                 record.adaptation = adaptation.status if adaptation is not None else None
+                record.drift_feedback_tilt_rad = feedback_peak_rad
+                record.drift_residual_px = residual_px
 
                 if not record.gate.ok:
                     # 门禁失败 = 本轮没有可用证据；既不能评分，也不进适配。
@@ -1411,7 +1510,14 @@ class ClosedLoopRunner:
 
                 decision = supervisor.observe(measured_frame(record, index))
                 if decision is not None:
-                    self._emit_lock(decision, index, spacing_ccd_px, supervisor.target_centroid)
+                    self._emit_lock(
+                        decision,
+                        index,
+                        spacing_ccd_px,
+                        supervisor.target_centroid,
+                        drift_feedback_tilt_rad=feedback_peak_rad,
+                        drift_residual_px=residual_px,
+                    )
 
                 if decision is None:
                     # 无效帧且监督器尚未冻结：本轮没有证据，回滚到最佳并计数；
@@ -1464,18 +1570,104 @@ class ClosedLoopRunner:
             try:
                 if opened and self.summary.applied_phase is not None:
                     self.bench.apply_phase(self.summary.applied_phase)
-            except Exception:  # 收尾回滚是尽力而为
-                pass
+            except Exception as exc:  # 收尾回滚是尽力而为
+                logger.warning("故障回滚相位失败，SLM 可能停在未确认相位: {}", exc)
             return self._finish(LoopState.FAULT, f"运行异常：{exc}")
         finally:
             try:
                 self.bench.close()
-            except Exception:  # 关闭失败不该掩盖主结论
-                pass
+            except Exception as exc:  # 关闭失败不该掩盖主结论
+                logger.warning("收尾关闭设备失败（结论照常落盘）: {}", exc)
 
     def _grid_spacing_px(self) -> float | None:
         """分析网格相邻采样点的 CCD 像素步长；与页面标定共用同一定义。"""
         return grid_spacing_px(self.config.xy)
+
+    def _predicted_centroid(
+        self, forward: Any, phase: np.ndarray, xy: np.ndarray
+    ) -> tuple[float, float] | None:
+        """在相机像素坐标上预测相位对应的质心；失败时返回 ``None``。"""
+        exposure_ms = self.config.exposure_ms
+        prediction = (
+            forward.predict(phase, exposure_ms=exposure_ms)
+            if exposure_ms is not None
+            else forward.predict(phase)
+        )
+        while getattr(prediction, "ndim", 0) > 2:
+            prediction = prediction[0]
+        if hasattr(prediction, "detach"):
+            prediction = prediction.detach().cpu().numpy()
+        return _camera_centroid(np.asarray(prediction, dtype=np.float64), xy)
+
+    def _drift_jacobian(
+        self,
+        forward: Any,
+        phase_shape: tuple[int, ...],
+        xy: np.ndarray,
+    ) -> np.ndarray | None:
+        """``∂相机像素质心/∂tilt`` 的 2×2 Jacobian（px/rad），按 forward 实例缓存。
+
+        用零相位与 1 rad 峰谷 tilt-x / tilt-y 斜坡做前向数值微分：列 0 是 tilt-x
+        的响应（沿列斜坡），列 1 是 tilt-y 的响应（沿行斜坡）。预测质心用
+        ``analysis_grid`` 的相机像素坐标加权，与实测 ``centroid_xy`` 同一口径。
+        """
+        key = id(forward)
+        if key in self._drift_jac:
+            return self._drift_jac[key]
+        jac: np.ndarray | None = None
+        zero = np.zeros(phase_shape, dtype=np.float64)
+        base = self._predicted_centroid(forward, zero, xy)
+        if base is not None:
+            jac = np.zeros((2, 2), dtype=np.float64)
+            for column, axis in ((0, 1), (1, 0)):
+                forecast = self._predicted_centroid(
+                    forward, _tilt_ramp(phase_shape, axis), xy
+                )
+                if forecast is None:
+                    jac = None
+                    break
+                jac[0, column] = forecast[0] - base[0]
+                jac[1, column] = forecast[1] - base[1]
+        self._drift_jac[key] = jac
+        return jac
+
+    def _drift_feedback(
+        self,
+        forward: Any,
+        residual_px: tuple[float, float],
+    ) -> tuple[np.ndarray | None, float | None]:
+        """按质心残差给出本轮反馈倾斜相位与峰值；不可用时返回 ``(None, None)``。
+
+        符号约定：``J = ∂质心/∂tilt``，把质心拉回基线需要 ``tilt = -g·J⁻¹·e``；
+        正号只会把残差越推越大（P 控制器对常量漂移的发散方向）。
+        """
+        config = self.config
+        phase_shape = tuple(np.asarray(config.start_phase).shape)
+        jac = self._drift_jacobian(forward, phase_shape, np.asarray(config.xy))
+        key = id(forward)
+        if jac is None or not np.all(np.isfinite(jac)):
+            self._warn_drift_skip(key)
+            return None, None
+        if float(np.linalg.cond(jac)) > _DRIFT_COND_LIMIT:
+            self._warn_drift_skip(key)
+            return None, None
+        try:
+            coeff = np.linalg.solve(jac, np.asarray(residual_px, dtype=np.float64))
+        except np.linalg.LinAlgError:
+            self._warn_drift_skip(key)
+            return None, None
+        coeff = -float(config.drift_feedback_gain) * coeff
+        tilt = coeff[0] * _tilt_ramp(phase_shape, 1) + coeff[1] * _tilt_ramp(phase_shape, 0)
+        return tilt, float(np.max(np.abs(tilt)))
+
+    def _warn_drift_skip(self, key: int) -> None:
+        """Jacobian 不可用时只在同一 forward 实例首次出现时记一条 warning。"""
+        if key in self._drift_warned:
+            return
+        self._drift_warned.add(key)
+        self._emit(
+            LoopEvent("state", "漂移反馈：Jacobian 不可用或近奇异，跳过本轮反馈")
+        )
 
     def _emit_lock(
         self,
@@ -1483,6 +1675,8 @@ class ClosedLoopRunner:
         round_index: int,
         spacing_ccd_px: float,
         target_centroid: tuple[float, float] | None,
+        drift_feedback_tilt_rad: float | None = None,
+        drift_residual_px: tuple[float, float] | None = None,
     ) -> None:
         """把监督器决策翻成页面可渲染的 ``lock`` 事件（键固定，缺值用 nan）。"""
 
@@ -1511,6 +1705,14 @@ class ClosedLoopRunner:
                 else [float(centroid[0]), float(centroid[1])]
             ),
         }
+        # 漂移反馈字段只在启用时进 payload：关闭时保持既有键集合逐位不变。
+        if self.config.drift_feedback:
+            payload["drift_feedback_tilt_rad"] = number(drift_feedback_tilt_rad)
+            payload["drift_residual_px"] = (
+                [float("nan"), float("nan")]
+                if drift_residual_px is None
+                else [float(drift_residual_px[0]), float(drift_residual_px[1])]
+            )
         self._emit(LoopEvent("lock", payload))
 
     @staticmethod

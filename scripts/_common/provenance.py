@@ -86,6 +86,21 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/target_lock_hold_20261123.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "固定 CCD 目标保持·标定与保持物理实验（2026-11-23，SLM #1 1064 nm + Daheng CCD "
+            "MER2-507-23GM NIR，cam_id=0）：两次上机（0.10/0.05 ms）标定均成功、保持均未达成，"
+            "归因于标定口径错位（整帧 vs 窗口）/适配种子 [WinError 2]/起点光斑不在窗口，"
+            "非真实物理漂移；并含倾斜注入幅度扫（≈0.628 px/峰谷-rad）与 registration "
+            "等价性探针（整数平移逐点等价）。输入为 data/debug 磁盘证据，未据此完成物理验收。"
+        ),
+        extra_scripts=(
+            "scripts/slm/target_lock_ondevice_20261123.py",
+            "scripts/slm/target_lock_probe_20261123.py",
+        ),
+    ),
     "report/shape_trials/multishape1200/wall_clock_budget_20261111.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",

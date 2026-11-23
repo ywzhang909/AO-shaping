@@ -720,3 +720,38 @@ def test_calibration_done_fills_inputs_and_refreshes_preview(app) -> None:
         assert page._cal_capture_button.isEnabled()
     finally:
         page.close()
+
+
+def test_calibration_worker_stats_use_the_analysis_window(app) -> None:
+    """回归（run b 根因）：标定统计按分析窗口口径，不按整帧。
+
+    假 bench 给整幅 40×40 帧、窗口内是 60×目标 + 6 的实测形状；worker 必须
+    先 ``sample_on_grid`` 再统计：``pixel_count`` 是窗口元素数（5×5=25），
+    ``total_counts`` 是窗口帧和，而不是整帧铺回后的量。
+    """
+    from ao_shaping.gui.slm.closed_loop_shaping import sample_on_grid
+    from ao_shaping.gui.slm.closed_loop_shaping_page import _CalibrationThread
+    from ao_shaping.gui.slm.target_lock import calibrate_lock_thresholds
+
+    xy = analysis_grid(_CENTRE, _SPAN)
+    target = _target()
+    bench = _Bench()
+    thread = _CalibrationThread(bench, xy=xy, target=target, frame_count=3, grid_size=8)
+    samples: list[object] = []
+    thread.signals.done.connect(samples.append)
+    thread.run()  # 直接驱动线程体：不进事件循环也能拿到信号
+
+    assert len(samples) == 1
+    sample = samples[0]
+    grid_pixels = int(xy.shape[0]) * int(xy.shape[1])
+    assert sample.pixel_count == grid_pixels  # 5×5 窗口，不是 40×40 整帧
+    expected_total = float(sample_on_grid(_good_frame(), xy).sum())
+    assert sample.total_counts == pytest.approx(expected_total)
+    # 窗口口径下 min_total_counts 是窗口 total 的 2%，远低于窗口帧和。
+    cfg = calibrate_lock_thresholds(
+        sample, position_tolerance_ccd_px=5.0, grid_spacing_px=2.0
+    )
+    assert cfg.min_total_counts == pytest.approx(max(0.02 * expected_total, 1.0))
+    assert cfg.min_total_counts < 0.5 * expected_total
+    assert sample.peak_counts > sample.dark_mean
+    assert bench.closed is True
