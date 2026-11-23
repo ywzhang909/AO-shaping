@@ -442,7 +442,71 @@ def test_app_scope_hint_is_read_only_and_distinguishes_model_page(qt_app) -> Non
     assert not window._scope_hint.icon().isNull()
     assert window._scope_hint.accessibleName()
     assert window._source is None
+    assert not window._snapshot_btn.isEnabled()
     window.close()
+
+
+def test_scope_hint_opens_with_mouse_and_keyboard(qt_app, monkeypatch) -> None:
+    """分析口径不再只依赖悬停: 鼠标点击与空格激活都能读到同一说明。"""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QMessageBox
+
+    from ao_shaping.gui.ccd.beam_quality.app import (
+        SCOPE_HINT_TEXT,
+        BeamQualityApp,
+    )
+
+    calls: list[tuple[object, str, str]] = []
+
+    def _fake_information(parent: object, title: str, text: str) -> None:
+        calls.append((parent, title, text))
+
+    monkeypatch.setattr(QMessageBox, "information", _fake_information)
+    window = BeamQualityApp()
+    try:
+        window.show()
+        qt_app.processEvents()
+        QTest.mouseClick(
+            window._scope_hint,
+            Qt.MouseButton.LeftButton,
+            pos=window._scope_hint.rect().center(),
+        )
+        window._scope_hint.setFocus()
+        QTest.keyClick(window._scope_hint, Qt.Key.Key_Space)
+        assert len(calls) == 2
+        for parent, title, text in calls:
+            assert parent is window
+            assert title == "分析口径"
+            assert text == SCOPE_HINT_TEXT
+    finally:
+        window.close()
+
+
+def test_left_control_scroll_is_keyboard_scrollable(qt_app) -> None:
+    """狭窄高度下, 焦点可进入左栏并用 PageDown 到达被裁掉的控件。"""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    window = BeamQualityApp()
+    try:
+        window.show()
+        window._left_scroll.setFixedHeight(220)
+        qt_app.processEvents()
+        scroll_bar = window._left_scroll.verticalScrollBar()
+        assert scroll_bar.maximum() > 0
+        scroll_bar.setValue(0)
+        window._left_scroll.setFocus()
+        qt_app.processEvents()
+        assert window._left_scroll.focusPolicy() == Qt.FocusPolicy.StrongFocus
+        assert window._left_scroll.hasFocus()
+        QTest.keyClick(window._left_scroll, Qt.Key.Key_PageDown)
+        qt_app.processEvents()
+        assert scroll_bar.value() > 0
+    finally:
+        window.close()
 
 
 def test_app_smoke_with_sim_source(qt_app) -> None:
@@ -467,6 +531,7 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
         time.sleep(0.01)
     assert window._processed > 0, "3 秒内界面没有处理任何一帧"
     assert window._last_metrics is not None
+    assert window._snapshot_btn.isEnabled()
 
     # 读数每 ~1 s 刷新一次 (_update_stats); 等到第一次刷新再断言
     deadline = time.monotonic() + 3.0
@@ -485,9 +550,43 @@ def test_app_smoke_with_sim_source(qt_app) -> None:
     window._trend.update_buffer()
     window._trend.refresh()
 
+    window.close_source()
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline and window._busy:
+        qt_app.processEvents()
+        time.sleep(0.01)
+    assert not window._busy
+    assert window._source is None
+    assert not window._snapshot_btn.isEnabled()
     window.close()
     qt_app.processEvents()
-    assert window._source is None
+
+
+def test_close_source_reports_stop_failure(qt_app) -> None:
+    """界面断开与设备停止成功是两件事; 后者失败时必须明确反馈。"""
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    class _FailingStopSource:
+        def stop(self) -> None:
+            raise RuntimeError("模拟停止失败")
+
+    window = BeamQualityApp()
+    try:
+        window._source = _FailingStopSource()
+        window._set_controls_enabled(True)
+        window.close_source()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and window._busy:
+            qt_app.processEvents()
+            time.sleep(0.01)
+        assert not window._busy
+        message = window.statusBar().currentMessage()
+        assert "界面已断开" in message
+        assert "停止帧源失败" in message
+        assert "模拟停止失败" in message
+        assert "请检查设备状态" in message
+    finally:
+        window.close()
 
 
 def test_app_center_method_combo_default_and_change(qt_app) -> None:

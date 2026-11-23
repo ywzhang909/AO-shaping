@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -231,7 +232,8 @@ class BeamQualityApp(QMainWindow):
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(6)
 
-        outer.addWidget(self._build_controls_scroll(), 0)
+        self._left_scroll = self._build_controls_scroll()
+        outer.addWidget(self._left_scroll, 0)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         self._video = VideoWidget()
@@ -375,7 +377,8 @@ class BeamQualityApp(QMainWindow):
         calc_layout.addWidget(self._center_method_combo)
         layout.addWidget(calc_box)
 
-        # 快照与 "分析口径" 共用一行: 口径与环境说明不常读, 收进 ⓘ 的 tooltip。
+        # 快照与 "分析口径" 共用一行: 说明收进 ⓘ; 点击或按空格也能打开,
+        # 不让重要口径只依赖鼠标悬停。
         hint_row = QHBoxLayout()
         hint_row.setSpacing(4)
         self._snapshot_btn = QPushButton("快照")
@@ -439,7 +442,12 @@ class BeamQualityApp(QMainWindow):
         self._auto_stat_combo.currentIndexChanged.connect(self._on_auto_stat_changed)
         self._avg_spin.valueChanged.connect(self._on_average_changed)
         self._snapshot_btn.clicked.connect(self.save_snapshot)
+        self._scope_hint.clicked.connect(self._show_scope_help)
         return panel
+
+    def _show_scope_help(self) -> None:
+        """显示完整分析口径; 点击与键盘激活走同一个入口。"""
+        QMessageBox.information(self, "分析口径", SCOPE_HINT_TEXT)
 
     def _build_controls_scroll(self) -> QScrollArea:
         """把控制面板装进竖向滚动区 (左栏)。
@@ -456,7 +464,9 @@ class BeamQualityApp(QMainWindow):
         area.setFrameShape(QFrame.Shape.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # 让键盘用户能把焦点放到滚动区, 再用 PageUp/PageDown 查看完整控制面板。
+        area.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        area.setAccessibleName("光束质量控制")
         bar_width = area.style().pixelMetric(
             QStyle.PixelMetric.PM_ScrollBarExtent, None, area
         )
@@ -479,7 +489,10 @@ class BeamQualityApp(QMainWindow):
         self._auto_stat_combo.setEnabled(enabled and has_source)
         self._auto_target_spin.setEnabled(enabled and has_source)
         self._avg_spin.setEnabled(enabled)
-        self._snapshot_btn.setEnabled(enabled)
+        # 只有真正收到一帧后才允许保存, 避免空状态按钮点了才报"还没有画面"。
+        self._snapshot_btn.setEnabled(
+            enabled and has_source and self._last_frame is not None
+        )
         self._source_combo.setEnabled(enabled and not has_source)
         self._cam_id_spin.setEnabled(enabled and not has_source)
 
@@ -596,8 +609,12 @@ class BeamQualityApp(QMainWindow):
 
         def _done(ok: bool, payload: object) -> None:
             if not ok:
-                # policy: 关停失败只记录, 不能让关窗口抛异常留下僵尸界面
+                # 界面已经断开, 但设备可能仍未释放; 不能用"已关闭"掩盖这一差别。
                 logger.opt(exception=payload).warning("停止帧源失败")
+                self.statusBar().showMessage(
+                    f"界面已断开, 但停止帧源失败: {payload}。请检查设备状态", 10000
+                )
+                return
             self.statusBar().showMessage("已关闭", 3000)
 
         self._start_job("正在关闭…", _work, _done)
@@ -745,6 +762,8 @@ class BeamQualityApp(QMainWindow):
             return
         img, timestamp = drained
         self._last_frame = img
+        # 首帧到达时即时解锁快照; 不必等下一次源状态切换。
+        self._snapshot_btn.setEnabled(not self._busy)
         self._last_frame_ts = float(timestamp)
         # 多帧平均: 1 帧时 push 原样返回 (不含拷贝), N>1 时返回最近 N 帧均值
         self._last_view = self._averager.push(img)

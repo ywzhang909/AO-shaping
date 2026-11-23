@@ -53,6 +53,27 @@ def test_first_page_is_beam_quality_and_transfer_page_is_lazy(app, shell) -> Non
     assert shell._transfer_page is None  # torch 不该在冷启动时被拉起
 
 
+def test_beam_quality_help_is_available_offline(app, shell, monkeypatch) -> None:
+    """光束质量有自己的离线帮助, 不必打开仅覆盖迁移学习页的在线手册。"""
+    from PySide6.QtGui import QAction
+    from PySide6.QtWidgets import QMessageBox
+
+    from ao_shaping.gui.ccd.beam_quality.shell import _BEAM_QUALITY_HELP_TEXT
+
+    calls: list[tuple[object, str, str]] = []
+
+    def _fake_information(parent: object, title: str, text: str) -> None:
+        calls.append((parent, title, text))
+
+    monkeypatch.setattr(QMessageBox, "information", _fake_information)
+    action = shell.findChild(QAction, "shellBeamQualityHelpAction")
+    assert action is not None
+    action.trigger()
+    assert calls == [(shell, "光束质量操作说明", _BEAM_QUALITY_HELP_TEXT)]
+    assert "收到首帧后可保存快照" in calls[0][2]
+    assert "切换页面不会停止采集" in calls[0][2]
+
+
 def _wait_for_transfer_page(app: QApplication, window: DesktopShellApp) -> None:
     """等后台预热完成并在主线程替换占位页 (超时则失败, 不挂住测试)。"""
     import time

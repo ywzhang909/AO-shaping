@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenuBar,
+    QMessageBox,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -84,6 +85,16 @@ _NAV_HINTS: tuple[str, ...] = (
 
 #: 导航栏宽度 (px)。压缩到只放单行标题 + 状态点, 不抢页面。
 _RAIL_WIDTH = 120
+
+#: 光束质量页的离线快速说明。关于对话框里的在线手册只覆盖迁移学习页,
+#: 因此常用采集操作需要在外壳帮助菜单里有自己的入口。
+_BEAM_QUALITY_HELP_TEXT = (
+    "1. 选择相机源和设备序号, 点击「打开」; 也可选择仿真源离线查看。\n"
+    "2. 修改曝光后点击对勾应用; 自动曝光开启时, 手动曝光控件不可用。\n"
+    "3. 收到首帧后可保存快照, PNG 保留原始画面, 不含分析叠加层。\n"
+    "4. 左侧「分析口径」说明拟合、饱和判据及跨页面交接范围。\n\n"
+    "切换页面不会停止采集; 关闭窗口会停止当前帧源。"
+)
 
 #: 关窗时等预热线程落地的上限 (ms)。预热线程在 import torch 与页面模块, 首次冷启动
 #: 实测约 8 s; 窗口先销毁而线程还在跑, 会让 Qt 在 GC 里碰到已回收的对象 (原生
@@ -350,19 +361,25 @@ class DesktopShellApp(QMainWindow):
 
     # ------------------------------------------------------------------ 菜单
     def _build_menu_bar(self) -> None:
-        """菜单栏: 只有「帮助」一组, 内含「关于」。
+        """菜单栏: 「帮助」含光束质量快速说明与版本/在线文档入口。
 
-        外壳刻意不设自己的状态栏（页 0 的光束质量窗口自带状态栏, 叠两条状态栏很难看）,
-        但「关于」需要一个入口 —— 否则操作员无从知道当前跑的是哪一版代码。菜单栏
-        放在窗口最上方, 是桌面软件的惯例位置, 也不占导航栏那 120 px 的窄列。
+        外壳刻意不设自己的状态栏（页 0 的光束质量窗口自带状态栏, 叠两条状态栏很难看）。
+        菜单栏放在窗口最上方, 是桌面软件的惯例位置, 也不占导航栏那 120 px 的窄列。
         """
         menu_bar = QMenuBar(self)
         menu_bar.setObjectName("shellMenuBar")
         help_menu = menu_bar.addMenu("帮助")
+        beam_help_action = help_menu.addAction("光束质量操作说明")
+        beam_help_action.setObjectName("shellBeamQualityHelpAction")
+        beam_help_action.triggered.connect(self.show_beam_quality_help)
         about_action = help_menu.addAction("关于")
         about_action.setObjectName("shellAboutAction")
         about_action.triggered.connect(self.show_about)
         self.setMenuBar(menu_bar)
+
+    def show_beam_quality_help(self) -> None:
+        """显示光束质量常用操作, 不依赖网络或外部手册。"""
+        QMessageBox.information(self, "光束质量操作说明", _BEAM_QUALITY_HELP_TEXT)
 
     def show_about(self) -> None:
         """弹出「关于」对话框（模态）。"""
