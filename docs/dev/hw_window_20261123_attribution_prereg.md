@@ -42,6 +42,18 @@
    `patch_position_specific`；axis_gate fail：blaze 两轴夹角 0.26° vs 期望 88.544±2°；tilt_x vs tilt_y
    仅差 0.46°–0.63°）。治理条款 `next_experiment_plan_and_capture_20261120.md` §5.3 明确：
    **映射未冻结前，方向门 fail 不能归因于模型本身**。⇒ 11-20 的 4/14 目前**不可归因**。
+   - 2026-11-23 轴路由离线重判（零设备，非预注册）已把上述「x 族路由异常」的**适用范围钉窄**：
+     **11-20 transfer 门控数据本身无轴异常**——12/12 ramp 标定行 ramp_x→row、ramp_y→col
+     与模型一致（幅度比 0.993–1.007、角 ~179.5° 属 phase_sign 张力非轴交换）；V1 实测转置 /
+     V2 模型转置 / V3 180° / V4 转置+取负 / V5 转置+平移 全部 0/14（V5 1/14，且为自由平移
+     搜索伪影，被跨模式无关对 null 对照 51/84 否定）；fy≡0 前提类在被探测模式中为空
+     （min|row/col| = 0.600，Z8；Z5–Z11 均非行恒定图案）；强模式位移方向 meas/model 一致
+     （0.5–10°，无 ~90° 特征）。4/14 的更可能成因：**~8 px 原点/配准偏移**（拟合原点
+     (1235.08, 1104.64) vs 门控椭圆中心 (1227, 1104/1103)；改用拟合原点重配准 4/14→7/14、
+     仍 <10/14）+ 差分形状/幅度失配（meas 幅度 3.9–8.6×、PSF 更宽）+ Z7 低信噪比（两 pass
+     复现性 −0.315）+ phase_sign 张力（见 §6）。**x 族落列轴只在 11-21/11-23 issue247 采集路径
+     成立**（grating_x/tilt_x → CCD 列 ±95.6 px）⇒ 路由行为**路径相关**，两链约定表核对
+     （T5–T8）进行中，S1b 图样集待其定稿。
 2. **模型算子错**：需在映射闭合后才可判。
 3. **测量无分辨力**：已做可分辨性审计（`scripts/slm/audit_direction_gate_resolvability_20261123.py`）：
    pass1↔pass2 实测差分 Pearson = Z5 .927 / Z6 .857 / **Z7 −0.315** / Z8 .976 / Z9 .784 / Z10 .893 /
@@ -167,6 +179,10 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
   实测差分位移轴；方向门按内容类（fy≡0 / fy≠0）**分别报**，不合并成单一 pooled 数。
   判读规则：若 fy≡0 类整体不过门、fy≠0 类过门 ⇒ 判为**映射路由问题**（转 #247），
   **不是模型算子问题**；若两类都不过门 ⇒ 才轮到模型算子/PSF 形态。
+  2026-11-23 轴路由复核注记：Z5–Z11 的 row/col 梯度能量比实测 0.600–1.667，**无一为
+  fy≡0 类**（该类在 Noll 组中仅 Z2/Z3 纯 tilt）⇒ 本条分支在本窗口 S3 上预计**退化为全
+  fy≠0 单类**；条款保留（实测时逐对记录即可），但「fy≡0 类不过门 ⇒ 路由问题」的分支
+  在 S3 上大概率无样本，路由判决的真正落点在 S1b 内容相关判别。
 - **事后口径修正必须标注**：任何「按修正映射（或按内容类分支）重判」的结果属**非预注册**，
   只能作为诊断证据，不得当作原预注册方向门的通过结论。
 - **口径冻结条款**：`phase_sign`（含作用域）、残差符号、拟合几何三项在 S3 采集前书面冻结并写入
@@ -182,7 +198,107 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
   每段独立目录 + `released.json`；窗口级 `window_plan.json`、`segments/<name>.{json,log}`、`window.json`。
 - 判读产物：`data/debug/slm_transfer/<window>/`（JSON/MD）+ 报告落 `report/shape_trials/<window>/`，
   按 [report/AGENTS.md](../../report/AGENTS.md) 登记 provenance。
-- 窗口脚本沿用 `scripts/experiments/_window.py` 信封（wait_until_idle → 段间冷却 → 每段独立 `--out` → 证据）。
+- 窗口信封：`scripts/experiments/_window.py::add_window_args()` 提供 `--cooldown-s`(默认 200)、
+  `--wait-until-idle`(默认 600)、`--segment-timeout-s`、`--execute`，但**本预注册没有任何窗口脚本实例化它**
+  （现只有 `run_transfer_window_20261119.py` / `run_issue238_period_sweep_20261119.py` 在用）⇒ 本窗口按 §7.1
+  逐段手敲时，段间冷却与 open/close 纪律**没有代码背书，只能由人保证**（见 §3）。
+
+### 7.1 可执行命令行（2026-11-23 零设备核对 argparse 后补写）
+
+> 本节在 2026-11-23 由「预注册只有散文、无可执行命令」这一缺陷补写。所有参数名/默认值均核对过脚本
+> `add_argument`，**未运行任何 `--execute`**。段间一条命令一条命令手敲时，冷却与 open/close 纪律由人保证。
+
+**共同前提**
+
+- `data/experiments/attribution_20261123/<segment>/` 每段**必须不存在**：`issue247_geometry_capture` /
+  `efficiency_match_capture` 用 `out.mkdir(exist_ok=False)`，`transfer/capture.py:551` 同款 ⇒ 目录已存在即**失败**（不复用）。
+- 一个窗口一次 open/close，**段间人工等待 ≥200 s**；全部段 `--wait-until-idle 600`、曝光 0.087 ms、Mono12。
+- 各采集脚本内部都是「恰好一次 open / 一次 close」（`issue247_geometry_capture_20261120.py:49-63`、
+  `efficiency_match_capture_20261123.py:45-51`）⇒ 手敲多段等于多轮 open/close，冷却只能靠人间隔。
+
+**S0 — 光路六步探测**
+
+> ⚠ **该脚本没有 `--execute` 门控**（设计如此，见 `tests/ao_shaping/scripts/test_device_lock_callers.py`：
+> 它必须整段持锁）：**敲回车即占用 SLM+CCD**。`--wait-until-idle` 默认 **0.0 = 不等、立刻报错** ⇒ 必须显式 600。
+> 无 `--out`，只有 `--out-root` + `--session`；实际落盘 `<out-root>/<session>/<UTC戳>/`，事后须把该路径写进窗口记录。
+> 曝光参数是**逗号分隔字符串** `--exposures`，不能写成 `--exposures 0.087 0.2`。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/probe_optical_path_validity.py `
+  --bit-depth 12 --wait-until-idle 600 --exposures 0.087 `
+  --session s0_attribution_20261123 `
+  --out-root data/experiments/attribution_20261123/s0
+```
+
+**S1a — A 映射闭合（4 图样 × 4 帧 = 16 帧）**
+
+> 位深**硬编码** `BIT_DEPTH_REQUIRED=12` / `FULL_SCALE_REQUIRED=4095`（`:194-195`），开相机后回读不符即报错；
+> `--out` 非 self-test 时必填且必须不存在（`:1414`）；`--wait-until-idle` 默认 **1800**（`:192`）；
+> 每图样固定 4 帧（无 `--frames-per-pattern` 旋钮）⇒ 只能用 `--patterns` 选图样控帧数。
+> 图样 id 见 `:171-187`（waveform）与 `--plan frozen` 的 15 项（`:962-980`）。1D y 族的 `grating_y_p256`
+> 放在 S1b 子集里取（同一脚本、同一窗口），避免 A 映射段被 y 族误差污染。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/issue247_geometry_capture_20261120.py `
+  --execute --out data/experiments/attribution_20261123/s1a `
+  --plan frozen --exposure-ms 0.087 --wait-until-idle 600 `
+  --patterns flat,ladder_x,ladder_y,blaze2d_px128_py192_sx+1_sy+1
+```
+
+**S1b — 内容相关判别（图样子集待 2026-11-23 轴路由离线复核结果定稿）**
+
+> 能力核对：`--plan waveform` 含 `grating_x_p256`（逐行相同，fy≡0）与 `grating_y_p256`
+> （逐列相同，fx≡0，同周期）与 `blaze_patch_x/y`（局部、非行恒定）⇒ **决定性 A/B 已在现有图样表内，
+> 不需要新脚本**，也不需要「扰动一行」的构造器。`--patterns` 传未知 id 会直接报错（`:1742-1746`）。
+
+**S3 — 方向门重判（3 pass）**
+
+> 位深缺陷已修（2026-11-23）：`direction_holdout_capture_20261119.py` 原**无位深参数**，经
+> `transfer/capture.py:299-301` 只在 `args.bit_depth` 存在时才下发 ⇒ 该脚本此前一律落 **Mono8**。
+> 已加 `--bit-depth`（默认 12、`choices=(8,12,16)`）并写入传给 capture 的 namespace，由
+> `_verify_capture_bit_depth` 回读校验。`--out` required、`exist_ok=False`；`--wait-until-idle` 默认 **120**。
+> 帧数实测（plan-only）：每 pass 14 个 holdout 探针 + 标定段（reference_start / ramps(64,128) / reference_end），
+> `--frames 2` ⇒ **约 36 帧/pass**，3 pass ≈ 108 帧（原 §2 写的 45 帧按 `--frames 1` 估，与实际不符）。
+> 若要压到 45 帧级：pass1/pass2 全 7 模、pass3 只跑 Z7（4 帧），并把 `--frames` 降到 1。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/direction_holdout_capture_20261119.py `
+  --execute --out data/experiments/attribution_20261123/s3_pass1 `
+  --modes 5 6 7 8 9 10 11 --amp 0.05 --frames 2 --bit-depth 12 `
+  --exposure-ms 0.087 --wait-until-idle 600
+# pass2 同上，仅 --out 换成 s3_pass2；pass3 同（若只判 Z7 则 --modes 7）
+```
+
+**S3 判读（离线，不占设备）**
+
+> `--out` 这里是**JSON 文件路径**（不是目录），且 `args.out.parent` 用 `exist_ok=True` ⇒ 同名文件会被覆盖。
+> `--runs` 与 `--checkpoint` 必填；`--center-method` 只有 `ellipse` 一个 choice。
+> ⚠ 该脚本对 NaN 相关性记 `passed=False` 并计入分母，与 §6 口径冲突（判读须走修正口径）。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/direction_holdout_gate_20261119.py `
+  --runs data/experiments/attribution_20261123/s3_pass1 `
+         data/experiments/attribution_20261123/s3_pass2 `
+  --checkpoint data/debug/slm_transfer/p3_fit_20261120/frozen_parameters.json `
+  --out data/debug/slm_transfer/attribution_20261123/s3_direction.json
+```
+
+**S4 — patch 位置相位（条件段）**
+
+> 同一脚本；`blaze_patch_x/y` 的 origin 是模块常量（`:137`、`:397-400`），**没有「中心 +256 px」的 CLI 旋钮**
+> ⇒ 3 个位置要么改常量要么另写脚本，本窗口暂按「单位置 × 2」降级执行。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/issue247_geometry_capture_20261120.py `
+  --execute --out data/experiments/attribution_20261123/s4 `
+  --plan waveform --exposure-ms 0.087 --wait-until-idle 600 `
+  --patterns blaze_patch_x,blaze_patch_y
+```
+
+**S2 — 范围待改（见本节末 S2 条）**
+
+> `efficiency_match_capture_20261123.py` 固定 16 帧（flat6/blaze4/shaping4/dark2，`:99`、`:109`）、
+> **无 `--wait-until-idle`、`--cooldown-s` 默认 20**（`:126`）⇒ 不能承 §2 的「3 幅度线性 + 2 重复 + 1 暗场」。
 
 ---
 
@@ -203,4 +319,8 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
   `scripts/slm/audit_strength_gate_floor_20261123.py`；产物
   `data/debug/slm_transfer/p3_gate_20261120/{resolvability,strength_floor}_audit.json`
 - #247 波形判别：`data/debug/hw_window_20261123_issue247_waveform_probe/WAVEFORM_PROBE_REPORT.md`
+- 轴路由离线重判（2026-11-23，零设备）：11-20 门控数据无轴异常（V1–V5 全 0/14、
+  12/12 ramp 轴向正确、fy≡0 类为空）；报告与中间产物
+  `C:/Users/zhangh/AppData/Local/Temp/opencode/issue247_axis_report_20261123.md`、
+  `issue247_axis_*.{json,txt}`（结论已并入 §0.2 与本条，双链约定核对 T5–T8 进行中）
 - 原子计划：`docs/dev/hw_direction_test_plan_20261117.md`（P1–P5）
