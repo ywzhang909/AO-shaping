@@ -86,6 +86,18 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/experiment_summary_20261123.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（仅回放已归档数据，不占用 SLM / CCD / 激光）",
+        note=(
+            "六项已落盘实验的离线有效性汇总: 效率匹配(3 门触发→不可判定)、T4/T5 动态解耦"
+            "(30/30 ok, 2.196-2.542 fps)、#238 run1/run4 g2π fold(有效但不可定标)、"
+            "#235 零级四法(边界通过 3.0px)、P2a/P2b 方向+强度双门(0/3, 不放行闭环)、"
+            "S7b 轴失配三变体(CI 含 0, 无收益)。三分类: 有效 3 / 无效 2 / 不可判定 1; "
+            "数字全部复核自已归档 analysis.json / summary.json / run_summary.json / "
+            "paired_bootstrap_heldout.json 与既有报告; 本轮未实验、未写标定、未改双门、未发布 #238。人工撰写。"
+        ),
+    ),
     "report/shape_trials/multishape1200/wall_clock_budget_20261111.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",
