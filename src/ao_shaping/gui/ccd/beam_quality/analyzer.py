@@ -5,7 +5,7 @@
 
 分析项:
 
-* 亮度统计: 峰值、均值、标准差、饱和像素占比 (灰度 >= 255);
+* 亮度统计: 峰值、均值、标准差、传感器饱和像素占比 (达到生效满量程);
 * 质心: 扣除中值背景后的一阶矩 (过中心剖面的默认中心口径取椭圆拟合中心,
   见 :data:`CENTER_METHODS`);
 * 包围椭圆: 以 ``背景 + 0.5 * (峰值 - 背景)`` 二值化, 取最大连通域,
@@ -49,6 +49,10 @@ CENTER_METHODS: tuple[tuple[str, str], ...] = (
     ("peak", "最大值"),
 )
 DEFAULT_CENTER_METHOD = "ellipse"
+
+#: 四法一致性容差 (px)。来源: 2026-11-23 四法对账中两两最大差恰为 3.0 px,
+#: 等于既定容差, 且 ``ellipse_centre_usable``。
+CENTER_SPREAD_TOLERANCE_PX = 3.0
 
 
 @dataclass
@@ -106,6 +110,9 @@ class FrameMetrics:
     pixel_scale: float = 1.0
     width: int = 0
     height: int = 0
+    sat_threshold: float = 255.0
+    centers: dict[str, tuple[float, float]] = field(default_factory=dict)
+    center_spread_px: float | None = None
 
     def as_scalars(self) -> dict[str, float]:
         """趋势缓冲需要的标量字段。"""
@@ -161,6 +168,16 @@ class FrameMetrics:
             pixel_scale=self.pixel_scale * scale,
             width=int(round(self.width * scale)),
             height=int(round(self.height * scale)),
+            sat_threshold=self.sat_threshold,
+            centers={
+                method: (center[0] * scale, center[1] * scale)
+                for method, center in self.centers.items()
+            },
+            center_spread_px=(
+                None
+                if self.center_spread_px is None
+                else self.center_spread_px * scale
+            ),
         )
 
 
@@ -344,26 +361,23 @@ def _box_centroid(
 
 def _select_center(
     method: str,
-    *,
-    centroid: tuple[float, float],
-    ellipse: EllipseParams | None,
-    peak: tuple[float, float],
-    weight: np.ndarray | None = None,
-    component: np.ndarray | None = None,
+    centers: dict[str, tuple[float, float]],
+    fallback: tuple[float, float],
 ) -> tuple[float, float]:
-    """按方法键选出中心 ``(cx, cy)``。
+    """从已计算的口径中选择中心; 缺失口径回退至质心。"""
+    return centers.get(method, fallback)
 
-    椭圆口径在无椭圆 (全黑/纯背景) 时回退质心; 框内质心在无连通域/无权重时
-    回退质心; 峰值口径总是可取。
-    """
-    if method == "ellipse":
-        return ellipse.center if ellipse is not None else centroid
-    if method == "box_centroid":
-        boxed = _box_centroid(weight, component)
-        return boxed if boxed is not None else centroid
-    if method == "peak":
-        return peak
-    return centroid
+
+def _center_spread(centers: dict[str, tuple[float, float]]) -> float | None:
+    """返回所有可用定心口径的最大两两欧氏距离。"""
+    points = list(centers.values())
+    if len(points) < 2:
+        return None
+    return max(
+        float(np.hypot(left[0] - right[0], left[1] - right[1]))
+        for index, left in enumerate(points)
+        for right in points[index + 1 :]
+    )
 
 
 def analyze_frame(
@@ -373,8 +387,12 @@ def analyze_frame(
     threshold_ratio: float = 0.5,
     profile_band: int = 1,
     center_method: str = DEFAULT_CENTER_METHOD,
+    full_scale: float | None = None,
 ) -> FrameMetrics:
     """分析一帧灰度图, 返回 :class:`FrameMetrics`.
+
+    饱和占比按传感器的生效满量程统计 (像素值 ``>= sat_threshold``), 不等同于
+    8-bit 显示截断。``full_scale=None`` 时为兼容旧版保留 255.0 阈值。
 
     参数:
         img: 2D 灰度图 (uint8/uint16/float 均可, 多通道输入取首通道)。
@@ -383,17 +401,34 @@ def analyze_frame(
         profile_band: 剖面取样时在中心行/列两侧各取多少像素做均值 (>=0)。
         center_method: 中心计算方法键 (见 :data:`CENTER_METHODS`);
             决定过中心剖面与十字准线所用的 ``(cx, cy)``。
+        full_scale: 生效满量程; ``None`` 使用兼容阈值 255.0, 否则必须为有限正值。
     """
     _validate_center_method(center_method)
+    if full_scale is None:
+        sat_threshold = 255.0
+    else:
+        try:
+            sat_threshold = float(full_scale)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("full_scale 必须是有限正值") from exc
+        if not np.isfinite(sat_threshold) or sat_threshold <= 0.0:
+            raise ValueError("full_scale 必须是有限正值")
+
     arr = _as_2d(img)
     height, width = (int(arr.shape[0]), int(arr.shape[1]))
 
     peak = float(arr.max()) if arr.size else 0.0
     mean_value = float(arr.mean()) if arr.size else 0.0
     std_value = float(arr.std()) if arr.size else 0.0
-    sat_ratio = float(np.count_nonzero(arr >= 255) / arr.size) if arr.size else 0.0
+    sat_ratio = (
+        float(np.count_nonzero(arr >= sat_threshold) / arr.size) if arr.size else 0.0
+    )
 
     bg = float(np.median(arr)) if background is None else float(background)
+
+    # --- 最大值口径; 保持原有 argmax 展平索引约定 ---
+    flat = int(np.argmax(arr)) if arr.size else 0
+    peak_xy = (float(flat % width), float(flat // width)) if width else (0.0, 0.0)
 
     # --- 质心 (扣背景后的一阶矩, 用可分离求和避免构造大网格) ---
     weight = np.subtract(arr, bg, dtype=np.float32)
@@ -402,30 +437,27 @@ def analyze_frame(
     if total > 0.0:
         col_sums = weight.sum(axis=0, dtype=np.float64)
         row_sums = weight.sum(axis=1, dtype=np.float64)
-        cx = float(np.dot(col_sums, np.arange(width)) / total)
-        cy = float(np.dot(row_sums, np.arange(height)) / total)
+        centroid = (
+            float(np.dot(col_sums, np.arange(width)) / total),
+            float(np.dot(row_sums, np.arange(height)) / total),
+        )
     else:
-        # 全黑/纯背景帧: 退化为峰值位置, 再退化为画面中心
-        flat = int(np.argmax(arr)) if arr.size else 0
-        cy = float(flat // width) if width else 0.0
-        cx = float(flat % width) if width else 0.0
+        # 全黑/纯背景帧: 质心退化为峰值位置
+        centroid = peak_xy
 
-    # --- 包围椭圆 (半高阈值 + 最大连通域) ---
+    # --- 半高最大连通域、框内质心与椭圆均各计算一次 ---
     level = bg + float(threshold_ratio) * (peak - bg)
     component = _largest_component(arr > level)
     ellipse = None if component is None else _ellipse_from_mask(component)
-
-    # --- 峰值位置 (最大值口径) + 中心口径选择 ---
-    flat = int(np.argmax(arr)) if arr.size else 0
-    peak_xy = (float(flat % width), float(flat // width)) if width else (0.0, 0.0)
-    cx, cy = _select_center(
-        center_method,
-        centroid=(cx, cy),
-        ellipse=ellipse,
-        peak=peak_xy,
-        weight=weight,
-        component=component,
-    )
+    centers: dict[str, tuple[float, float]] = {"centroid": centroid}
+    box_center = _box_centroid(weight, component)
+    if box_center is not None:
+        centers["box_centroid"] = box_center
+    if ellipse is not None:
+        centers["ellipse"] = ellipse.center
+    centers["peak"] = peak_xy
+    cx, cy = _select_center(center_method, centers, centroid)
+    center_spread_px = _center_spread(centers)
 
     # --- 过中心剖面 ---
     band = max(int(profile_band), 0)
@@ -456,4 +488,7 @@ def analyze_frame(
         pixel_scale=1.0,
         width=width,
         height=height,
+        sat_threshold=sat_threshold,
+        centers=centers,
+        center_spread_px=center_spread_px,
     )

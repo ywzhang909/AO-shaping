@@ -57,8 +57,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ao_shaping.drivers.ccd.common import full_scale
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
     CENTER_METHODS,
+    CENTER_SPREAD_TOLERANCE_PX,
     DEFAULT_CENTER_METHOD,
     FrameMetrics,
     analyze_frame,
@@ -112,6 +114,12 @@ INFO_ROWS: tuple[tuple[str, str], ...] = (
     ("exposure", "曝光"),
     ("fps", "源帧率"),
     ("dropped", "丢弃帧"),
+    ("center_spread", "四法定心差"),
+)
+
+CENTER_SPREAD_TOOLTIP = (
+    "四种定心口径的最大两两欧氏距离。容差来源：2026-11-23 四法对账，"
+    "两两最大差 3.0 px 恰等于既定容差，且 ellipse_centre_usable。"
 )
 
 #: "分析口径" 说明: 常驻四行文字会挤掉读数, 改挂在 ⓘ 图标的 tooltip /
@@ -119,7 +127,7 @@ INFO_ROWS: tuple[tuple[str, str], ...] = (
 #: tests/ao_shaping/gui/ccd/test_beam_quality.py 中对应断言)。
 SCOPE_HINT_TEXT = (
     "分析口径: 半高阈值包围椭圆 (二阶矩); >1080p 先 2x2 binning\n"
-    "饱和占比按灰度 >=255 统计, 不代表相机物理满量程\n"
+    "饱和占比按帧的生效满量程统计 (MONO12 为 4095; 帧未带位深注记时回退 dtype)\n"
     "物理预测与任意形状整形: 迁移学习闭环整形页"
 )
 
@@ -403,6 +411,8 @@ class BeamQualityApp(QMainWindow):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
             value = QLabel(INFO_PLACEHOLDER)
+            if key == "center_spread":
+                value.setToolTip(CENTER_SPREAD_TOOLTIP)
             value.setFont(mono)
             value.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
@@ -742,6 +752,7 @@ class BeamQualityApp(QMainWindow):
         metrics = self._analyze(self._last_view)
         if metrics is not None:
             self._last_metrics = metrics
+            self._update_center_spread(metrics)
             self._video.set_frame(self._last_view, metrics, source.fps)
             self._profile.update_metrics(metrics)
             now = time.time()
@@ -761,12 +772,21 @@ class BeamQualityApp(QMainWindow):
     def _analyze(self, img: np.ndarray) -> FrameMetrics | None:
         """分析一帧; 超大靶面先 2x2 binning, 再把坐标换算回原始像素。"""
         try:
+            source = self._source
+            camera = getattr(source, "_cam", None) if source is not None else None
+            effective_full_scale = (
+                full_scale(img, camera) if camera is not None else full_scale(img)
+            )
             arr = np.asarray(img)
             scale = 1.0
             if arr.shape[0] > ANALYSIS_MAX_HEIGHT or arr.shape[1] > ANALYSIS_MAX_WIDTH:
                 arr = bin_2x2(arr)
                 scale = 2.0
-            metrics = analyze_frame(arr, center_method=self._center_method)
+            metrics = analyze_frame(
+                arr,
+                center_method=self._center_method,
+                full_scale=effective_full_scale,
+            )
             return metrics.rescaled(scale) if scale != 1.0 else metrics
         # policy: 分析异常不该杀掉 30 Hz 定时器; 记录并让界面继续显示上一帧的结果
         except Exception:  # policy: 逐帧分析横跨 numpy/scipy, 异常类型不可枚举
@@ -795,6 +815,18 @@ class BeamQualityApp(QMainWindow):
             return
         self._trend.update_buffer()
         self._trend.refresh()
+
+    def _update_center_spread(self, metrics: FrameMetrics) -> None:
+        """每帧刷新四法定心最大偏差及容差提示。"""
+        spread = metrics.center_spread_px
+        label = self._info_values["center_spread"]
+        if spread is None:
+            label.setText(INFO_PLACEHOLDER)
+            return
+        text = f"{spread:.1f} px / 容差 {CENTER_SPREAD_TOLERANCE_PX:.1f} px"
+        if spread > CENTER_SPREAD_TOLERANCE_PX:
+            text += " ⚠ 超过容差"
+        label.setText(text)
 
     def _reset_info(self) -> None:
         """读数退回占位符并收起补充说明 (源未打开 / 已关闭时)。"""

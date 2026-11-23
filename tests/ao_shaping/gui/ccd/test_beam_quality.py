@@ -128,6 +128,46 @@ def test_analyze_frame_blank_and_saturated() -> None:
     assert analyze_frame(saturated).sat_ratio == pytest.approx(1.0)
 
 
+def test_saturation_threshold_uses_effective_full_scale() -> None:
+    """高位深容器以生效满量程判饱和, None 保留原 255 阈值。"""
+    img = np.zeros((20, 20), dtype=np.uint16)
+    img[10, 10] = 3072
+
+    physical_scale = analyze_frame(img, full_scale=4095.0)
+    legacy_scale = analyze_frame(img, full_scale=None)
+    old_ratio = float(np.count_nonzero(img >= 255) / img.size)
+
+    assert physical_scale.sat_ratio == 0.0
+    assert physical_scale.sat_threshold == 4095.0
+    assert legacy_scale.sat_ratio == old_ratio
+    assert legacy_scale.sat_threshold == 255.0
+
+
+@pytest.mark.parametrize("invalid_scale", [0.0, -1.0, float("inf"), float("nan")])
+def test_saturation_threshold_rejects_invalid_full_scale(
+    invalid_scale: float,
+) -> None:
+    with pytest.raises(ValueError, match="full_scale"):
+        analyze_frame(np.zeros((8, 8), dtype=np.uint8), full_scale=invalid_scale)
+
+
+def test_four_center_methods_and_spread() -> None:
+    """中心读数覆盖四法; 对称高斯趋于一致, 偏心光斑产生非零差值。"""
+    yy, xx = np.mgrid[:96, :128]
+    symmetric = 200.0 * np.exp(-((xx - 64.0) ** 2 + (yy - 48.0) ** 2) / 128.0)
+    centered = analyze_frame(symmetric.astype(np.float64), full_scale=255.0)
+
+    assert set(centered.centers) == {"centroid", "box_centroid", "ellipse", "peak"}
+    assert centered.center_spread_px == pytest.approx(0.0, abs=0.2)
+
+    displaced = _gaussian_frame(
+        cx=116.0, cy=140.0, width=260, height=300, noise=0.8, seed=4
+    )
+    displaced_metrics = analyze_frame(displaced)
+    assert displaced_metrics.center_spread_px is not None
+    assert displaced_metrics.center_spread_px > 0.0
+
+
 def test_analyze_frame_scalars_and_rescale() -> None:
     """趋势缓冲要的标量字段齐全; binning 后坐标可换算回原始像素。"""
     img = _gaussian_frame()
@@ -137,7 +177,15 @@ def test_analyze_frame_scalars_and_rescale() -> None:
 
     binned = bin_2x2(img)
     assert binned.shape == (img.shape[0] // 2, img.shape[1] // 2)
-    binned_metrics = analyze_frame(binned).rescaled(2.0)
+    raw_binned_metrics = analyze_frame(binned, full_scale=255.0)
+    binned_metrics = raw_binned_metrics.rescaled(2.0)
+    assert binned_metrics.sat_threshold == 255.0
+    assert binned_metrics.centers.keys() == metrics.centers.keys()
+    for method, center in metrics.centers.items():
+        assert binned_metrics.centers[method] == pytest.approx(center, abs=1.5)
+    assert binned_metrics.center_spread_px == pytest.approx(
+        raw_binned_metrics.center_spread_px * 2.0
+    )
     assert binned_metrics.cx == pytest.approx(metrics.cx, abs=1.5)
     assert binned_metrics.cy == pytest.approx(metrics.cy, abs=1.5)
     assert binned_metrics.pixel_scale == 2.0
@@ -371,15 +419,24 @@ def test_app_scope_hint_is_read_only_and_distinguishes_model_page(qt_app) -> Non
     ⓘ 图标承载 —— 事实一条不少, 只是搬到 tooltip / 无障碍描述上。因此断言改到
     新的承载处: 三句话仍然必须写在那里, 图标必须是"只有图标、没有常驻文字"。
     """
-    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+    from ao_shaping.gui.ccd.beam_quality.app import (
+        CENTER_SPREAD_TOOLTIP,
+        INFO_ROWS,
+        BeamQualityApp,
+    )
 
     window = BeamQualityApp()
     tooltip = window._scope_hint.toolTip()
     description = window._scope_hint.accessibleDescription()
     for text in (tooltip, description):
-        assert "饱和占比按灰度 >=255 统计" in text
-        assert "不代表相机物理满量程" in text
+        assert "饱和占比按帧的生效满量程统计" in text
+        assert "MONO12 为 4095" in text
+        assert "帧未带位深注记时回退 dtype" in text
         assert "迁移学习闭环整形页" in text
+    assert ("center_spread", "四法定心差") in INFO_ROWS
+    assert window._info_values["center_spread"].toolTip() == CENTER_SPREAD_TOOLTIP
+    assert "最大两两欧氏距离" in CENTER_SPREAD_TOOLTIP
+    assert "2026-11-23" in CENTER_SPREAD_TOOLTIP
     # 只有图标: 常驻文字为空 (说明按需悬停查看), 但图标存在且可被读屏软件识别
     assert window._scope_hint.text() == ""
     assert not window._scope_hint.icon().isNull()
