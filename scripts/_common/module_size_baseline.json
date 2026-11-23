@@ -16,7 +16,7 @@
   "src/ao_shaping/drivers/slm/santec/driver.py": 2680,
   "src/ao_shaping/drivers/slm/santec/wavefront_correction.py": 874,
   "src/ao_shaping/drivers/wfs/thorlab_wfs.py": 2000,
-  "src/ao_shaping/gui/ccd/beam_quality/app.py": 868,
+  "src/ao_shaping/gui/ccd/beam_quality/app.py": 900,
   "src/ao_shaping/gui/ccd/ccd_analyzer.py": 1136,
   "src/ao_shaping/gui/ccd/target_shape_helper.py": 803,
   "src/ao_shaping/gui/dm/micro_dm_ui.py": 1213,

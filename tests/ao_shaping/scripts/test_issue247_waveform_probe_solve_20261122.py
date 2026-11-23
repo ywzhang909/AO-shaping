@@ -56,7 +56,7 @@ def _analyze(scene: str, thresholds: dict[str, float] | None = None):
 def _write_capture(target: Path, capture: SCRIPT.Capture) -> None:
     """按采集脚本的命名把合成帧与 plan.json 写到磁盘。
 
-    ``summary.json`` 按真机 schema 写满量程（采集脚本会写 ``full_scale``），
+    ``summary.json`` 按实验系统 schema 写满量程（采集脚本会写 ``full_scale``），
     这样默认路径与真采集一致；需要测推断分支时由用例自行删掉它。
     """
     frames_dir = target / "frames"

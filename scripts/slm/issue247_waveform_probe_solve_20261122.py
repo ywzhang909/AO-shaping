@@ -2,7 +2,7 @@
 
 输入是一个采集目录：``plan.json``（必需）、``frames/*.npy``（每图样 4 帧，
 命名沿用采集脚本的 ``{frame_index:04d}_{pattern_id}.npy``）、可选 ``summary.json``。
-全部计算都是确定性的离线处理，**不打开相机/SLM、不读真机状态、不拟合映射**。
+全部计算都是确定性的离线处理，**不打开相机/SLM、不读实验系统状态、不拟合映射**。
 
 算法（与 ``docs/dev/issue247_waveform_diagnostic_plan_20261121.md`` 对齐）：
 
@@ -492,7 +492,7 @@ def _find_peaks(
     raw: list[dict[str, float]] = []
     for row, col in np.argwhere(mask):
         if row < 100 and col < 100:
-            # 本台架左上有固定杂散光；与既有离线脚本保持同一屏蔽口径。
+            # 本实验系统左上有固定杂散光；与既有离线脚本保持同一屏蔽口径。
             continue
         center_row, center_col = _subpixel_peak(work, int(row), int(col))
         raw.append(
@@ -1382,7 +1382,7 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
         )
     elif verdict == "binary_grating_specific":
         lines.append(
-            "- 异常只出现在二值 grating 族：应排查灰度/LUT/选峰口径（H1），不改正向模型。"
+            "- 异常只出现在二值 grating 族：应排查灰度/LUT/选峰口径（H1），不改物理预测模型。"
         )
     elif verdict == "tilt_specific":
         lines.append(
