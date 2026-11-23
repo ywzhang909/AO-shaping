@@ -1167,11 +1167,11 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="仅 GPU 离线（RTX 5080 Laptop，1024² 网格 cuda）；未占用 SLM / CCD / 激光，全程无实验动作",
         note=(
-            "冻结问题 phys_20261116_01 上可微整形加速方案公平筛选（K 轴候选并行 + gate 复现 + 参照臂）："
+            "冻结问题 phys_20261116_01 上可微整形加速方案公平筛选（K 轴候选并行 + gate 复现 + 参照变体）："
             "gate 复现逐位一致（max_rel_dev=0.0 ≤ 0.001, PASS）。K 轴 n_candidates∈{1,4,8}（Adam lr=0.05, "
             "120 迭代）**不构成加速**：K>1 终态 cv 仅改善 ~0.05%（0.28381→0.28365，种子噪声 2–4 倍）、"
             "墙钟 +17%（K=4）~+60%（K=8），且 iters_to_k1_cv=115 三者相同（不提前收敛）⇒ 严格支配、K 轴淘汰；"
-            "与 candidate_parallelism_20261117（grid 256 square 仅 0.07% 收益）一致。参照臂分开报告："
+            "与 candidate_parallelism_20261117（grid 256 square 仅 0.07% 收益）一致。参照变体分开报告："
             "L-BFGS（lr=1.0）第 5 迭代即达 K=1 终态 cv（≈0.67 s vs K=1 全程 5.91 s，快 ≈8.9×），终态 cv "
             "-0.15%、energy +2.5% ⇒ **算法轴加速候选**；cosine 调度质量 -0.42% 无收益。入围物理复验配对 = "
             "K=1 Adam 基线 vs L-BFGS 早停。人工撰写。"

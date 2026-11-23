@@ -3,16 +3,16 @@
 要回答什么
 ----------
 在**冻结的离线问题** ``data/debug/differentiable_opt/phys_20261116_01`` 上, 公平比较
-可微整形加速方案 (候选数 K, 以及 L-BFGS / 余弦调度两个参照臂) 的速度与整形质量。
+可微整形加速方案 (候选数 K, 以及 L-BFGS / 余弦调度两个参照变体) 的速度与整形质量。
 **不碰任何设备**: :func:`scripts._common.differentiable_problem.load_problem_from_run_dir`
 是纯模型侧重建 (``run_config.json`` 里 ``execute=true`` 只是历史运行记录), 不会执行采集。
 
 固定不变 (公平比较的公共底盘)
 ------------------------------
-前向模型 ``fft`` (夫琅禾费, 与基线入口一致)、网格 ``problem.target.shape`` (1024²)、
+物理预测模型 ``fft`` (夫琅禾费, 与基线入口一致)、网格 ``problem.target.shape`` (1024²)、
 square 目标、GS 初相位 (``phase_initial.npy``, 50 迭代)、Adam 基线 ``lr=0.05``、
-``iterations=120``、种子约定见臂表。**只变化**: ``n_candidates`` ∈ {1,4,8} (K 轴),
-或参照臂的优化器/调度。
+``iterations=120``、种子约定见变体表。**只变化**: ``n_candidates`` ∈ {1,4,8} (K 轴),
+或参照变体的优化器/调度。
 
 口径 (与 ``sweep_differentiable_lr.py::run_arm`` 完全一致, 逐行对齐)
 -------------------------------------------------------------------
@@ -22,7 +22,7 @@ square 目标、GS 初相位 (``phase_initial.npy``, 50 迭代)、Adam 基线 ``
 ``strehl_like = far.max()/flat_peak`` (flat_peak 为平相位远场峰值);
 ``pred_fwhm_px = measure_spot(far).fwhm_px``。
 
-臂 (按固定协议冻结)
+变体 (按固定协议冻结)
 --------------------
 * ``gate_repro``    基线复现门: ``build_optimizer(lr=0.05, seed=0)`` 跑 120 次
   ``update()``, 终态物理质量与 ``lr_sweep_20261116/lr_sweep.json`` 基线比较,
@@ -30,12 +30,12 @@ square 目标、GS 初相位 (``phase_initial.npy``, 50 迭代)、Adam 基线 ``
 * K 轴 (``train_beam_shaping``, adam, lr=0.05, 无调度): K=1 确定性 (克隆显式初相位),
   跑 seed=0 一次; K∈{4,8} 每个候选叠加 ``0.1*randn``, 跑 ``--seeds`` (默认 0,1,2) 三次。
   内部基线 = K=1。
-* 参照臂 (与 K 轴分开报告): ``lbfgs`` (K 自动回退 1, lr=1.0, seed=0),
+* 参照变体 (与 K 轴分开报告): ``lbfgs`` (K 自动回退 1, lr=1.0, seed=0),
   ``cosine`` (adam, lr=0.1, ``lr_schedule="cosine"``, seed=0)。
 
-注: gate 臂与 K 轴臂用的是**不同损失** (基线为峰值归一化 MSE, K 轴为
+注: gate 变体与 K 轴变体用的是**不同损失** (基线为峰值归一化 MSE, K 轴为
 ``w_uniformity=0.4 + w_efficiency=0.6`` 总损失), 因此两者的终态**损失**不可跨口径比较;
-本脚本对**所有臂**用同一物理质量口径从终态相位计算 energy/cv/fwhm/strehl, 故物理质量可比较,
+本脚本对**所有变体**用同一物理质量口径从终态相位计算 energy/cv/fwhm/strehl, 故物理质量可比较,
 每迭代墙钟成本也与目标无关, 速度可比较。
 
 产物
@@ -43,7 +43,7 @@ square 目标、GS 初相位 (``phase_initial.npy``, 50 迭代)、Adam 基线 ``
 ``--out-debug`` (默认 ``data/debug/differentiable_opt/kaxis_screening_20261123/``):
 ``screening.json`` (全部逐迭代损失 + 采样物理质量 + 汇总) 与 ``screening.csv`` (每采样一行)。
 ``--out-artifact`` (默认 ``report/slm/differentiable_opt/artifacts/kaxis_screening_20261123/``):
-``kaxis_screening.json`` (头条数字 + 逐臂汇总, 与 debug JSON 分开的轻量摘要) 与
+``kaxis_screening.json`` (头条数字 + 逐变体汇总, 与 debug JSON 分开的轻量摘要) 与
 可选 ``kaxis_cv_vs_iter_20261123.png`` (``--plot``)。
 
 用法示例
@@ -99,7 +99,7 @@ METRIC_EVERY = 5
 
 @dataclass
 class ArmSpec:
-    """一个筛选臂的配置 (与实现参数分开: 算法变化由 ``kind`` / ``k`` 表达)."""
+    """一个筛选变体的配置 (与实现参数分开: 算法变化由 ``kind`` / ``k`` 表达)."""
 
     label: str
     kind: str  # "gate" | "kaxis" | "ref"
@@ -141,7 +141,7 @@ def _quality(
 
 
 def _flat_peak(deps: dict[str, Any], problem: DifferentiableProblem, device: str) -> float:
-    """平相位 (全零) 预测远场峰值 —— 类 Strehl 的分母, 每个臂只算一次."""
+    """平相位 (全零) 预测远场峰值 —— 类 Strehl 的分母, 每个变体只算一次."""
     torch = deps["torch"]
     dev = torch.device(device)
     zeros = torch.zeros(problem.target.shape, dtype=torch.float32, device=dev)
@@ -187,7 +187,7 @@ def run_tbs_arm(
     device: str,
     spec: ArmSpec,
 ) -> ArmSpec:
-    """train_beam_shaping 臂: K 轴 (adam) 与参照臂 (lbfgs / cosine) 共用."""
+    """train_beam_shaping 变体: K 轴 (adam) 与参照变体 (lbfgs / cosine) 共用."""
     torch = deps["torch"]
     mask = problem.target > 0.0
     flat_peak = _flat_peak(deps, problem, device)
@@ -252,7 +252,7 @@ def _load_baseline(path: Path) -> dict[str, Any]:
     """从 lr_sweep_20261116/lr_sweep.json 提取基线摘要 (final_quality + 复现参考).
 
     结构: 顶层 ``baseline`` 字典 (final_loss_csv / final_quality / repro),
-    复现臂在 ``arms`` 里 ``kind="repro"`` (headline.iters_to_baseline_final_loss)。
+    复现变体在 ``arms`` 里 ``kind="repro"`` (headline.iters_to_baseline_final_loss)。
     """
     data = json.loads(path.read_text(encoding="utf-8"))
     b = data.get("baseline")
@@ -374,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     ks = [int(x) for x in args.ks.split(",") if x.strip()]
     seeds = [int(x) for x in args.seeds.split(",") if x.strip()] or [0]
 
-    # -- 组装臂表 (固定协议) ------------------------------------------
+    # -- 组装变体表 (固定协议) ------------------------------------------
     arms: list[ArmSpec] = []
     arms.append(ArmSpec(label="gate_repro", kind="gate", seed=0, lr=args.lr,
                         iters=args.iters))
@@ -397,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         spec.wall_s = time.perf_counter() - t0 if spec.kind == "gate" else spec.wall_s
         per_iter = spec.wall_s / max(1, spec.iters)
         logger.info(
-            "臂 {:<18} k={} seed={} {} wall={:.2f}s per_iter={:.3f}s final_loss={:.6e} "
+            "变体 {:<18} k={} seed={} {} wall={:.2f}s per_iter={:.3f}s final_loss={:.6e} "
             "cv={:.4f} energy={:.4f} fwhm={:.1f}px",
             spec.label, spec.k, spec.seed, spec.optimizer, spec.wall_s, per_iter,
             spec.final_loss, spec.final_quality.get("cv_in_target", float("nan")),
@@ -405,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             spec.final_quality.get("pred_fwhm_px", float("nan")),
         )
 
-    # -- 门: gate 臂 vs lr_sweep 基线 ---------------------------------
+    # -- 门: gate 变体 vs lr_sweep 基线 ---------------------------------
     gate = next(a for a in arms if a.kind == "gate")
     max_dev, devs = _max_rel_dev(gate.final_quality, baseline_q)
     gate_pass = max_dev <= args.repro_tol
