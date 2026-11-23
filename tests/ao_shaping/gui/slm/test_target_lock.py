@@ -379,3 +379,101 @@ def test_snapshot_is_a_plain_read_only_view():
     assert snapshot["best_write_seq"] == 1
     assert snapshot["pending_write_seq"] == 1
     assert snapshot["score_history"] == [snapshot["best_score"]]
+
+
+# --------------------------------------------------------------------------- #
+# LockConfig 阈值标定：默认阈值必须能被实测噪声替换，且替换倍数是可审计的
+# --------------------------------------------------------------------------- #
+
+
+def test_calibration_stats_read_noise_signal_and_repeatability():
+    rng = np.random.default_rng(7)
+    images = []
+    for _ in range(6):
+        image = shifted().copy()
+        image += rng.normal(0.0, 2.0, size=SHAPE)
+        images.append(np.clip(image, 0.0, 255.0))
+
+    sample = tl.calibration_stats_from_frames(images, target=TARGET, full_scale=255.0)
+
+    assert 0.3 < sample.dark_mean < 2.5  # 截断到 0 后的背景均值
+    assert 0.5 < sample.dark_sigma < 2.5
+    assert sample.peak_counts > 190.0
+    assert sample.total_counts > 0.0
+    assert sample.full_scale == 255.0
+    assert sample.centroid_sigma_px >= 0.0
+    assert sample.score_sigma > 0.0
+    assert sample.pixel_count == SHAPE[0] * SHAPE[1]
+
+
+def test_calibration_stats_rejects_shape_mismatch_and_empty_frames():
+    with pytest.raises(ValueError, match="至少需要一帧"):
+        tl.calibration_stats_from_frames([], target=TARGET)
+    with pytest.raises(ValueError, match="不一致"):
+        tl.calibration_stats_from_frames([np.zeros((8, 8))], target=TARGET)
+
+
+def test_calibrated_thresholds_scale_with_measured_noise():
+    quiet = tl.CalibrationSample(
+        dark_mean=1.0,
+        dark_sigma=1.0,
+        peak_counts=200.0,
+        total_counts=10000.0,
+        saturated_fraction=0.0,
+        full_scale=255.0,
+        centroid_sigma_px=0.2,
+        score_sigma=0.01,
+        pixel_count=4096,
+    )
+    noisy = tl.CalibrationSample(
+        dark_mean=5.0,
+        dark_sigma=4.0,
+        peak_counts=200.0,
+        total_counts=10000.0,
+        saturated_fraction=0.02,
+        full_scale=255.0,
+        centroid_sigma_px=0.2,
+        score_sigma=0.04,
+        pixel_count=4096,
+    )
+    q = tl.calibrate_lock_thresholds(
+        quiet, position_tolerance_ccd_px=5.0, grid_spacing_px=2.0
+    )
+    n = tl.calibrate_lock_thresholds(
+        noisy, position_tolerance_ccd_px=5.0, grid_spacing_px=2.0
+    )
+
+    assert q.min_peak_counts == pytest.approx(21.0)
+    assert n.min_peak_counts == pytest.approx(85.0)
+    assert q.saturation_counts == pytest.approx(0.98 * 255.0)
+    assert n.max_saturated_fraction == pytest.approx(0.05)  # 0.02*3 被封顶
+    assert q.max_centroid_error_px == pytest.approx(2.5)
+    assert n.improvement_epsilon == pytest.approx(0.2)
+    assert n.rollback_epsilon == pytest.approx(0.6)
+    assert n.oscillation_amplitude == pytest.approx(0.2)
+    assert n.min_peak_counts > q.min_peak_counts
+    assert n.improvement_epsilon > q.improvement_epsilon
+    # 标定结果必须仍是合法 LockConfig，能直接交给监督器使用。
+    assert armed(n).config is n
+
+
+def test_calibrate_rejects_nonpositive_geometry():
+    sample = tl.CalibrationSample(
+        dark_mean=0.0,
+        dark_sigma=1.0,
+        peak_counts=200.0,
+        total_counts=10000.0,
+        saturated_fraction=0.0,
+        full_scale=255.0,
+        centroid_sigma_px=0.2,
+        score_sigma=0.01,
+        pixel_count=4096,
+    )
+    with pytest.raises(ValueError, match="grid_spacing"):
+        tl.calibrate_lock_thresholds(
+            sample, position_tolerance_ccd_px=5.0, grid_spacing_px=0.0
+        )
+    with pytest.raises(ValueError, match="position_tolerance"):
+        tl.calibrate_lock_thresholds(
+            sample, position_tolerance_ccd_px=0.0, grid_spacing_px=2.0
+        )

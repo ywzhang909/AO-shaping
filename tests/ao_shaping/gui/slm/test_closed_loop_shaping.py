@@ -854,3 +854,35 @@ def test_optimize_mode_still_stops_when_candidates_stop_improving() -> None:
     assert summary.state is LoopState.STOPPED
     assert "未被接受" in summary.reason
     assert [r.decision for r in summary.rounds[1:]] == ["reject", "reject"]
+
+
+def test_hold_uses_a_calibrated_lock_config_verbatim() -> None:
+    """标定后的阈值必须原样进入监督器，runner 不得再按页面容差偷偷改一遍。"""
+    from ao_shaping.gui.slm.target_lock import LockConfig
+
+    events: list = []
+    calibrated = LockConfig(min_peak_counts=1e9, max_centroid_error_px=0.125)
+    runner = ClosedLoopRunner(
+        _TimedBench(lambda n: _embed(_good())),
+        config=_config(
+            mode="hold", max_rounds=1, hold_target_ccd_px=5.0, lock_config=calibrated
+        ),
+        forward=_SquareForward(_target()),
+        on_event=events.append,
+    )
+
+    summary = runner.run()
+
+    assert runner.config.lock_config is calibrated
+    # 不可达的峰值下限让基线帧直接不过门禁：证明用的是标定阈值而非默认 32 counts。
+    assert summary.state is LoopState.FAULT
+    assert "low_signal" in summary.reason
+    notes = [str(event.payload) for event in events if event.kind == "state"]
+    assert any("监督器阈值（标定）" in note for note in notes)
+
+
+def test_grid_spacing_px_is_shared_with_the_calibration_page() -> None:
+    from ao_shaping.gui.slm.closed_loop_shaping import grid_spacing_px
+
+    assert grid_spacing_px(_xy()) == pytest.approx(2.0)
+    assert grid_spacing_px(np.zeros((3, 3))) is None

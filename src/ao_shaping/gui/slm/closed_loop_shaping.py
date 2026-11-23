@@ -30,9 +30,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
+
+if TYPE_CHECKING:  # 只在类型检查期导入，运行时仍保持"顶层只 numpy/stdlib"
+    from ao_shaping.gui.slm.target_lock import LockConfig
 
 __all__ = [
     "AdaptationPolicy",
@@ -53,6 +56,7 @@ __all__ = [
     "check_frame",
     "compare_to_target",
     "describe_gate",
+    "grid_spacing_px",
     "promotion_decision",
     "refine_phase",
     "sample_on_grid",
@@ -224,6 +228,26 @@ def analysis_grid(centre_xy: tuple[float, float], span: int) -> np.ndarray:
         raise ValueError("span must be >= 1")
     yy, xx = np.mgrid[-span:span + 1:2, -span:span + 1:2]
     return np.stack((xx + round(float(centre_xy[0])), yy + round(float(centre_xy[1]))), axis=-1)
+
+
+def grid_spacing_px(xy: np.ndarray) -> float | None:
+    """分析网格相邻采样点的 CCD 像素步长；无法确定时返回 ``None``。
+
+    页面标定与 runner 共用这一定义，避免"页面按一种步长换算、运行按另一种"造成
+    位置容差口径不一致。
+    """
+    grid = np.asarray(xy, dtype=np.float64)
+    if grid.ndim != 3 or grid.shape[-1] != 2:
+        return None
+    dx = np.abs(np.diff(grid[..., 0], axis=1))
+    dy = np.abs(np.diff(grid[..., 1], axis=0))
+    steps = np.concatenate((dx[dx > 0.0], dy[dy > 0.0]))
+    if steps.size == 0:
+        return None
+    spacing = float(np.median(steps))
+    if not np.isfinite(spacing) or spacing <= 0.0:
+        return None
+    return spacing
 
 
 def compare_to_target(measured: np.ndarray, target: np.ndarray) -> dict[str, float]:
@@ -925,7 +949,11 @@ class ClosedLoopConfig:
     #: ``hold``：目标保持，收敛后继续锁定同一目标与固定 CCD 像素位置。
     mode: str = "optimize"
     #: ``hold`` 模式的位置容差，单位是 **CCD 像素**（由监督器换算到分析网格）。
+    #: 只有在 ``lock_config`` 为 ``None``（未标定）时才用它推导网格单位容差。
     hold_target_ccd_px: float = 5.0
+    #: 标定后的监督器阈值。``None`` 表示沿用默认 LockConfig + 位置容差换算。
+    #: 提供方负责把位置容差换算成网格单位；这里不二次改写，避免两处口径打架。
+    lock_config: LockConfig | None = None
     candidate_policy: str = "confirm"  # confirm | auto
     auto_accept_margin: float = 0.0
     max_consecutive_gate_failures: int = 3
@@ -1286,11 +1314,15 @@ class ClosedLoopRunner:
                     "分析网格没有正的有限步长，无法把保持容差换算成 CCD 像素",
                 )
 
-            supervisor = TargetLockSupervisor(
-                LockConfig(
+            lock_config = config.lock_config
+            if lock_config is None:
+                # 未标定：沿用原来的默认阈值，位置容差仍由页面输入换算。
+                lock_config = LockConfig(
                     max_centroid_error_px=float(config.hold_target_ccd_px) / spacing_ccd_px
                 )
-            )
+            threshold_source = "标定" if config.lock_config else "默认"
+            self._emit(LoopEvent("state", f"监督器阈值（{threshold_source}）：{lock_config}"))
+            supervisor = TargetLockSupervisor(lock_config)
             supervisor.arm(FixedTarget(target))
 
             # 基线写入同样要登记：序号 0，写入时刻先于本次下发。
@@ -1442,17 +1474,8 @@ class ClosedLoopRunner:
                 pass
 
     def _grid_spacing_px(self) -> float | None:
-        """分析网格相邻采样点的 CCD 像素步长；无法确定时返回 ``None``。"""
-        grid = np.asarray(self.config.xy, dtype=np.float64)
-        dx = np.abs(np.diff(grid[..., 0], axis=1))
-        dy = np.abs(np.diff(grid[..., 1], axis=0))
-        steps = np.concatenate((dx[dx > 0.0], dy[dy > 0.0]))
-        if steps.size == 0:
-            return None
-        spacing = float(np.median(steps))
-        if not np.isfinite(spacing) or spacing <= 0.0:
-            return None
-        return spacing
+        """分析网格相邻采样点的 CCD 像素步长；与页面标定共用同一定义。"""
+        return grid_spacing_px(self.config.xy)
 
     def _emit_lock(
         self,

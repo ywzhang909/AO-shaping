@@ -641,3 +641,82 @@ def test_dynamic_page_requests_the_target_hold_page(app) -> None:
         page.close()
         page._pool.waitForDone(5000)
         app.processEvents()
+
+
+# --------------------------------------------------------------------------- #
+# LockConfig 标定面板：预览、过期失效、显式应用与设备确认
+# --------------------------------------------------------------------------- #
+
+
+def test_lock_calibration_panel_preview_and_apply_gate(app) -> None:
+    page = _make_page()
+    xy = analysis_grid(_CENTRE, _SPAN)
+    try:
+        assert page._cal_apply.isChecked() is False
+        assert page._lock_config_for_run(xy) is None
+
+        page._cal_dark_mean.setValue(1.0)
+        page._cal_dark_sigma.setValue(4.0)
+        page._cal_score_sigma.setValue(0.04)
+        assert page.on_calibrate() is True
+        assert page._cal_recommended is not None
+        assert "饱和阈值" in page._cal_preview.text()
+        assert page._cal_recommended.min_peak_counts == pytest.approx(81.0)
+
+        # 任何输入变化都让建议值过期，不能把旧阈值悄悄用到新配置上。
+        page._cal_peak.setValue(300.0)
+        assert page._cal_recommended is None
+        assert "尚未计算" in page._cal_preview.text()
+
+        assert page.on_calibrate() is True
+        page._cal_apply.setChecked(True)
+        cfg = page._lock_config_for_run(xy)
+        assert cfg is page._cal_recommended
+        assert cfg is not None
+        assert cfg.max_centroid_error_px == pytest.approx(5.0 / 2.0)
+    finally:
+        page.close()
+
+
+def test_capture_calibration_requires_device_confirmation(app, monkeypatch) -> None:
+    calls: list[str] = []
+    page = _make_page(bench_factory=lambda: calls.append("bench"))
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.No,
+    )
+    try:
+        page.on_capture_calibration()
+        assert calls == []
+        assert page._cal_thread is None
+        assert page._cal_capture_button.isEnabled()
+    finally:
+        page.close()
+
+
+def test_calibration_done_fills_inputs_and_refreshes_preview(app) -> None:
+    from ao_shaping.gui.slm.target_lock import CalibrationSample
+
+    page = _make_page()
+    try:
+        sample = CalibrationSample(
+            dark_mean=1.0,
+            dark_sigma=4.0,
+            peak_counts=220.0,
+            total_counts=12345.0,
+            saturated_fraction=0.02,
+            full_scale=255.0,
+            centroid_sigma_px=0.3,
+            score_sigma=0.04,
+            pixel_count=81,
+        )
+        page._on_calibration_done(sample)
+
+        assert page._cal_dark_sigma.value() == pytest.approx(4.0)
+        assert page._cal_saturated.value() == pytest.approx(2.0)
+        assert page._cal_recommended is not None
+        assert page._cal_thread is None
+        assert page._cal_capture_button.isEnabled()
+    finally:
+        page.close()

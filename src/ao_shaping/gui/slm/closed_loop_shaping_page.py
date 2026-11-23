@@ -62,7 +62,15 @@ from ao_shaping.gui.slm.closed_loop_shaping import (
     OnlineTransferAdapter,
     analysis_grid,
     describe_gate,
+    grid_spacing_px,
     target_field,
+)
+from ao_shaping.gui.slm.target_lock import (
+    CalibrationSample,
+    LockConfig,
+    calibrate_lock_thresholds,
+    calibration_stats_from_frames,
+    target_on_frame,
 )
 
 __all__ = ["ClosedLoopShapingPage"]
@@ -136,6 +144,61 @@ class _RunnerThread(QThread):
         self.signals.finished.emit(summary)
 
 
+class _CalibrationSignals(QObject):
+    done = Signal(object)  # CalibrationSample
+    failed = Signal(str)
+
+
+class _CalibrationThread(QThread):
+    """在专用线程里采集标定帧；设备句柄只在这个线程里存活。
+
+    标定相位刻意用零相位：它给的是"已知、可复现的起点"下的噪声地板，而不是
+    某次碰巧调出来的目标形状。标定帧与目标图同形，评分重复性只作为噪声代理。
+    """
+
+    def __init__(
+        self,
+        bench: Any,
+        *,
+        xy: np.ndarray,
+        target: np.ndarray,
+        frame_count: int,
+        grid_size: int,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.signals = _CalibrationSignals()
+        self._bench = bench
+        self._xy = np.asarray(xy, dtype=np.float64)
+        self._target = np.asarray(target, dtype=np.float64)
+        self._frame_count = frame_count
+        self._grid_size = grid_size
+
+    def run(self) -> None:  # pragma: no cover - 线程体，离线测试驱动统计纯函数
+        try:
+            self._bench.open()
+            self._bench.apply_phase(np.zeros((self._grid_size, self._grid_size)))
+            captured = [self._bench.capture() for _ in range(self._frame_count)]
+            # 硬件帧是整幅 CCD，目标是窗口图；统计要求同形，先按绝对像素铺回整帧。
+            target_frame = target_on_frame(
+                self._xy, self._target, captured[0].frame.shape
+            )
+            sample = calibration_stats_from_frames(
+                [item.frame for item in captured],
+                target=target_frame,
+                full_scale=float(captured[0].full_scale),
+            )
+        except Exception as exc:
+            self.signals.failed.emit(str(exc))
+            return
+        finally:
+            try:
+                self._bench.close()
+            except Exception:  # 关闭失败不该掩盖主结论
+                pass
+        self.signals.done.emit(sample)
+
+
 class ClosedLoopShapingPage(QWidget):
     """独立闭环页。所有昂贵/危险的东西都延迟到显式开始之后。"""
 
@@ -159,6 +222,10 @@ class ClosedLoopShapingPage(QWidget):
         self._round_cap: dict[str, int] = {"hold": 120, "optimize": 8}
         self._mode_shown: str | None = None
         self._running = False
+        #: 标定面板状态：建议值一旦输入变化就作废，避免应用到过期阈值。
+        self._cal_recommended: LockConfig | None = None
+        self._cal_filling = False
+        self._cal_thread: _CalibrationThread | None = None
 
         self._build_ui()
         self._set_controls_running(False)
@@ -205,6 +272,7 @@ class ClosedLoopShapingPage(QWidget):
         root.addWidget(self._build_mode())
         root.addWidget(self._build_target())
         root.addWidget(self._build_params())
+        root.addWidget(self._build_calibration())
         root.addWidget(self._build_adaptation())
 
         # 相位行：运行方式为「目标保持」时显示 收敛中 → 维持中 → 已冻结。
@@ -388,6 +456,219 @@ class ClosedLoopShapingPage(QWidget):
             self._mode_hint.setText(
                 "逐轮优化：每轮算出候选并实测后停下，由你确认接受或拒绝（旧流程）。"
             )
+
+    # -- LockConfig 阈值标定 ------------------------------------------------ #
+
+    def _build_calibration(self) -> QGroupBox:
+        """用实测噪声/信号推导本次运行的 LockConfig 阈值。
+
+        默认不启用。标定是显式动作，采集会短时占用设备；推导值与输入值同屏显示，
+        操作员核对后才勾选应用。采集相位刻意用零相位作为可复现的噪声地板起点。
+        """
+        box = QGroupBox("锁定阈值标定（LockConfig · 默认不启用）")
+        form = QFormLayout(box)
+
+        def add_spin(
+            label: str,
+            minimum: float,
+            maximum: float,
+            value: float,
+            decimals: int = 2,
+        ) -> QDoubleSpinBox:
+            spin = QDoubleSpinBox()
+            spin.setRange(minimum, maximum)
+            spin.setDecimals(decimals)
+            spin.setValue(value)
+            form.addRow(label, spin)
+            spin.valueChanged.connect(self._on_calibration_input_changed)
+            return spin
+
+        self._cal_dark_mean = add_spin("暗场均值（counts）", 0.0, 65535.0, 0.0)
+        self._cal_dark_sigma = add_spin("暗场噪声 σ（counts）", 0.0, 65535.0, 1.0)
+        self._cal_peak = add_spin("峰值 counts", 0.0, 65535.0, 200.0)
+        self._cal_total = add_spin("总 counts", 0.0, 1e9, 10000.0, 1)
+        self._cal_full_scale = add_spin("相机满量程 counts", 1.0, 65535.0, 255.0)
+        self._cal_saturated = add_spin("饱和像素占比（%）", 0.0, 100.0, 0.0, 3)
+        self._cal_centroid_sigma = add_spin("质心重复性 σ（CCD px）", 0.0, 1000.0, 0.5, 3)
+        self._cal_score_sigma = add_spin("评分重复性 σ", 0.0, 10.0, 0.01, 4)
+
+        row = QHBoxLayout()
+        self._cal_capture_button = QPushButton("采集标定帧…")
+        self._cal_capture_button.setObjectName("lockCalibrationCapture")
+        self._cal_capture_button.clicked.connect(self.on_capture_calibration)
+        row.addWidget(self._cal_capture_button)
+        self._cal_calc_button = QPushButton("计算建议阈值")
+        self._cal_calc_button.setObjectName("lockCalibrationCalc")
+        self._cal_calc_button.clicked.connect(self.on_calibrate)
+        row.addWidget(self._cal_calc_button)
+        self._cal_reset_button = QPushButton("恢复默认输入")
+        self._cal_reset_button.clicked.connect(self.on_reset_calibration)
+        row.addWidget(self._cal_reset_button)
+        form.addRow("", row)
+
+        self._cal_preview = QLabel("尚未计算建议阈值；默认阈值仅面向 8/12-bit 相机。")
+        self._cal_preview.setWordWrap(True)
+        self._cal_preview.setObjectName("lockCalibrationPreview")
+        form.addRow("推导结果", self._cal_preview)
+
+        self._cal_apply = QCheckBox("应用标定阈值到本次目标保持运行（默认关闭）")
+        self._cal_apply.setObjectName("lockCalibrationApply")
+        self._cal_apply.setChecked(False)
+        form.addRow("", self._cal_apply)
+        return box
+
+    def _calibration_target_and_grid(self) -> tuple[np.ndarray, np.ndarray]:
+        """用页面当前目标参数构造与 on_start 完全一致的网格和目标图。"""
+        centre = (self._centre_x.value(), self._centre_y.value())
+        xy = analysis_grid(centre, self._span.value())
+        target = target_field(
+            xy,
+            centre_xy=centre,
+            half_width=self._half_width.value(),
+            half_height=self._half_height.value(),
+        )
+        return xy, target
+
+    def _calibration_sample(self) -> CalibrationSample:
+        return CalibrationSample(
+            dark_mean=self._cal_dark_mean.value(),
+            dark_sigma=self._cal_dark_sigma.value(),
+            peak_counts=max(self._cal_peak.value(), 1e-6),
+            total_counts=max(self._cal_total.value(), 1e-6),
+            saturated_fraction=self._cal_saturated.value() / 100.0,
+            full_scale=self._cal_full_scale.value(),
+            centroid_sigma_px=self._cal_centroid_sigma.value(),
+            score_sigma=self._cal_score_sigma.value(),
+            pixel_count=1,
+        )
+
+    def _on_calibration_input_changed(self, *_args: Any) -> None:
+        if self._cal_filling:
+            return
+        if self._cal_recommended is not None:
+            self._cal_recommended = None
+            self._refresh_calibration_preview()
+
+    def _refresh_calibration_preview(self) -> None:
+        cfg = self._cal_recommended
+        if cfg is None:
+            self._cal_preview.setText("尚未计算建议阈值；默认阈值仅面向 8/12-bit 相机。")
+            return
+        self._cal_preview.setText(
+            f"饱和阈值 {cfg.saturation_counts:.1f} counts，允许饱和占比 "
+            f"{cfg.max_saturated_fraction:.3%}；峰值下限 {cfg.min_peak_counts:.1f}，"
+            f"总量下限 {cfg.min_total_counts:.1f}\n"
+            f"位置容差 {cfg.max_centroid_error_px:.2f} 网格单位；改进余量 "
+            f"{cfg.improvement_epsilon:.4f}，回滚余量 {cfg.rollback_epsilon:.4f}，"
+            f"振荡幅度 {cfg.oscillation_amplitude:.4f}"
+        )
+
+    def on_calibrate(self, _checked: bool = False, *, xy: np.ndarray | None = None) -> bool:
+        """按当前输入算建议阈值并预览；返回是否成功。"""
+        if xy is None:
+            xy, _ = self._calibration_target_and_grid()
+        spacing = grid_spacing_px(xy)
+        if spacing is None:
+            QMessageBox.warning(self, "无法标定", "分析网格没有正的有限步长。")
+            return False
+        try:
+            cfg = calibrate_lock_thresholds(
+                self._calibration_sample(),
+                position_tolerance_ccd_px=self._hold_tolerance.value(),
+                grid_spacing_px=spacing,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "标定输入无效", str(exc))
+            return False
+        self._cal_recommended = cfg
+        self._refresh_calibration_preview()
+        self._append_log(f"LockConfig 建议阈值：{cfg}")
+        return True
+
+    def _lock_config_for_run(self, xy: np.ndarray) -> LockConfig | None:
+        if not self._cal_apply.isChecked():
+            return None
+        if self._cal_recommended is None and not self.on_calibrate(xy=xy):
+            raise ValueError("已勾选应用标定阈值，但标定输入无效")
+        assert self._cal_recommended is not None
+        return self._cal_recommended
+
+    def on_reset_calibration(self, *_args: Any) -> None:
+        self._cal_filling = True
+        try:
+            self._cal_dark_mean.setValue(0.0)
+            self._cal_dark_sigma.setValue(1.0)
+            self._cal_peak.setValue(200.0)
+            self._cal_total.setValue(10000.0)
+            self._cal_full_scale.setValue(255.0)
+            self._cal_saturated.setValue(0.0)
+            self._cal_centroid_sigma.setValue(0.5)
+            self._cal_score_sigma.setValue(0.01)
+        finally:
+            self._cal_filling = False
+        self._cal_recommended = None
+        self._refresh_calibration_preview()
+        self._append_log("LockConfig 标定输入已恢复默认。")
+
+    def on_capture_calibration(self, *_args: Any) -> None:
+        if self._running or self._cal_thread is not None:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "标定将占用设备",
+            "采集标定帧会独占 SLM 与 CCD 约数秒，期间请勿启动其他占用同一设备的进程。\n"
+            "采集用零相位作为已知起点，不改目标设置；请先把曝光调到峰值不满量程，"
+            "否则饱和像素会污染噪声与峰值标定。\n是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm is not QMessageBox.StandardButton.Yes:
+            return
+        xy, target = self._calibration_target_and_grid()
+        thread = _CalibrationThread(
+            self._make_bench(),
+            xy=xy,
+            target=target,
+            frame_count=8,
+            grid_size=self._grid_size.value(),
+            parent=self,
+        )
+        thread.signals.done.connect(self._on_calibration_done)
+        thread.signals.failed.connect(self._on_calibration_failed)
+        self._cal_thread = thread
+        self._cal_capture_button.setEnabled(False)
+        self._append_log("标定：正在采集 8 帧，设备已占用。")
+        thread.start()
+
+    def _on_calibration_done(self, sample: CalibrationSample) -> None:
+        self._cal_filling = True
+        try:
+            self._cal_dark_mean.setValue(sample.dark_mean)
+            self._cal_dark_sigma.setValue(sample.dark_sigma)
+            self._cal_peak.setValue(sample.peak_counts)
+            self._cal_total.setValue(sample.total_counts)
+            self._cal_full_scale.setValue(sample.full_scale)
+            self._cal_saturated.setValue(sample.saturated_fraction * 100.0)
+            self._cal_centroid_sigma.setValue(sample.centroid_sigma_px)
+            self._cal_score_sigma.setValue(sample.score_sigma)
+        finally:
+            self._cal_filling = False
+        self._clear_cal_thread()
+        self._cal_capture_button.setEnabled(True)
+        self._append_log("标定帧采集完成，已回填统计量。")
+        self.on_calibrate()
+
+    def _on_calibration_failed(self, message: str) -> None:
+        self._clear_cal_thread()
+        self._cal_capture_button.setEnabled(True)
+        self._append_log(f"标定采集失败：{message}")
+        QMessageBox.warning(self, "标定采集失败", message)
+
+    def _clear_cal_thread(self) -> None:
+        thread = self._cal_thread
+        self._cal_thread = None
+        if thread is not None:
+            thread.deleteLater()
 
     # -- 故障横幅 ---------------------------------------------------------- #
 
@@ -705,6 +986,12 @@ class ClosedLoopShapingPage(QWidget):
             half_height=self._half_height.value(),
         )
         start_phase = np.zeros((self._grid_size.value(), self._grid_size.value()))
+        try:
+            lock_config = self._lock_config_for_run(xy)
+        except ValueError as exc:
+            self._append_log(f"标定阈值未应用，未占用设备：{exc}")
+            QMessageBox.warning(self, "标定输入无效", str(exc))
+            return
         mode = self._run_mode()
         hold = mode == "hold"
         config = ClosedLoopConfig(
@@ -714,6 +1001,7 @@ class ClosedLoopShapingPage(QWidget):
             max_rounds=self._rounds.value(),
             mode=mode,
             hold_target_ccd_px=self._hold_tolerance.value(),
+            lock_config=lock_config,
             # 目标保持无人值守，核心层要求 auto；逐轮优化沿用人工确认开关。
             candidate_policy="auto" if hold or self._auto_accept.isChecked() else "confirm",
             adapt=self._adapt.isChecked(),
@@ -742,6 +1030,9 @@ class ClosedLoopShapingPage(QWidget):
         )
         if hold:
             confirm_text += f"\n位置容差 {config.hold_target_ccd_px:.1f} CCD px（固定像素参考，不重新居中）。"
+            confirm_text += (
+                "\n锁定阈值：使用标定值。" if lock_config else "\n锁定阈值：默认（未标定）。"
+            )
         if config.adapt and self._adapter_factory is None:
             session = self._session_dir_edit.text().strip()
             confirm_text += (
@@ -957,6 +1248,15 @@ class ClosedLoopShapingPage(QWidget):
             self._half_width, self._half_height, self._rounds, self._grid_size,
         ):
             widget.setEnabled(not running)
+        # 标定面板开跑后整体冻结：不能和闭环抢设备，也不能中途换阈值口径。
+        for widget in (
+            self._cal_dark_mean, self._cal_dark_sigma, self._cal_peak, self._cal_total,
+            self._cal_full_scale, self._cal_saturated, self._cal_centroid_sigma,
+            self._cal_score_sigma, self._cal_calc_button, self._cal_reset_button,
+            self._cal_apply,
+        ):
+            widget.setEnabled(not running)
+        self._cal_capture_button.setEnabled(not running and self._cal_thread is None)
         self._pause_button.setText("暂停")
         # 模式相关（位置容差、确认按钮可见性）最后统一收口。
         self._apply_mode_ui()
@@ -980,4 +1280,7 @@ class ClosedLoopShapingPage(QWidget):
         if thread is not None and thread.isRunning():
             thread.runner.request_stop()
             thread.wait(5000)
+        cal_thread = self._cal_thread
+        if cal_thread is not None and cal_thread.isRunning():
+            cal_thread.wait(5000)
         super().closeEvent(event)

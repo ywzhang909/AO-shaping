@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -48,6 +48,7 @@ from typing import Any
 import numpy as np
 
 __all__ = [
+    "CalibrationSample",
     "FixedTarget",
     "LockAction",
     "LockCallbacks",
@@ -56,6 +57,9 @@ __all__ = [
     "LockState",
     "MeasuredFrame",
     "TargetLockSupervisor",
+    "calibrate_lock_thresholds",
+    "calibration_stats_from_frames",
+    "target_on_frame",
 ]
 
 
@@ -688,3 +692,204 @@ class TargetLockSupervisor:
             "last_gate_reasons": list(self._last_gate_reasons),
             "score_history": list(self._scores),
         }
+
+
+# --------------------------------------------------------------------------- #
+# LockConfig 阈值标定
+# --------------------------------------------------------------------------- #
+#
+# ``LockConfig`` 的默认值只是"8/12-bit 相机"的起点，不是任何光路的保证。这一节把
+# 一段实测帧变成可审计的 ``CalibrationSample``，再按固定的、写明的倍数推成
+# 本次运行的阈值。故意不做"自动最优"：倍数都是保守的噪声地板倍数，操作员能在
+# 页面上看到每个推导值和输入值，标定结论对错可以回头用同一段帧复核。
+#
+# 这里只依赖 numpy 与标准库，与监督器一样不碰设备、不碰 UI。
+
+
+@dataclass(frozen=True)
+class CalibrationSample:
+    """一段实测帧的统计量；计数量纲是 CCD counts，重复性是逐帧标准差。"""
+
+    dark_mean: float
+    dark_sigma: float
+    peak_counts: float
+    total_counts: float
+    saturated_fraction: float
+    full_scale: float
+    centroid_sigma_px: float
+    score_sigma: float
+    pixel_count: int
+
+    def __post_init__(self) -> None:
+        values = (
+            self.dark_mean,
+            self.dark_sigma,
+            self.peak_counts,
+            self.total_counts,
+            self.saturated_fraction,
+            self.full_scale,
+            self.centroid_sigma_px,
+            self.score_sigma,
+        )
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("标定统计量必须全部有限")
+        if self.dark_sigma < 0.0 or self.centroid_sigma_px < 0.0 or self.score_sigma < 0.0:
+            raise ValueError("噪声/重复性标准差不能为负")
+        if not 0.0 <= self.saturated_fraction <= 1.0:
+            raise ValueError("saturated_fraction 必须在 [0, 1]")
+        if self.full_scale <= 0.0 or self.peak_counts <= 0.0:
+            raise ValueError("full_scale 与 peak_counts 必须为正")
+        if self.pixel_count < 1:
+            raise ValueError("pixel_count 至少为 1")
+
+
+def target_on_frame(
+    xy: np.ndarray,
+    target: np.ndarray,
+    frame_shape: tuple[int, int] | tuple[int, ...],
+) -> np.ndarray:
+    """把分析网格上的目标图铺到整帧坐标系，供整帧统计使用。
+
+    ``calibration_stats_from_frames`` 要求目标与帧同形，而硬件的
+    ``CapturedFrame.frame`` 是整幅 CCD，闭环目标只定义在分析窗口上。这里按
+    ``xy`` 的**绝对像素坐标**把窗口目标写回整帧零场：窗口内是目标，窗口外是 0。
+    暗场掩膜因此落在窗口外的背景上，不会被窗口内的信号污染。
+
+    ``xy`` 越界（窗口超出相机幅面）或网格步长为 0 都会抛 ``ValueError`` ——
+    那是操作员给错中心/窗口，不该在统计里被悄悄裁掉。
+    """
+    grid = np.asarray(xy, dtype=np.float64)
+    tgt = np.asarray(target, dtype=np.float64)
+    if grid.ndim != 3 or grid.shape[-1] != 2:
+        raise ValueError(f"xy 必须是 (H, W, 2) 的像素坐标，实际 {grid.shape}")
+    if tgt.shape != grid.shape[:2]:
+        raise ValueError(f"目标图形状 {tgt.shape} 与网格 {grid.shape[:2]} 不一致")
+    if len(frame_shape) < 2:
+        raise ValueError(f"帧形状至少需要两维，实际 {frame_shape}")
+    rows, cols = int(frame_shape[0]), int(frame_shape[1])
+
+    yi = np.rint(grid[..., 1]).astype(np.int64)
+    xi = np.rint(grid[..., 0]).astype(np.int64)
+    if yi.min() < 0 or xi.min() < 0 or yi.max() >= rows or xi.max() >= cols:
+        raise ValueError(
+            f"分析窗口超出帧范围 {rows}x{cols}："
+            f"x [{int(xi.min())}, {int(xi.max())}]，y [{int(yi.min())}, {int(yi.max())}]"
+        )
+    out = np.zeros((rows, cols), dtype=np.float64)
+    out[yi, xi] = tgt
+    return out
+
+
+def calibration_stats_from_frames(
+    frames: Iterable[np.ndarray],
+    *,
+    target: np.ndarray,
+    full_scale: float | None = None,
+    dark_mask: np.ndarray | None = None,
+) -> CalibrationSample:
+    """从若干帧同形 CCD 图与固定目标图算 :class:`CalibrationSample`。
+
+    ``dark_mask`` 给背景区（默认取目标图里强度为 0 的像素，全亮目标退到最外圈）；
+    ``full_scale`` 用相机的饱和 counts，缺省时按峰值 70% 满量程保守估计 —— 后者只
+    用于标定页的手动录入回填，真实设备采集会带准确的 ``CapturedFrame.full_scale``。
+    """
+    images = [np.asarray(frame, dtype=np.float64) for frame in frames]
+    if not images:
+        raise ValueError("标定至少需要一帧")
+    shape = images[0].shape
+    if len(shape) != 2:
+        raise ValueError(f"标定帧必须是二维图，实际 {shape}")
+    tgt = np.asarray(target, dtype=np.float64)
+    if tgt.shape != shape:
+        raise ValueError(f"目标图形状 {tgt.shape} 与标定帧 {shape} 不一致")
+
+    if dark_mask is None:
+        mask = tgt <= 0.0
+        if not mask.any():
+            mask = np.zeros(shape, dtype=bool)
+            mask[0, :] = True
+            mask[-1, :] = True
+            mask[:, 0] = True
+            mask[:, -1] = True
+    else:
+        mask = np.asarray(dark_mask, dtype=bool)
+        if mask.shape != shape or not mask.any():
+            raise ValueError("dark_mask 必须是与帧同形且非空的二维布尔图")
+
+    peak = max(float(image.max()) for image in images)
+    scale = float(full_scale) if full_scale is not None else max(peak / 0.7, 1.0)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("full_scale 必须为正的有限值")
+
+    dark = np.concatenate([image[mask] for image in images])
+    dark_mean = float(dark.mean())
+    dark_sigma = float(dark.std())
+    total = float(np.median([float(image.sum()) for image in images]))
+    saturated = float(np.mean([float(np.mean(image >= scale * 0.99)) for image in images]))
+
+    centroids = [point for point in (_centroid(image) for image in images) if point is not None]
+    if len(centroids) >= 2:
+        spread = np.std(np.asarray(centroids, dtype=np.float64), axis=0)
+        centroid_sigma = float(np.mean(spread))
+    else:
+        centroid_sigma = 0.0
+
+    scores = [_shape_metrics(image, tgt)["score"] for image in images]
+    score_sigma = float(np.std(np.asarray(scores, dtype=np.float64))) if len(scores) >= 2 else 0.0
+
+    return CalibrationSample(
+        dark_mean=dark_mean,
+        dark_sigma=dark_sigma,
+        peak_counts=peak,
+        total_counts=total,
+        saturated_fraction=saturated,
+        full_scale=scale,
+        centroid_sigma_px=centroid_sigma,
+        score_sigma=score_sigma,
+        pixel_count=int(shape[0] * shape[1]),
+    )
+
+
+def calibrate_lock_thresholds(
+    sample: CalibrationSample,
+    *,
+    position_tolerance_ccd_px: float,
+    grid_spacing_px: float,
+) -> LockConfig:
+    """按实测噪声地板推导本次运行的 :class:`LockConfig`。
+
+    固定倍数（写在代码里，便于审计）：饱和阈值取满量程的 98% 且至少高于暗场 3σ；
+    最小峰值为暗场均值 + 20σ；最小总量为标定总量的 2%；改进/回滚/振荡余量为评分
+    重复性的 5×/15×/5×。位置容差仍由操作员给定，这里只把它从 CCD 像素换成网格单位。
+    """
+    if not np.isfinite(grid_spacing_px) or grid_spacing_px <= 0.0:
+        raise ValueError("grid_spacing_px 必须为正的有限值")
+    if not np.isfinite(position_tolerance_ccd_px) or position_tolerance_ccd_px <= 0.0:
+        raise ValueError("position_tolerance_ccd_px 必须为正的有限值")
+
+    scale = max(sample.full_scale, 1.0)
+    saturation_counts = max(
+        0.98 * scale,
+        sample.dark_mean + 3.0 * sample.dark_sigma,
+        1.0,
+    )
+    max_saturated_fraction = float(
+        np.clip(sample.saturated_fraction * 3.0, 0.0005, 0.05)
+    )
+    min_peak_counts = max(sample.dark_mean + 20.0 * sample.dark_sigma, 1.0)
+    min_total_counts = max(0.02 * sample.total_counts, 1.0)
+
+    score_noise = max(sample.score_sigma, 1e-4)
+    improvement_epsilon = max(5.0 * score_noise, 1e-4)
+    rollback_epsilon = max(15.0 * score_noise, 2.0 * improvement_epsilon)
+
+    return LockConfig(
+        saturation_counts=float(saturation_counts),
+        max_saturated_fraction=max_saturated_fraction,
+        min_peak_counts=float(min_peak_counts),
+        min_total_counts=float(min_total_counts),
+        max_centroid_error_px=float(position_tolerance_ccd_px) / float(grid_spacing_px),
+        improvement_epsilon=float(improvement_epsilon),
+        rollback_epsilon=float(rollback_epsilon),
+        oscillation_amplitude=max(5.0 * score_noise, 0.01),
+    )
