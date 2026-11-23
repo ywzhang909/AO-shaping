@@ -6,7 +6,7 @@
 > **数据/关联脚本**: [`scripts/_common/differentiable_problem.py`](../../../scripts/_common/differentiable_problem.py)
 > **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`](../../../src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py)
 > **运行环境**: 仅 GPU 离线（RTX 5080 Laptop，1024² 网格 cuda）；未占用 SLM / CCD / 激光，全程无实验动作
-> **说明**: 冻结问题 phys_20261116_01 上可微整形加速方案公平筛选（K 轴候选并行 + gate 复现 + 参照臂）：gate 复现逐位一致（max_rel_dev=0.0 ≤ 0.001, PASS）。K 轴 n_candidates∈{1,4,8}（Adam lr=0.05, 120 迭代）**不构成加速**：K>1 终态 cv 仅改善 ~0.05%（0.28381→0.28365，种子噪声 2–4 倍）、墙钟 +17%（K=4）~+60%（K=8），且 iters_to_k1_cv=115 三者相同（不提前收敛）⇒ 严格支配、K 轴淘汰；与 candidate_parallelism_20261117（grid 256 square 仅 0.07% 收益）一致。参照臂分开报告：L-BFGS（lr=1.0）第 5 迭代即达 K=1 终态 cv（≈0.67 s vs K=1 全程 5.91 s，快 ≈8.9×），终态 cv -0.15%、energy +2.5% ⇒ **算法轴加速候选**；cosine 调度质量 -0.42% 无收益。入围物理复验配对 = K=1 Adam 基线 vs L-BFGS 早停。人工撰写。
+> **说明**: 冻结问题 phys_20261116_01 上可微整形加速方案公平筛选（K 轴候选并行 + gate 复现 + 参照变体）：gate 复现逐位一致（max_rel_dev=0.0 ≤ 0.001, PASS）。K 轴 n_candidates∈{1,4,8}（Adam lr=0.05, 120 迭代）**不构成加速**：K>1 终态 cv 仅改善 ~0.05%（0.28381→0.28365，种子噪声 2–4 倍）、墙钟 +17%（K=4）~+60%（K=8），且 iters_to_k1_cv=115 三者相同（不提前收敛）⇒ 严格支配、K 轴淘汰；与 candidate_parallelism_20261117（grid 256 square 仅 0.07% 收益）一致。参照变体分开报告：L-BFGS（lr=1.0）第 5 迭代即达 K=1 终态 cv（≈0.67 s vs K=1 全程 5.91 s，快 ≈8.9×），终态 cv -0.15%、energy +2.5% ⇒ **算法轴加速候选**；cosine 调度质量 -0.42% 无收益。入围物理复验配对 = K=1 Adam 基线 vs L-BFGS 早停。人工撰写。
 <!-- provenance:end -->
 
 **日期**：2026-11-23（UTC 14:05 完成）
@@ -34,11 +34,11 @@
 
 ## 2. 方法与公平性
 
-筛选脚本：`scripts/slm/sweep_kaxis_frozen_20261123.py`（`--plot`）。臂冻结如下：
+筛选脚本：`scripts/slm/sweep_kaxis_frozen_20261123.py`（`--plot`）。变体冻结如下：
 
 - **gate_repro**：`build_optimizer(lr=0.05, seed=0)` 跑 120 步，门 `max_rel_dev <= 0.001`（对照 `lr_sweep_20261116/lr_sweep.json` 基线）。
 - **K 轴**：`train_beam_shaping`，固定 `target / amplitude / init_phase / grid_size / propagation="fft" / iterations=120 / lr=0.05 / seed`，仅变 `n_candidates ∈ {1,4,8}`（`k1_seed0` + `k4_seed0/1/2` + `k8_seed0/1/2`）；内部基线为 **K=1**。
-- **参照臂**：`ref_lbfgs`（`optimizer=lbfgs`，`lr=1.0`，K 回退 1）、`ref_cosine`（`optimizer=adam`，`lr=0.1`，`lr_schedule="cosine"`）。**参照臂与 K 轴分开报告**。
+- **参照变体**：`ref_lbfgs`（`optimizer=lbfgs`，`lr=1.0`，K 回退 1）、`ref_cosine`（`optimizer=adam`，`lr=0.1`，`lr_schedule="cosine"`）。**参照变体与 K 轴分开报告**。
 
 K 轴比较包含候选扰动（K>1 与显式 GS 初相位叠加 `0.1*randn`）与最优候选选择，因此是「候选并行 + 择优」语义，不是单纯 batch 吞吐。
 
@@ -62,7 +62,7 @@ gate 与 `lr_sweep_20261116/lr_sweep.json` 基线**逐位一致**（相对偏差
 
 ### 3.2 K 轴（候选并行）——淘汰
 
-| 臂 | wall_s | per_iter_s | cv | energy | fwhm_px | strehl | iters_to_k1_cv |
+| 变体 | wall_s | per_iter_s | cv | energy | fwhm_px | strehl | iters_to_k1_cv |
 |---|---|---|---|---|---|---|---|
 | **k1_seed0（内部基线）** | 5.9141 | 0.04928 | **0.28381** | 0.83383 | 31.323 | 0.033668 | 115 |
 | k4_seed0 | 7.1034 | 0.05920 | 0.28362 | 0.83401 | 31.332 | 0.033551 | 115 |
@@ -88,9 +88,9 @@ gate 与 `lr_sweep_20261116/lr_sweep.json` 基线**逐位一致**（相对偏差
 
 **结论**：在冻结问题（square 单盆地目标）上，K>1 是**「用 ~17–60% 更多时间换取 ~0.05% 质量」的严格支配取舍**，不构成加速 ⇒ **K 轴淘汰**。此结论与 `candidate_parallelism_20261117.md`（grid 256 / 300 iter / seed 42：square 目标仅 0.07% 收益、8 候选慢 4.6–5.8×）**一致**——冻结问题为 square 单盆地，K>1 无质量收益是预期行为；本问题因 1024² 网格每候选并行工作更多，慢放比收窄到 1.6×（而非 4.6–5.8×），但质量收益同样归零。
 
-### 3.3 参照臂（算法轴，分开报告）——L-BFGS 是加速杠杆
+### 3.3 参照变体（算法轴，分开报告）——L-BFGS 是加速杠杆
 
-| 臂 | wall_s | per_iter_s | cv | energy | fwhm_px | strehl | iters_to_k1_cv |
+| 变体 | wall_s | per_iter_s | cv | energy | fwhm_px | strehl | iters_to_k1_cv |
 |---|---|---|---|---|---|---|---|
 | **ref_lbfgs** | 15.9749 | 0.13312 | **0.28337** | **0.85484** | 31.049 | 0.033072 | **5** |
 | ref_cosine | 5.4087 | 0.04507 | 0.28500 | 0.83099 | 31.369 | 0.034959 | null |
@@ -124,7 +124,7 @@ gate 与 `lr_sweep_20261116/lr_sweep.json` 基线**逐位一致**（相对偏差
 - **测量**：CCD 远场整形质量（`cv_in_target`、`energy_in_target`、`strehl_like`、`pred_fwhm_px`）+ **墙钟**（含上屏与采集，不含离线编译）。
 - **判决**：B 达 A 终态质量的墙钟**显著短**（配对时间比 < 1/3，即 <~2 s 量级）**且** B 终态质量不劣于 A（cv 相对差在容差内）⇒ **B 入围**；否则 B 淘汰、维持 A。
 
-> 物理复验需一次上机窗口（一次 SLM open/close、Mono12、`--wait-until-idle 600`、段间冷却 ≥200 s、每段独立 `--out`、采集期间不判读）；**未获授权不执行**。
+> 物理复验需一次实验窗口（一次 SLM open/close、Mono12、`--wait-until-idle 600`、段间冷却 ≥200 s、每段独立 `--out`、采集期间不判读）；**未获授权不执行**。
 
 ## 6. 产物与复现
 

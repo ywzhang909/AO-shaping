@@ -127,7 +127,7 @@ P1 只露出**必设参数**（其余字段按 `TRANSFER_RECIPE` 默认值透传
 
 > 本页的保持语义目前只有离线验证（`tests/ao_shaping/gui/slm/test_target_lock.py`、
 > `test_closed_loop_shaping.py` 的 hold 用例）。**尚未做硬件验收**，界面措辞不得
-> 宣称已在实机上验证拒漂移。
+> 宣称已在实验上验证拒漂移。
 
 ## 已知限制
 

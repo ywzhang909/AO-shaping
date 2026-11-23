@@ -234,7 +234,7 @@ class SpotLocation:
 
 @dataclass(frozen=True)
 class SpotRegistration:
-    """spot 窗口相对冻结 origin 的整数平移，以及前向模型要吃的 registration。
+    """spot 窗口相对冻结 origin 的整数平移，以及物理预测模型要吃的 registration。
 
     ``registration_shift_ccd_px`` 的顺序是 ``(dy, dx)``（见
     :func:`differentiable_defocus_uniformity.FrozenDefocusParameters`），而
@@ -1028,7 +1028,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "分析窗口中心 'x,y'（CCD 像素）；auto = 检查点 origin（缺省，行为不变）；"
             f"{AUTO_SPOT} = 标定前采一帧零相位图定位光斑，窗口开在 round(质心) 并"
-            "把同一整数平移写进物理前向的 registration"
+            "把同一整数平移写进物理预测的 registration"
         ),
     )
     parser.add_argument("--grid-size", type=int, default=None, help="SLM 控制网格边长；缺省取检查点")

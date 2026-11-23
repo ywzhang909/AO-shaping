@@ -5,13 +5,13 @@
 > **数据/关联脚本**: [`scripts/slm/target_lock_ondevice_20261123.py`](../../scripts/slm/target_lock_ondevice_20261123.py)
 > **数据/关联脚本**: [`scripts/slm/target_lock_probe_20261123.py`](../../scripts/slm/target_lock_probe_20261123.py)
 > **运行环境**: 硬件
-> **说明**: 固定 CCD 目标保持·标定与保持物理实验（2026-11-23，SLM #1 1064 nm + Daheng CCD MER2-507-23GM NIR，cam_id=0）：两次上机（0.10/0.05 ms）标定均成功、保持均未达成，归因于标定口径错位（整帧 vs 窗口）/适配种子 [WinError 2]/起点光斑不在窗口，非真实物理漂移；并含倾斜注入幅度扫（≈0.628 px/峰谷-rad）与 registration 等价性探针（整数平移逐点等价）。输入为 data/debug 磁盘证据，未据此完成物理验收。
+> **说明**: 固定 CCD 目标保持·标定与保持物理实验（2026-11-23，SLM #1 1064 nm + Daheng CCD MER2-507-23GM NIR，cam_id=0）：两次实验（0.10/0.05 ms）标定均成功、保持均未达成，归因于标定口径错位（整帧 vs 窗口）/适配种子 [WinError 2]/起点光斑不在窗口，非真实物理漂移；并含倾斜注入幅度扫（≈0.628 px/峰谷-rad）与 registration 等价性探针（整数平移逐点等价）。输入为 data/debug 磁盘证据，未据此完成物理验收。
 <!-- provenance:end -->
 
 ## 摘要
 
 本日按「固定 CCD 像素质心、单一最终目标形状（矩形 field 目标，半宽 10×10 px）的闭环目标保持」
-路线在光路 A 上做了两次上机实验（`target_lock_20261123a` / `target_lock_20261123b`，SLM #1 1064 nm +
+路线在光路 A 上做了两次实验（`target_lock_20261123a` / `target_lock_20261123b`，SLM #1 1064 nm +
 Daheng CCD `MER2-507-23GM NIR` SN `FJB24112232`，cam_id=0）。两次的**标定阶段都成功**（8 帧零相位、
 无饱和、`total_counts≈1.55e6`），但**保持阶段都未达成**，**退出码 3（故障即停）**。本报告把
 保持失败归因于**软件注入/口径问题，而不是真实物理漂移**，因此**不构成物理验收结论**；物理验收
@@ -138,7 +138,7 @@ run a 同上，仅 `--out .../target_lock_20261123a`、`--exposure-ms 0.1`。
   `(1227.66, 1103.16)`，偏移 177.87 px（≈1.5 个窗口半宽）→ 窗口基本不含光斑，标定/保持
   口径失真。
 - **修复**（Lane B）：`--centre auto-spot`——标定前采一帧零相位图定位光斑，窗口开在
-  `round(质心)=(1228,1103)`，并把同一整数平移写进物理前向的 registration
+  `round(质心)=(1228,1103)`，并把同一整数平移写进物理预测的 registration
   （`registered_forward_params` 用 `dataclasses.replace(params, registration_shift_ccd_px=(dy,dx))`，
   `(dx,dy)=(−76,+160)`）。探针 ② 证实整数平移逐点等价、分数平移不可用（§3.4）。
 - 标定与保持**同曝光**（0.05 ms），保持模式强制 `candidate_policy="auto"`。
@@ -171,6 +171,6 @@ run a 同上，仅 `--out .../target_lock_20261123a`、`--exposure-ms 0.1`。
   run b 注入 2.0 rad（≈1.26 px）本就小于 5 px 容差，成功也不能演示拒漂移。
 - **修复已就位**：窗口口径标定（①）、去 `--adapt`（②）、auto-spot + 整数 registration（③）、
   注入幅值定为 `--drift-rad 30`（≈18.8 px）。
-- **下一步（可选上机重跑）**：`target_lock_20261123c`，0.05 ms、无 `--adapt`、
+- **下一步（可选实验重跑）**：`target_lock_20261123c`，0.05 ms、无 `--adapt`、
   `--centre auto-spot`、`--drift-rad 30`；成功后回填本报告的保持结论（物理验收）。
 - 设备均关闭（SLM #1 gray-0）；未推送，等待并入主分支。
