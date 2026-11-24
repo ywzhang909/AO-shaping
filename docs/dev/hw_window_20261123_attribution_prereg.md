@@ -225,7 +225,7 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
 **共同前提**
 
 - `data/experiments/attribution_20261123/<segment>/` 每段**必须不存在**：`issue247_geometry_capture` /
-  `efficiency_match_capture` 用 `out.mkdir(exist_ok=False)`，`transfer/capture.py:551` 同款 ⇒ 目录已存在即**失败**（不复用）。
+  `efficiency_match_capture` 用 `out.mkdir(exist_ok=False)`，`transfer/capture.py:558` 同款（2026-11-24 复核 `ba50f842d`/`bccf258d8` 第 183 批 splits 抽取后由 :551 下移 7 行）⇒ 目录已存在即**失败**（不复用）。
 - 一个窗口一次 open/close，**段间人工等待 ≥200 s**；全部段 `--wait-until-idle 600`、曝光 0.087 ms、Mono12。
 - 各采集脚本内部都是「恰好一次 open / 一次 close」（`issue247_geometry_capture_20261120.py:49-63`、
   `efficiency_match_capture_20261123.py:45-51`）⇒ 手敲多段等于多轮 open/close，冷却只能靠人间隔。
@@ -268,7 +268,7 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
 **S3 — 方向门重判（3 pass）**
 
 > 位深缺陷已修（2026-11-23）：`direction_holdout_capture_20261119.py` 原**无位深参数**，经
-> `transfer/capture.py:299-301` 只在 `args.bit_depth` 存在时才下发 ⇒ 该脚本此前一律落 **Mono8**。
+> `transfer/capture.py:306-308` 只在 `args.bit_depth` 存在时才下发（2026-11-24 复核 `ba50f842d`/`bccf258d8` 第 183 批 splits 抽取后由 :299-301 下移 7 行）⇒ 该脚本此前一律落 **Mono8**。
 > 已加 `--bit-depth`（默认 12、`choices=(8,12,16)`）并写入传给 capture 的 namespace，由
 > `_verify_capture_bit_depth` 回读校验。`--out` required、`exist_ok=False`；`--wait-until-idle` 默认 **120**。
 > 帧数实测（plan-only）：每 pass 14 个 holdout 探针 + 标定段（reference_start / ramps(64,128) / reference_end），
