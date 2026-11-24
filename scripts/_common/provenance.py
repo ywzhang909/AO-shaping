@@ -3343,8 +3343,11 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note=(
             "M4 拐点扫描汇总 (n_max=11, 120 epochs; spgd x heuristic 两变体 x 三档, "
-            "与 M3/matrix_20261121 同轴同种子): spgd n8→n11 无增益 (拐点=8); "
-            "heuristic-PSO 提维单调劣化三档复现 (固定种群 12)"
+            "与 M3/matrix_20261121 同轴): spgd n8→n11 无增益 (拐点=8); "
+            "heuristic-PSO 提维单调劣化三档复现 (固定种群 12); 配对边界: 本矩阵为 "
+            "--variants 子扫掠, 旧递增 slot 使 heuristic dist_seed 1,3,5 与基线/M3 "
+            "2,5,8 未逐单元配对 → 跨 n_max 劣化结论未配对 (f5e7550a 起 slot_of 冻结"
+            "网格序号, 重跑方配对)"
         ),
         extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
     ),
