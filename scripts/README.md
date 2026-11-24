@@ -1563,12 +1563,32 @@ artefacts `generate_gs_refine_zernike_report.py` consumes. Three stages, all
 recorded per run under `data/debug/slm_gs_refine_zernike/<ts>/<group>/`:
 
 - **Stage A — freeform GS**: `slm_gs_refine` GS pre-shape to a square target;
-  best phase + full per-iteration history recorded.
-- **Stage B — Zernike fit**: the GS best phase is fitted to Noll Zernike
-  coefficients at each `--n-max`, on the **same `beam_radius_px` pupil basis** the
-  driver uses, so the fitted phase is directly re-downloadable.
+  best phase + full per-iteration history recorded. **Skipped by default** —
+  see Phase source below.
+- **Stage B — Zernike fit**: the best phase (from Stage A, or from the transfer
+  final when Stage A is skipped) is fitted to Noll Zernike coefficients at each
+  `--n-max`, on the **same `beam_radius_px` pupil basis** the driver uses, so the
+  fitted phase is directly re-downloadable.
 - **Stage C — SPGD refine per order**: `slm_zernike_pib` SPGD over the fitted
   coefficients, one run per `n_max`, each with its own `spgd_nmax<n>.csv`.
+
+**Phase source** (`--phase-source`, added 2026-11-24): selects where the phase
+under test comes from.
+
+- **`transfer`** (default): the latest accepted transfer-shaping final
+  (`scripts/slm/_transfer_phase.py`, overridden by `--transfer-phase`). Stage A
+  is **skipped** — the transfer panel phase *is* `best_phase`; only the flat-field
+  probe still runs (Stage C needs the zero-order centre + target-box side). The
+  flat / GS-freeform baseline frames are recorded as `null`, never fabricated.
+  The transfer phase may carry a carrier, so a low-order truncation of it does
+  **not** mean the same thing as truncating a GS per-pixel phase — this is spelled
+  out in the logs and in `summary.json` (`phase_source` / `transfer_phase` /
+  `geometry_source`).
+- **`gs`**: the original Stage-A GS-refine behaviour, including `--stage-a-only`
+  chunked resume, unchanged.
+
+`--stage-a-in` always wins over `--phase-source`: whatever phase the handover
+file carries is what Stage B/C consume.
 
 **Why it exists**: answers "how many Zernike orders reproduce the freeform GS
 phase, and how much does SPGD recover on top?" The fit residual vs `n_max` shows
@@ -1612,6 +1632,8 @@ python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \
 | `--gs-iters` | `200` | GS iterations |
 | `--spgd-epochs` | `200` | Stage-C SPGD epochs per order |
 | `--n-max` | `4 6 8 11 15` | Zernike truncation orders to sweep (space-separated) |
+| `--phase-source` | `transfer` | `transfer` = latest accepted transfer-shaping final (default; Stage A skipped) / `gs` = original Stage-A GS-refine. `--stage-a-in` wins over this |
+| `--transfer-phase` | latest final | transfer phase file (`.npy` 640×640 rad / `.npz` with `model_phase`); default from `scripts/slm/_transfer_phase.py`. Only effective with `--phase-source transfer` |
 | `--delta` | `0.02` | SPGD perturbation amplitude (rad). Only honoured when `--lr` non-zero; with `--lr 0` the optimizer's own schedule overrides it (capped 0.5 rad, larger than a typical fitted coefficient → SPGD rejects every step) |
 | `--lr` | `0.01` | Adam learning rate (0 = optimizer auto-schedule, which also overrides `--delta`) |
 | `--seed` | `0` | RNG seed |
