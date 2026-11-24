@@ -1006,3 +1006,177 @@ S1b d0 组 A128 灰度 SHA256 **逐位相同**——三次上传的是同一字�
 SLM 控制器存储态（LUT/驱动波形/上电序列）跨会话差异；会话前序上传历史的影响；
 光机装夹微动（但 0th 位移仅 ~1.4 px，不足以解释 95/56 的轴翻转）。在完成上述
 排查并取得可复现映射前，S1 保持 BLOCKED，G1/G3/G4 继续暂缓。
+
+
+---
+
+### 12.14 S1d 朝向探针预注册（2026-11-24，采集前冻结）
+
+§12.13 把跨会话矛盾收敛到「同一灰度数组在不同会话被以不同空间朝向投到面板」。
+本节冻结一个**单会话**探针，用于判定：面板→CCD 映射是否能在**一个会话内**用单一
+2×2 线性映射解释全部探针族（含 S1b 的 content A）。**不新写相位数学**：builder 一律
+import 自 `issue247_geometry_capture_20261120.py` 与 `content_axis_2x2_capture_20261124.py`；
+拟合一律复用冻结求解器 `issue247_axis_map_solve_20261121.py`（只读运行，不改）。
+
+#### 12.14.1 冻结采集计划（14 个 pattern、各 2 帧，共 28 帧，1 次 open/close）
+
+| # | pattern_id | 构造（builder） | 目的 |
+|---|---|---|---|
+| 1 | `flat` | `flat_phase` | 0th 参考 `R_s`；光路在靶检查 |
+| 2 | `grating_x_p128` | `grating_phase(period_px=128, axis=1)` | x 族基线（对比 run_01 列 ±95） |
+| 3 | `grating_y_p128` | `grating_phase(period_px=128, axis=0)` | y 族基线（对比 run_01 列 ±59.9） |
+| 4 | `grating_x_p256` | `grating_phase(period_px=256, axis=1)` | x 族尺度第二频点 |
+| 5 | `grating_y_p256` | `grating_phase(period_px=256, axis=0)` | y 族尺度第二频点 |
+| 6 | `ladder_x` | `ladder_phase(axis=1, sign=1)` | A1 自洽子映射 panel-x→行（对比 run_01 行 −88） |
+| 7 | `ladder_y` | `ladder_phase(axis=0, sign=1)` | y 族阶梯（判定是否同轴/异轴） |
+| 8 | `blaze2d_px128_py192_sx+1_sy+1` | `blaze2d_phase(128,192,+1,+1)` | 2×2 拟合点（对比 run_01 (−59,+41)） |
+| 9 | `blaze2d_px128_py192_sx+1_sy-1` | `blaze2d_phase(128,192,+1,−1)` | 2×2 拟合点 |
+| 10 | `blaze2d_px192_py128_sx+1_sy+1` | `blaze2d_phase(192,128,+1,+1)` | 2×2 拟合点（周期交换） |
+| 11 | `blaze2d_px192_py128_sx+1_sy-1` | `blaze2d_phase(192,128,+1,−1)` | 2×2 拟合点 |
+| 12 | `content_a128` | `content_axis_2x2_capture_20261124.make_phase("A",128,shape,0.0)` | S1b 内容重传（对比 S1b 行 56.7） |
+| 13 | `content_a256` | `make_phase("A",256,shape,0.0)` | S1b 内容第二周期 |
+| 14 | `flat_post` | `flat_phase` | 0th 漂移 |
+
+冻结参数：SLM **#1**（`video_mode=0`）、Daheng **cam 0**、波长 1064 nm、全幅 **Mono12**
+（full scale 4095）、曝光 **0.087 ms**、settle **0.8 s**、`focus_d_m1=0.0`（无 Fresnel）、
+饱和门 `0.9×4095`、**各 pattern 2 帧**、输出目录必须全新（`exist_ok=False`）。**不采 dark**。
+脚本**不操作激光**。
+
+输出（A1 兼容布局，供冻结求解器直接读取）：
+`data/experiments/attribution_20261123/s1/s1d_orientation_probe_20261124/run_01/`
+含 `frames/{idx:04d}_{pattern_id}.npy`、`summary.json`（含 `blaze2d_designs` 四个 id 与逐
+pattern 的 phase/gray SHA256、曝光、位深、饱和、设备标识）、`plan.json`、`released.json`。
+
+#### 12.14.2 冻结判读（离线，禁止事后改口径）
+
+- **J1 映射拟合**：只读运行
+  `python scripts/slm/issue247_axis_map_solve_20261121.py --capture-dir <run_01>`，
+  读取其写出的 `axis_mapping_status.json` / `issue247_axis_map.json`。冻结规则沿用该脚本
+  内置 `FREEZE_RULES`（RMS ≤1.0 px、相对误差 ≤2%、轴夹 88.544±2.0°、秩守卫 ≥0.10）。
+- **J2 独立归属表**：另用 `analyze_content_axis_2x2_20261124.find_spots/principal`
+  （`exclude_core=6`、`min_dist=15`、thresh `0.01×max`、ROI 由预测位置导出）逐 pattern
+  报主瓣 `(dr,dc)`，并计算相对拟合映射 A 的残差。
+- **弱信号**：pattern 主瓣峰 < `0.10×flat` 0th 峰 ⇒ 不计入归属，单列标注。
+
+判决分支（采集前冻结）：
+
+- **M1 单映射闭合**：J1 通过冻结规则，且 J2 中 `grating_x_p128/…p256`、`grating_y_*`、
+  `ladder_x/y`、四个 blaze2d 的残差均 ≤1.5 px ⇒ 一个会话内单一线性映射解释全部探针族。
+  ⇒ 轴是**会话级属性**；S1b 晨间为不同会话态，登记 `session_state_bimodal`，S1 维持
+  BLOCKED，下一步定位会话状态变量（控制器 LUT/驱动波形/上电序列）。S1b 仍不重判。
+- **M2 内容相关不闭合**：J1 不通过（RMS >1.0 px 或秩 <0.10 或轴夹越界），**或**任一探针
+  残差 >1.5 px，尤其 `grating_x_p128` 与 `ladder_x`（二者 builder 均沿面板 x 变化）在同会话
+  落**不同轴** ⇒ 面板→CCD 映射依赖图案内容，即**SLM 未忠实、一致地投递所发相位的空间
+  几何**。登记 `content_dependent_delivery`，S1 维持 BLOCKED，转设备/固件排查。
+- **M3 会话态可复现**：`grating_x_p128`、`grating_y_p128`、`ladder_x`、
+  `blaze2d_px128_py192_sx+1_sy+1` 四个共享 id 的主瓣与 run_01 对应值各差 ≤1.5 px
+  ⇒ 相邻两会话（run_01 与本次）同一状态，跨会话非确定性只发生在「S1b 晨间」与
+  「A1/S1c/S1d」两种状态之间，而非逐帧随机。
+- **content A 判定**：若 `content_a128` 与 `grating_x_p128` 同会话同轴同量级（≤1.5 px）
+  ⇒ S1b 内容的轴由**会话态**而非内容决定；若 `content_a128` 落行、`grating_x_p128` 落列
+  且同一会话 ⇒ 内容决定轴（即 M2 的一种具体表现），记 `content_dependent_delivery`。
+
+无论哪一分支，**S1 本轮回写后仍为 BLOCKED**（缺同会话映射对 S1b 原始帧的重判能力），
+**不做 D bracket**。若 M1/M3 成立，下一步才是「定位并锁定会话状态变量」。
+
+#### 12.14.3 停止条件与设备纪律
+
+- 开始前 `--wait-until-idle 1800`（OS 级 `DeviceLock`）；超时退出码 2，不开设备、不重试。
+- `slm.open()` 后必须 `require_drive_board_entry(slm)`，驱动板不应答立即中止并释放。
+- `flat` 0th 峰 <100（Mono12 计数）⇒ 判无光/光路无效，中止并释放。
+- 任一帧饱和（≥0.9×4095）、SLM/CCD 异常或超时 ⇒ 中止，走统一释放，**不自动重开**。
+- 全程 1 次 SLM open/close；结束 `set_grayscale(0)`、关相机、关 SLM、释放锁，
+  `released.json` 四标志齐备才算正常关闭。占用与释放在回复中明确报告。
+
+#### 12.14.4 实现与门禁
+
+新增 `scripts/slm/s1d_orientation_probe_capture_20261124.py` + 对应
+`tests/ao_shaping/scripts/test_s1d_orientation_probe_capture_20261124.py`。builder 一律 import，
+不改共享文件。离线门禁：`pytest --import-mode=importlib`、`ruff check`、无 BOM、术语统一
+dry-run 本文件 0 违规、plan-only 不建目录不碰设备。
+
+
+---
+
+### 12.15 S1d 实测回写与判决（2026-11-24，采集后）
+
+采集：`run_01`，14 pattern × 2 帧 = **28/28 帧**，单次 SLM open/close，退出正常。
+`released.json`：`slm_closed/camera_closed/lock_released/closed_normally` 全 true、
+`error=null`、`elapsed_s=45.44`。设备：SLM #1（driveboardID 已应答）+ Daheng cam 0，
+**未操作激光**。取锁前等待另一进程（pid 1633024，`probe_optical_path_validity.py`）
+释放，约 60 s 后获得锁，未并行占用。
+PowerShell 报的 `NativeCommandError`/退出码 1 是 stderr WARNING（锁等待日志）包装伪影；
+`summary.run.status="ok"`、`closed_normally=true` 才是真实结束状态。
+
+#### 12.15.1 逐 pattern 归属（冻结求解器 `principal()`，ref=flat 0th `(1104.21,1228.58)`）
+
+| pattern | (dr,dc) px | 峰 | 与 blaze2d 模型预测 | 判定 |
+|---|---|---|---|---|
+| `grating_x_p128` | (−1.41, **−96.09**) | 743.5 | fx=1/128 → **行** −59.27 | ❌ 异轴 |
+| `grating_y_p128` | (−1.25, −60.31) | 585.0 | fy=1/128 → 列 +59.97 | ✅（反侧 ±1 级） |
+| `grating_x_p256` | (−0.38, **−48.42**) | 542.0 | fx=1/256 → **行** −29.63 | ❌ 异轴 |
+| `grating_y_p256` | (−1.35, −29.66) | 535.0 | fy=1/256 → 列 +29.98 | ✅ |
+| `ladder_x` | (**−86.10**, +2.88) | 175.5 | 行向（panel-x→行） | ✅ 同轴 |
+| `ladder_y` | (−6.93, +78.62) | 271.0 | 列向（panel-y→列） | ✅ 同轴 |
+| `blaze2d_px128_py192_sx+1_sy+1` | (−58.32,+40.83) | 936.5 | 拟合点 | — |
+| `blaze2d_px128_py192_sx+1_sy-1` | (−60.51,−38.98) | 610.5 | 拟合点 | — |
+| `blaze2d_px192_py128_sx+1_sy+1` | (−38.31,+59.72) | 862.0 | 拟合点 | — |
+| `blaze2d_px192_py128_sx+1_sy-1` | (−40.28,−60.31) | 792.0 | 拟合点 | — |
+| `content_a128` | (**+58.04**, −1.48) | 555 | fx=1/128 → 行 ±59.27 | ✅ 同轴同量级 |
+| `content_a256` | (**+28.05**, +0.12) | 721 | fx=1/256 → 行 ±29.63 | ✅ 同轴同量级 |
+| `flat_post` | 无非核主瓣 | 2283 | 0th 漂移 ≤1 px | 光机稳 |
+
+#### 12.15.2 J1（冻结求解器原样输出）
+
+- `A = [[+152.052, −7586.380], [+7675.607, +64.497]]`（panel fy→列、panel fx→行）
+- 秩守卫 **0.984**、条件数 1.017、blaze2d 残差 RMS **0.628 px**、max 0.801 px（拟合本身很好）
+- 轴夹角 **90.650°**，冻结界 88.544±2.0（上限 90.544）⇒ **FAIL**
+- `axis_mapping_status.json`：`frozen=false`，
+  `verdict="mapping_still_ambiguous: blaze2d_axis_separation"`（求解器原样写出，未改阈值）
+
+#### 12.15.3 决定性对照：同一字节数组，同一运行，两个远场
+
+`grating_x_p128` 与 `content_a128` 的 **phase_sha256 与 gray_sha256 完全相同**
+（`d8f16e03…` / `7276d9da…`，与 S1b/S1c 同一哈希；直接重建两 builder 逐位相同，
+`np.array_equal=True`，灰度唯一值均 `{0,512}`）。journal 逐帧记录同一 `gray_sha256`
+分别在 **13:16:28–30（帧 2/3）** 与 **13:16:55–56（帧 22/23）** 上传，
+同一脚本、同一显示调用、同一 open/close 会话：
+
+- 帧 2/3：主瓣 **列** ±95.6，三次/五次谐波 283.72 / 475.72（比 2.967 / 4.975，二值光栅奇次谐波）
+- 帧 22/23：主瓣 **行** +57.3 / −59.7，高阶 ±178.7 / ±174.4
+- 两帧组 `mean abs diff=0.89`、相关 0.68；共有固定相机伪影 (+838,+1145) 佐证同一光路
+
+⇒ **上传字节不是远场几何的确定函数**。排除：数组内容（逐位相同）、会话态（同一会话内复现）、
+光机（0th 漂移 ≤1 px）、曝光/位深（同一设置）、帧标号错配（journal 哈希+时序逐帧对应）。
+
+**定量指纹**：异常帧基频 95.6 px = **1.602 × 59.97**，而 1920/1200 = 1.600。
+若把原阵列「旋转 90° 再按面板纵横比重采样填满」，周期 128 沿列 → 沿行周期
+128×(1200/1920) = **80** ⇒ 列向 7676/80 = **95.95 px**，与实测 95.6 吻合；
+`grating_x_p256` 同理 256→160 ⇒ 47.98 px，实测 48.42 吻合。
+同一会话的 `grating_y_*`、`ladder_*`、`blaze2d_*`、`content_a*` 均**不**带此变换。
+该签名指向 **SLM 显示/视频通路（`video_mode=0`）的旋转+缩放**，而非面板物理或光机。
+
+#### 12.15.4 判决
+
+- **J1 不通过**（轴夹角越界），**不冻结映射**。
+- **M2 触发**，且比预注册措辞更强：不只是「同面板轴不同 CCD 轴」
+  （`grating_x_p128`→列 vs `ladder_x`→行），而是**同一字节数组在同一运行内给出两种远场**。
+  登记 `delivery_nondeterministic_same_bytes`（取代 §12.14 的 `content_dependent_delivery`
+  作为更精确命名；内容已被逐位相同排除）。
+- **M3 基本成立**：与 run_01 共享的 4 个 id 主瓣差 gx 0.1 px、gy 0.4 px、
+  blaze2d 0.9 px、ladder_x ~1.9 px（略超 1.5，记录不修饰）⇒ S1c/S1d 同一会话态。
+- **S1b 晨间不再是「离群会话态」**：`content_a128` 在 S1b 晨（行 56.7）与 S1d 晚
+  （行 58.04）**一致**（Δ1.36 px）。真正可复现的异常一直只落在 `grating_x_*` 采集上
+  （A1 11-21、S1c、S1d 均为列 ~96）。S1b 原始记录不改写，此处仅为跨实验对照。
+- **S1 维持 BLOCKED**，**不做 D bracket**，G1/G3/G4 继续暂缓。
+- A1 旧 blaze2d-only 拟合不得单独冻结的结论不变；本次 blaze2d 族虽自洽，
+  但轴夹角越界 + 同字节异远场，任何映射冻结都无意义。
+
+#### 12.15.5 下一步（须重新预注册后执行）
+
+1. **显示通路排查（离线优先）**：Santec `video_mode=0` 视频通路的旋转/缩放来源
+   （OS 显示旋转、桌面缩放、驱动上传分辨率/stride、其它进程对显示的重建）；
+   核对驱动在上传时是否做 transpose/resize，增加上传后回读或 dump 实际送显缓冲区。
+2. **S1e 同字节探针（待预注册）**：同一灰度数组连续 6 次上传 + 与第二数组 A/B/A/B 交错，
+   覆盖多个序列位置；加 power-cycle 臂。判据：同字节 ⇒ 同远场（主瓣位置差 ≤1.5 px）。
+3. 在取得「同字节 ⇒ 同远场」之前，一切轴/K 映射、D bracket、G1/G3/G4 不推进。
