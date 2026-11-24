@@ -14,6 +14,7 @@ separate best phase.
 """
 from __future__ import annotations
 
+import contextlib
 import functools
 
 import argparse
@@ -21,6 +22,7 @@ import json
 import pickle
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -300,7 +302,64 @@ def _validate_prepare_shapes(args, aspect_ratio, centre, forward, prepared, seed
 
 
 
-def run(args, *, on_frame=None):
+@dataclass
+class SharedDeviceSession:
+    """跨段复用的设备会话 (设备占用优化, 2026-11-24)。
+
+    由 :func:`shared_device_session` 打开一次 camera + SLM 后, 经
+    ``validate.run(args, session=...)`` 在多个 (shape, stage) 段之间共用:
+    同一会话内的段不再各自 open/probe/close 设备。探针结果与末段收敛
+    曝光/位深由 ``run`` 在会话对象上读写, 段间沿用。
+    """
+
+    cam: Any
+    slm: Any
+    probe_results: dict | None = None
+    exposure_ms: float | None = None
+    bit_depth: int | None = None
+
+
+def _switch_shared_bit_depth(session: SharedDeviceSession, *, camera: str, bit_depth) -> None:
+    """段间位深切换 (仅 daheng): 复用会话里相机已开流, 走 set_bit_depth 的
+    stream-off → 写 → 回读 → stream-on 契约换档, 不重开设备; 其余相机
+    (miicam/ffmpeg/sim) 不支持位深档, 原样通过。"""
+    if camera != "daheng" or not bit_depth:
+        return
+    if getattr(session.cam, "bit_depth", None) == bit_depth:
+        return
+    session.cam.set_bit_depth(int(bit_depth))
+
+
+@contextlib.contextmanager
+def shared_device_session(*, camera: str, cam_id: int, slm_number: int,
+                          bit_depth: int | None = None):
+    """Open camera + SLM once for a multi-segment reuse session.
+
+    The runner-level counterpart of the ``with opened_device(...)`` pair inside
+    :func:`run`: a campaign that passes ``session=`` to ``validate.run`` for
+    every (shape, stage) segment opens both devices here exactly once, so the
+    per-segment open/probe/close overhead (measured 666 s over 8 segments,
+    41% of segment time, in ab_session_20261124) collapses into one cycle --
+    and the SLM controller is spared the back-to-back close/open cycles that
+    can wedge it (cf. docs/dev/hardware_discipline.md).
+
+    The camera is created with ``bit_depth`` of the first stage (daheng only);
+    later stages switch in-session via :func:`_switch_shared_bit_depth`, which
+    follows the driver's stream stop/start contract instead of reopening.
+    """
+    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.tools.slm.transfer.hardware import opened_device, prepare_camera_sdk
+
+    prepare_camera_sdk(camera)
+    camera_options = {"bit_depth": bit_depth} if camera == "daheng" and bit_depth else {}
+    with opened_device(create_camera(camera, cam_id, exposure_time_ms=.02, **camera_options)) as cam:
+        with opened_device(Santec(slm_number=slm_number, wavelength=1064, video_mode=0)) as slm:
+            slm.set_phase_overlay(None)
+            yield SharedDeviceSession(cam=cam, slm=slm)
+
+
+def run(args, *, on_frame=None, session=None):
     """Run the CCD blocks.
 
     ``on_frame(payload)`` is an optional live observer. It fires **on every CCD
@@ -310,6 +369,14 @@ def run(args, *, on_frame=None):
     offline path leaves it at ``None`` and is byte-for-byte unchanged.
     ``workflow`` also passes it on the ``args`` namespace so callers that build a
     SimpleNamespace need no new call signature.
+
+    ``session`` is an optional :class:`SharedDeviceSession` from
+    :func:`shared_device_session`: with it, this run borrows the already-open
+    camera + SLM instead of opening (and closing) its own pair, reuses the
+    cached device-probe results, and starts its exposure ladder from the
+    previous segment's converged exposure when the bit depth is unchanged.
+    Without it -- the CLI and every historical caller -- the device lifecycle
+    is unchanged.
     """
     observer = _resolve_observer(args, on_frame)
     if getattr(args, "plan_only", False):
@@ -491,6 +558,7 @@ def run(args, *, on_frame=None):
         records=records,
         resume=resume,
         save_summary=save_summary,
+        session=session,
         summary_entries=summary_entries,
         torch=torch,
         writer=writer,
@@ -750,6 +818,7 @@ def _run_validate_session(
     records: object,
     resume: object,
     save_summary: object,
+    session: object,
     summary_entries: object,
     torch: object,
     writer: object,
@@ -765,27 +834,49 @@ def _run_validate_session(
     save_summary stays behind in run() and is passed in.
     Moved verbatim.
     """
-    with opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options)) as cam:
-        with opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0)) as slm:
+    if session is None:
+        _cam_scope = opened_device(create_camera(args.camera, args.cam_id, exposure_time_ms=.02, **camera_options))
+        _slm_scope = opened_device(Santec(slm_number=args.slm_number, wavelength=1064, video_mode=0))
+    else:
+        # 复用会话: 设备由 shared_device_session 持有, 这里只在位深变了时
+        # 经驱动契约换档, 不重开; nullcontext 保证本段退出时不 close
+        # (设备生命周期归会话所有, 不归单段)。
+        _switch_shared_bit_depth(session, camera=args.camera, bit_depth=bit_depth)
+        _cam_scope = contextlib.nullcontext(session.cam)
+        _slm_scope = contextlib.nullcontext(session.slm)
+    with _cam_scope as cam:
+        with _slm_scope as slm:
             slm.set_phase_overlay(None)
             floor, ceiling = get_camera_exposure_range(cam)
             configured = configured_daheng_exposure_limit() if args.camera == "daheng" else 0.
             if configured > 0:
                 ceiling = min(ceiling, configured)
             exposure = max(floor, .02)
+            if (session is not None and session.exposure_ms is not None
+                    and session.bit_depth == bit_depth):
+                # 跨段复用: 同位深下用上一段收敛的曝光作阶梯起点, 省掉从
+                # 0.02 ms 起步的完整爬档; 位深变了满量程随之变, 仍走默认起点。
+                exposure = min(max(session.exposure_ms, floor), ceiling)
 
             # 设备自检 + 0级探测 + 自动 CCD 类型选择: 加载 torch 环境/打开设备后
             # 自动执行, 结果通过 payload 展示 (best-effort, 失败不拖垮采集)。
             _probe_results = {
                 "selfcheck": None, "zero_order": None, "ccd_profile": None,
             }
-            try:
-                from ao_shaping.tools.slm.transfer.device_probe import probe_environment
-                _probe_results = probe_environment(
-                    cam, slm, cam_id=args.cam_id, cam_type=args.camera,
-                )
-            except Exception as exc:  # policy: 设备探测失败不阻断验证主流程，记 warning 后继续
-                logger.warning("device probe failed: {}", exc)
+            if session is not None and session.probe_results is not None:
+                # 复用会话: 探针在会话首段已跑过, 沿用缓存 (探针只读环境,
+                # 不依赖段配置)。
+                _probe_results = session.probe_results
+            else:
+                try:
+                    from ao_shaping.tools.slm.transfer.device_probe import probe_environment
+                    _probe_results = probe_environment(
+                        cam, slm, cam_id=args.cam_id, cam_type=args.camera,
+                    )
+                except Exception as exc:  # policy: 设备探测失败不阻断验证主流程，记 warning 后继续
+                    logger.warning("device probe failed: {}", exc)
+                if session is not None:
+                    session.probe_results = _probe_results
 
             capture = functools.partial(
                 _session_capture,
@@ -890,6 +981,13 @@ def _run_validate_session(
             finally:
                 _hold_best_phase_or_flatten(slm=slm, last_best=last_best)
                 time.sleep(.3)
+                if session is not None:
+                    # 段尾把生效曝光/位深写回会话, 供同位深的下一段作阶梯起点。
+                    try:
+                        session.exposure_ms = float(get_camera_exposure_ms(cam))
+                    except Exception as exc:
+                        logger.warning("shared session exposure write-back failed: {}", exc)
+                    session.bit_depth = bit_depth
 
 
 def _run_validate_shapes(

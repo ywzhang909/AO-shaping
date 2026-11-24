@@ -28,6 +28,7 @@ called in-process, so there is exactly one implementation of the update loop.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -573,24 +574,45 @@ def execute_campaign(*, out: Path, should_stop: Callable[[], bool] | None = None
     # ------------------------------------------------------------- shaping
     recorder = _ts_make_recorder()
 
-    stopped = run_stages(
-        out=out, shapes=shapes, order=order, resume=resume, journal=journal,
-        chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
-        initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
-        slm_number=slm_number, frames=frames, side=side, period=period,
-        window_span=window_span, zero_radius=zero_radius, window_step=window_step,
-        recorder=recorder, profile_timing=profile_timing,
-        async_capture_write=async_capture_write,
-        jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
-        jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
-        jacobian_min_signal=jacobian_min_signal,
-        accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
-        spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
-        objective=objective, weight_schedule=weight_schedule,
-        tilt=tilt, aspect_ratio=aspect_ratio,
-        hdr=values.get("hdr", False),
-        hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
-        should_stop=should_stop)
+    if values.get("reuse_device_session", False):
+        # 单会话复用 (默认关): 段循环共用一次 camera+SLM 的 open/probe/close,
+        # 回收逐段重复的固定开销 (ab_session_20261124 实测 666 s / 8 段, 41%);
+        # SLM 控制器也免受背对背 close/open 假死风险的多次冲击。会话相机按
+        # 实际执行序列的首段位深构造 (段间位深变化由 run 内换档, 不重开)。
+        # 判定与 run_stages 的 resume 复用谓词一致: 全部段已复用时不开设备,
+        # 避免为纯 resume 白付一次 open/close 周期。
+        _sequence = _stage_sequence(shapes, order)
+        _pending = any(
+            not (resume and stage_complete(out / "shape" / shape / STAGE_RECIPES[idx].name,
+                                           STAGE_RECIPES[idx].blocks))
+            for shape, idx in _sequence)
+        if _pending:
+            session_scope = validate_stage.shared_device_session(
+                camera=camera, cam_id=cam_id, slm_number=slm_number,
+                bit_depth=STAGE_RECIPES[_sequence[0][1]].bit_depth)
+        else:
+            session_scope = contextlib.nullcontext(None)
+    else:
+        session_scope = contextlib.nullcontext(None)
+    with session_scope as session:
+        stopped = run_stages(
+            out=out, shapes=shapes, order=order, resume=resume, journal=journal,
+            chosen=chosen, model_640=model_640, wide_dir=wide_dir, zero_xy=zero_xy,
+            initial_phase=initial_phase, device=device, camera=camera, cam_id=cam_id,
+            slm_number=slm_number, frames=frames, side=side, period=period,
+            window_span=window_span, zero_radius=zero_radius, window_step=window_step,
+            recorder=recorder, profile_timing=profile_timing,
+            async_capture_write=async_capture_write,
+            jacobian_guard=jacobian_guard, jacobian_low=jacobian_low,
+            jacobian_high=jacobian_high, jacobian_floor=jacobian_floor,
+            jacobian_min_signal=jacobian_min_signal,
+            accept_rel_tol=accept_rel_tol, accept_abs_tol=accept_abs_tol,
+            spectral_weight=spectral_weight, spectral_cutoff=spectral_cutoff,
+            objective=objective, weight_schedule=weight_schedule,
+            tilt=tilt, aspect_ratio=aspect_ratio,
+            hdr=values.get("hdr", False),
+            hdr_exposures_ms=values.get("hdr_exposures_ms", DEFAULT_HDR_EXPOSURES_MS),
+            should_stop=should_stop, session=session)
 
     # -------------------------------------------------------------- replay
     runs = [out / "shape" / shape / recipe.name for shape in shapes for recipe in STAGE_RECIPES]
@@ -697,9 +719,15 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
                objective: str = "cv", weight_schedule: str = "constant",
                tilt: bool = False, aspect_ratio: float = 2.0,
                should_stop: Callable[[], bool] | None = None,
+               session: object = None,
                hdr: bool = False,
                hdr_exposures_ms: tuple[float, ...] = DEFAULT_HDR_EXPOSURES_MS) -> bool:
     """Run every ``(shape, stage)`` in ``order``, reusing finished stages on ``--resume``.
+
+    ``session`` (from ``--reuse-device-session``) hands every segment the same
+    :class:`~ao_shaping.tools.slm.transfer.validate.SharedDeviceSession`: one
+    camera + SLM open/probe/close for the whole loop instead of one per
+    segment. ``None`` (the default) keeps the per-segment device lifecycle.
 
     Split out of :func:`run` so the ordering and the reuse rule are testable
     without opening a device: a caller can drive this with ``validate.run``
@@ -772,7 +800,12 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
         args.resume = resume
         key = f"{shape}/{recipe.name}"
         journal.record(key, "running")
-        validate_stage.run(args)
+        # session=None 时保持历史调用形态 (单参数), monkeypatch 的测试与旧
+        # 调用点不受影响; 只有 runner 单会话复用才追加关键字。
+        if session is None:
+            validate_stage.run(args)
+        else:
+            validate_stage.run(args, session=session)
         if recorder is not None:
             added = recording.append_run(recorder, stage_dir, key)
             logger.info("recorded {} blocks from {}", added, stage_dir)
@@ -827,6 +860,11 @@ def run_stages(*, out: Path, shapes: list[str], order: str, resume: bool, journa
 @click.option("--camera", default="daheng", show_default=True)
 @click.option("--cam-id", type=int, default=0, show_default=True)
 @click.option("--slm-number", type=int, default=1, show_default=True)
+@click.option("--reuse-device-session/--no-reuse-device-session", default=False,
+              show_default=True,
+              help="整形段单会话复用: 8 个 (shape, stage) 段共用一次 camera+SLM 的"
+                   "打开/探针/关闭, 回收逐段固定开销 (ab_session_20261124 实测 666 s/8 段); "
+                   "默认关闭, 逐段独立设备会话的历史行为不变")
 @click.option("--device", type=click.Choice(["auto", "cpu", "cuda"]), default="auto",
               show_default=True, help="计算设备 (auto = 有 CUDA 用 CUDA)")
 @click.option("--initial-phase",
@@ -928,6 +966,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         weight_schedule: str, auto_reuse: bool = True,
          tilt: bool = False, aspect_ratio: float = 2.0,
          hdr: bool = False,
+         reuse_device_session: bool = False,
          hdr_exposures_ms: tuple[float, ...] | None = None) -> None:
     """物理预测模型闭环整形：从零训练模型 + 目标整形，逐形状执行。
 
@@ -966,7 +1005,7 @@ def run(out_dir: Path, shapes: tuple[str, ...], side: float, period: float, wind
         spectral_weight=spectral_weight,
         spectral_cutoff=spectral_cutoff, objective=objective,
         weight_schedule=weight_schedule, tilt=tilt, aspect_ratio=aspect_ratio,
-        hdr=hdr,
+        hdr=hdr, reuse_device_session=reuse_device_session,
         hdr_exposures_ms=hdr_exposures_ms if hdr_exposures_ms is not None
         else DEFAULT_HDR_EXPOSURES_MS)
     plan = _plan_dict(out=out, execute=execute, **params)
