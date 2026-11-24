@@ -55,6 +55,19 @@ def test_cell_plans_construct_params_and_are_unique(matrix, tmp_path: Path) -> N
         assert params.turb_mode == "dynamic" and params.report is False
 
 
+def test_slot_of_pairs_sub_sweeps_with_frozen_baseline(matrix) -> None:
+    # 冻结网格序号 = cn2 档位 * 3 + 变体位; 子扫掠 (--variants 缩窄) 不改种子
+    assert matrix.slot_of("spgd", 1e-14) == 0
+    assert matrix.slot_of("heuristic", 2e-12) == 8
+    args = matrix.parse_args(["--dry-run", "--variants", "heuristic",
+                              "--cn2-grid", "2e-12"])
+    sub = matrix.axes(args)
+    plan = matrix.cell_plan(args, "heuristic", 2e-12, matrix.slot_of("heuristic", 2e-12))
+    full = matrix.cell_plan(matrix.parse_args([]), "heuristic", 2e-12,
+                            matrix.slot_of("heuristic", 2e-12))
+    assert plan["dist_seed"] == full["dist_seed"] == matrix.BASE_DIST_SEED + 8
+
+
 def test_dry_run_prints_plan_and_writes_nothing(matrix, tmp_path: Path, capsys, monkeypatch) -> None:
     argv = ["prog", "--dry-run", "--out-root", str(tmp_path / "nope")]
     monkeypatch.setattr(sys, "argv", argv)

@@ -60,6 +60,12 @@ def axes(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[float, ...]]:
     return variants, cn2_grid
 
 
+def slot_of(variant: str, cn2: float) -> int:
+    """dist_seed 槽位 = 单元在**冻结网格**中的序号, 与子扫掠 (--variants/--cn2-grid)
+    的枚举顺序无关 —— 任何缩窄扫掠都与基线矩阵逐单元配对 (ci 复核修正, 台账 183)。"""
+    return CN2_GRID.index(cn2) * len(VARIANTS) + VARIANTS.index(variant)
+
+
 def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> dict:
     """一个单元的完整配置字典 (传给 run_arm 的 TurbShapingParams)。"""
     return {
@@ -83,13 +89,12 @@ def run_matrix(args: argparse.Namespace) -> list[dict]:
     from ao_shaping.runners.slm.turb_shaping_runner import TurbShapingParams, run_arm
 
     results: list[dict] = []
-    slot = 0
     variants, cn2_grid = axes(args)
     for cn2 in cn2_grid:
         for variant in variants:
+            slot = slot_of(variant, cn2)
             plan = cell_plan(args, variant, cn2, slot)
-            slot += 1
-            print(f"== cell {slot}/{len(cn2_grid) * len(variants)} {variant} cn2={cn2:g}", flush=True)
+            print(f"== cell {variant} cn2={cn2:g} (slot {slot})", flush=True)
             summary = run_arm(TurbShapingParams(**plan))
             results.append({"variant": variant, "cn2": cn2, **summary})
     return results
@@ -138,7 +143,8 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
         "- dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;",
         "- 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,",
         "  MIL / GS-refine 因 sim 孪生无湍流通道暂不入列 (#253 注记);",
-        f"- 种子: dist_seed = {BASE_DIST_SEED} + 单元序号 (左到右, 逐档递增)。",
+        f"- 种子: dist_seed = {BASE_DIST_SEED} + 冻结网格序号 "
+        "(``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。",
         "",
     ]
     out = report_root / "report.md"
@@ -154,10 +160,8 @@ def main() -> int:
     if args.dry_run:
         dry_variants, dry_cn2 = axes(args)
         plan = [
-            cell_plan(args, variant, cn2, slot)
-            for slot, (cn2, variant) in enumerate(
-                (c, v) for c in dry_cn2 for v in dry_variants
-            )
+            cell_plan(args, variant, cn2, slot_of(variant, cn2))
+            for cn2 in dry_cn2 for variant in dry_variants
         ]
         print(json.dumps({"cells": plan}, ensure_ascii=False, indent=2))
         return 0
