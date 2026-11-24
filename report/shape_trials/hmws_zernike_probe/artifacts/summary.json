@@ -1,0 +1,265 @@
+{
+  "generated_at_utc": "2026-11-24T14:16:33+00:00",
+  "linearity": [
+    {
+      "intercept": 0.09766508846363792,
+      "n_points": 3,
+      "noll": 4,
+      "r2": 0.9302404360713741,
+      "slope": 0.39473142596286115
+    },
+    {
+      "intercept": -0.05212706896569096,
+      "n_points": 3,
+      "noll": 5,
+      "r2": 0.9999955999893185,
+      "slope": 1.0752854194139587
+    }
+  ],
+  "quality": {
+    "problems": [],
+    "qualified": true,
+    "thresholds": {
+      "peak_fraction_high": 0.7,
+      "peak_fraction_low": 0.05
+    }
+  },
+  "records": [
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": -0.27083587646484375,
+      "dark_subtracted": true,
+      "delta_rad": 0.2062370571861009,
+      "frame_file": "noll04_inject-0.200.npz",
+      "inject_rad": -0.2,
+      "n_m": [
+        2,
+        0
+      ],
+      "noll": 4,
+      "peak_fractions": {
+        "a": 0.3594771142099418,
+        "m": 0.3594771142099418,
+        "mm": 0.3385621014763327,
+        "p": 0.36732025146484376,
+        "pp": 0.32941176470588235
+      },
+      "peak_intensities": {
+        "a": 76.91666412353516,
+        "m": 76.97916412353516,
+        "mm": 71.58333587646484,
+        "p": 78.97916412353516,
+        "pp": 69.3125
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": 0.006237057186100908,
+      "valid": true
+    },
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": -11.604164123535156,
+      "dark_subtracted": true,
+      "delta_rad": 0.12262858063356737,
+      "frame_file": "noll04_inject+0.000.npz",
+      "inject_rad": 0.0,
+      "n_m": [
+        2,
+        0
+      ],
+      "noll": 4,
+      "peak_fractions": {
+        "a": 0.3620915132410386,
+        "m": 0.3477124083275889,
+        "mm": 0.3542483759861366,
+        "p": 0.3411764705882353,
+        "pp": 0.31503268971162685
+      },
+      "peak_intensities": {
+        "a": 77.77083587646484,
+        "m": 73.91666412353516,
+        "mm": 75.64583587646484,
+        "p": 72.3125,
+        "pp": 65.64583587646484
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": 0.12262858063356737,
+      "valid": true
+    },
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": -19.50000762939453,
+      "dark_subtracted": true,
+      "delta_rad": -0.0358703724287546,
+      "frame_file": "noll04_inject+0.200.npz",
+      "inject_rad": 0.2,
+      "n_m": [
+        2,
+        0
+      ],
+      "noll": 4,
+      "peak_fractions": {
+        "a": 0.34901960784313724,
+        "m": 0.33464053284888173,
+        "mm": 0.34509803921568627,
+        "p": 0.31633985930798103,
+        "pp": 0.2849673102883732
+      },
+      "peak_intensities": {
+        "a": 74.3125,
+        "m": 70.64583587646484,
+        "mm": 72.9375,
+        "p": 66.04166412353516,
+        "pp": 58.041664123535156
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": 0.1641296275712454,
+      "valid": true
+    },
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": 19.333328247070312,
+      "dark_subtracted": true,
+      "delta_rad": -0.06744460080006981,
+      "frame_file": "noll05_inject-0.200.npz",
+      "inject_rad": -0.2,
+      "n_m": [
+        2,
+        -2
+      ],
+      "noll": 5,
+      "peak_fractions": {
+        "a": 0.33202613381778495,
+        "m": 0.3111111210841759,
+        "mm": 0.27973857206456804,
+        "p": 0.32941176470588235,
+        "pp": 0.33725490196078434
+      },
+      "peak_intensities": {
+        "a": 69.97916412353516,
+        "m": 64.64583587646484,
+        "mm": 56.645835876464844,
+        "p": 69.3125,
+        "pp": 71.3125
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": -0.2674446008000698,
+      "valid": true
+    },
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": 8.333328247070312,
+      "dark_subtracted": true,
+      "delta_rad": -0.051606173062516934,
+      "frame_file": "noll05_inject+0.000.npz",
+      "inject_rad": 0.0,
+      "n_m": [
+        2,
+        -2
+      ],
+      "noll": 5,
+      "peak_fractions": {
+        "a": 0.35032680735868565,
+        "m": 0.31503268971162685,
+        "mm": 0.2901960784313726,
+        "p": 0.3189542583390778,
+        "pp": 0.320261427935432
+      },
+      "peak_intensities": {
+        "a": 74.58333587646484,
+        "m": 65.58333587646484,
+        "mm": 59.3125,
+        "p": 66.3125,
+        "pp": 66.91666412353516
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": -0.051606173062516934,
+      "valid": true
+    },
+    {
+      "clipped_pixels": {
+        "a": 0,
+        "m": 0,
+        "mm": 0,
+        "p": 0,
+        "pp": 0
+      },
+      "contrast": -8.479171752929688,
+      "dark_subtracted": true,
+      "delta_rad": -0.03733043303448619,
+      "frame_file": "noll05_inject+0.200.npz",
+      "inject_rad": 0.2,
+      "n_m": [
+        2,
+        -2
+      ],
+      "noll": 5,
+      "peak_fractions": {
+        "a": 0.320261427935432,
+        "m": 0.3215686274509804,
+        "mm": 0.3111111210841759,
+        "p": 0.30196078431372547,
+        "pp": 0.2967320161707261
+      },
+      "peak_intensities": {
+        "a": 66.97916412353516,
+        "m": 67.0625,
+        "mm": 64.64583587646484,
+        "p": 62.3125,
+        "pp": 60.916664123535156
+      },
+      "quality": {
+        "problems": [],
+        "qualified": true
+      },
+      "recovered_rad": 0.16266956696551382,
+      "valid": true
+    }
+  ],
+  "schema": "hmws-zernike-probe/v1",
+  "simulated": false
+}

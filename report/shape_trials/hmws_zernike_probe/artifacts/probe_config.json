@@ -1,0 +1,272 @@
+{
+  "dark": {
+    "applied": true,
+    "entry": {
+      "bit_depth": 12,
+      "captured_at": "2026-11-19T12:59:05+00:00",
+      "exposure_ms": 0.06,
+      "file": "dark-exp-0.06ms.npz",
+      "frames": 16,
+      "full_scale": 4095.0,
+      "mean": 14.903369604520716,
+      "min": 11.375,
+      "peak": 38.25,
+      "requested_exposure_ms": 0.06,
+      "shape": [
+        1944,
+        2592
+      ],
+      "std": 0.8977279895501442
+    },
+    "exposure_ms": 0.06,
+    "matched": true,
+    "reason": "严格匹配",
+    "requested": true
+  },
+  "device": {
+    "camera": {
+      "bit_depth": 8,
+      "exposure_range_ms": [
+        0.02,
+        1000.0
+      ],
+      "id": 0,
+      "serial": "FJB24112232",
+      "type": "daheng"
+    },
+    "lock": {
+      "held_until_acquisition_end": true,
+      "kind": "",
+      "status": "idle",
+      "waited_s": 39.15460389992222
+    },
+    "slm": {
+      "max_gray": 993,
+      "number": 1,
+      "panel_shape": [
+        1200,
+        1920
+      ],
+      "serial": "22030108",
+      "wavelength_info": [
+        1064,
+        993
+      ],
+      "wavelength_nm": 1064
+    }
+  },
+  "exposure": {
+    "brightest_candidate": "noll4_inj+0.2_m",
+    "candidate_peaks": [
+      {
+        "label": "flat",
+        "peak_counts": 93.0,
+        "peak_fraction": 0.36470588235294116
+      },
+      {
+        "label": "noll4_inj-0.2_a",
+        "peak_counts": 97.66666412353516,
+        "peak_fraction": 0.3830065259746477
+      },
+      {
+        "label": "noll4_inj-0.2_m",
+        "peak_counts": 96.0,
+        "peak_fraction": 0.3764705882352941
+      },
+      {
+        "label": "noll4_inj-0.2_p",
+        "peak_counts": 96.0,
+        "peak_fraction": 0.3764705882352941
+      },
+      {
+        "label": "noll4_inj-0.2_mm",
+        "peak_counts": 98.0,
+        "peak_fraction": 0.3843137254901961
+      },
+      {
+        "label": "noll4_inj-0.2_pp",
+        "peak_counts": 84.0,
+        "peak_fraction": 0.32941176470588235
+      },
+      {
+        "label": "noll4_inj+0_a",
+        "peak_counts": 93.0,
+        "peak_fraction": 0.36470588235294116
+      },
+      {
+        "label": "noll4_inj+0_m",
+        "peak_counts": 97.66666412353516,
+        "peak_fraction": 0.3830065259746477
+      },
+      {
+        "label": "noll4_inj+0_p",
+        "peak_counts": 92.0,
+        "peak_fraction": 0.3607843137254902
+      },
+      {
+        "label": "noll4_inj+0_mm",
+        "peak_counts": 94.0,
+        "peak_fraction": 0.3686274509803922
+      },
+      {
+        "label": "noll4_inj+0_pp",
+        "peak_counts": 80.0,
+        "peak_fraction": 0.3137254901960784
+      },
+      {
+        "label": "noll4_inj+0.2_a",
+        "peak_counts": 89.66666412353516,
+        "peak_fraction": 0.35163397695503984
+      },
+      {
+        "label": "noll4_inj+0.2_m",
+        "peak_counts": 98.33333587646484,
+        "peak_fraction": 0.38562092500574446
+      },
+      {
+        "label": "noll4_inj+0.2_p",
+        "peak_counts": 87.33333587646484,
+        "peak_fraction": 0.3424836701037837
+      },
+      {
+        "label": "noll4_inj+0.2_mm",
+        "peak_counts": 92.0,
+        "peak_fraction": 0.3607843137254902
+      },
+      {
+        "label": "noll4_inj+0.2_pp",
+        "peak_counts": 81.66666412353516,
+        "peak_fraction": 0.320261427935432
+      },
+      {
+        "label": "noll5_inj-0.2_a",
+        "peak_counts": 90.33333587646484,
+        "peak_fraction": 0.3542483759861366
+      },
+      {
+        "label": "noll5_inj-0.2_m",
+        "peak_counts": 86.66666412353516,
+        "peak_fraction": 0.3398692710726869
+      },
+      {
+        "label": "noll5_inj-0.2_p",
+        "peak_counts": 88.33333587646484,
+        "peak_fraction": 0.3464052387312347
+      },
+      {
+        "label": "noll5_inj-0.2_mm",
+        "peak_counts": 77.0,
+        "peak_fraction": 0.30196078431372547
+      },
+      {
+        "label": "noll5_inj-0.2_pp",
+        "peak_counts": 86.66666412353516,
+        "peak_fraction": 0.3398692710726869
+      },
+      {
+        "label": "noll5_inj+0_a",
+        "peak_counts": 96.66666412353516,
+        "peak_fraction": 0.3790849573471967
+      },
+      {
+        "label": "noll5_inj+0_m",
+        "peak_counts": 87.0,
+        "peak_fraction": 0.3411764705882353
+      },
+      {
+        "label": "noll5_inj+0_p",
+        "peak_counts": 91.66666412353516,
+        "peak_fraction": 0.3594771142099418
+      },
+      {
+        "label": "noll5_inj+0_mm",
+        "peak_counts": 80.66666412353516,
+        "peak_fraction": 0.31633985930798103
+      },
+      {
+        "label": "noll5_inj+0_pp",
+        "peak_counts": 81.66666412353516,
+        "peak_fraction": 0.320261427935432
+      },
+      {
+        "label": "noll5_inj+0.2_a",
+        "peak_counts": 93.66666412353516,
+        "peak_fraction": 0.36732025146484376
+      },
+      {
+        "label": "noll5_inj+0.2_m",
+        "peak_counts": 92.33333587646484,
+        "peak_fraction": 0.3620915132410386
+      },
+      {
+        "label": "noll5_inj+0.2_p",
+        "peak_counts": 88.66666412353516,
+        "peak_fraction": 0.3477124083275889
+      },
+      {
+        "label": "noll5_inj+0.2_mm",
+        "peak_counts": 87.66666412353516,
+        "peak_fraction": 0.34379083970013785
+      },
+      {
+        "label": "noll5_inj+0.2_pp",
+        "peak_counts": 78.33333587646484,
+        "peak_fraction": 0.30718955245672486
+      }
+    ],
+    "converged": true,
+    "effective_ms": 0.06,
+    "full_scale": 255.0,
+    "mode": "ladder",
+    "peak_fraction": 0.3477124083275889,
+    "range_ms": [
+      0.02,
+      1000.0
+    ],
+    "reads": 3,
+    "requested_ms": 0.06,
+    "settled_ms": 0.06,
+    "start_ms": 0.06,
+    "status": "ok"
+  },
+  "focal_compensated": false,
+  "focal_mm": null,
+  "full_scale": 255.0,
+  "generated_at_utc": "2026-11-24T14:16:33+00:00",
+  "git_commit": "94282236",
+  "n_max": 6,
+  "params": {
+    "auto_exposure": true,
+    "bias_rad": 0.3,
+    "cam_id": 0,
+    "cam_type": "daheng",
+    "dry_run": false,
+    "exposure_ms": 0.06,
+    "focal_mm": null,
+    "focus_json": null,
+    "frames": 3,
+    "inject_rad": [
+      -0.2,
+      0.0,
+      0.2
+    ],
+    "noll": [
+      4,
+      5
+    ],
+    "out": "data\\hmws_zernike_probe",
+    "radius": 450.0,
+    "save_frames": true,
+    "settle_s": 0.5,
+    "slm_number": 1,
+    "slm_wavelength": 1064,
+    "subtract_dark": true,
+    "wait_until_idle": 600.0
+  },
+  "schema": "hmws-zernike-probe/v1",
+  "self_check": {
+    "performed": false,
+    "reason": "仅 dry-run 执行"
+  },
+  "simulated": false
+}
