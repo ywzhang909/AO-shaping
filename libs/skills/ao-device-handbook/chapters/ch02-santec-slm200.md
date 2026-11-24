@@ -48,7 +48,7 @@ while (SLM_Ctrl_ReadSU(1) == SLM_BS) Sleep(1000);   // 启动约 40s
 SLM_Ctrl_WriteVI(1, 0);                               // 内存模式；再等 40s
 SLM_Ctrl_WriteWL(1, 1064, 200);                       // 1064nm, phase=2π(0.01π 单位)
 SLM_Ctrl_WriteGS(1, 512);                             // 全屏灰度
-SLM_Ctrl_WriteMI(1, 1, 1200, 1920, 0, data);          // 写入槽 1
+SLM_Ctrl_WriteMI(1, 1, 1920, 1200, 0, data);          // 写入槽 1：width=1920, height=1200
 SLM_Ctrl_WriteDS(1, 1);                               // 显示槽 1
 SLM_Ctrl_Close(1);
 ```

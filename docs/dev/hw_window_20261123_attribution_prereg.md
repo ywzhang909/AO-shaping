@@ -1284,3 +1284,48 @@ H 的六个上传覆盖序位 1/2/4/6/8/10，前驱类型分别为 flat/H/B/B/fl
 - 门禁：`pytest`（离线用例全通过）、`ruff check` 0、BOM=False、术语 dry-run 0 违规、
   计划中 12 个 `pattern_id` 与本文档表逐项一致、H/B SHA256 与本节一致。
 - 未通过全部门禁前不得 open SLM/camera；门禁与采集之间不得改脚本。
+
+#### 12.16.6 离线显示通路排查回写（采集前冻结补充，2026-11-24）
+
+**机制归属更正（corrigendum）**：§12.15.3 将异常签名写作「视频通路（`video_mode=0`）的
+旋转+缩放」不准确。`constants.py:24-27` 明确 `VideoMode.Memory=0`、`DVI=1`；
+`driver.py:1595-1618` 表明 mode 0 走内部内存槽（`_write_phase` → `_display_memory`），
+**不经过 DVI / OS 显示管线**。物理指纹与各项排除结论不变，仅把待查机制更正为
+「内存槽 → LCOS 上屏路径（SDK/固件）或既有分析归属」。原始记录不改写，以本条为准。
+
+只读核查结果（未运行设备代码、未取锁）：
+
+- `Santec.display_data()` `driver.py:1584-1590`：仅当 `max>1023` 时逐元素钳位；二值
+  `{0,512}` 不触发。`:1597-1618`：Memory 模式递增 `_current_memory_slot`（进程内初值，
+  非设备读取），若与 `_read_displayed_slot_safe()` 返回的当前显示槽相同则再跳一格，
+  然后写槽 + 显示槽。`display_phase()` (`:1632-1660`) 只是 `create_phase_from_array()` → `display_data()`。
+- `_write_to_memory()` `driver.py:2656-2665`：`height,width=phase.shape` →
+  `ctypes.memmove` 原样拷贝 → `SLM_Ctrl_WriteMI(slm,slot,1920,1200,mode,dat)`；
+  无 reshape/transpose/resize/BMP/PNG 中间文件。`_slm_win.py:280-293` 虽绑定了
+  `WriteMI_BMP/CSV`，驱动从不调用。全驱动无 `hash`/`sha256`/dedup 分支。
+- `_resize_to_panel` `driver.py:2513-2525` → `wavefront_correction.py:436-454`：同尺寸
+  `ascontiguousarray`，不同尺寸只中心裁切/补零；无插值。`shift`/矫正图/LUT/底相位
+  （`driver.py:596-622,1928-1944,2304-2306`）均为逐元素或纯平移，采集未设 shift。
+  `slm200_constants.py:23` `PANEL_RES=(1920,1200)`，官方 `docs/slm-200/dev.md:1297-1298,1322-1329`
+  示例同为 `WriteMI(1,1,1920,1200,...)`，宽高一致。
+- 采集侧 `issue247_geometry_capture_20261120.py:663,2140-2142` 与
+  `content_axis_2x2_capture_20261124.py:220-226,515-519` 都直接 `slm.display_data(gray)`，
+  两 builder 输出 C-contiguous。
+- ⇒ 仓库 Python 侧**没有** transpose/rot90/flip/resize/resample/stride 变换，不能产生
+  「旋转 90° + ×1.6」。仓库内不存在可修的 transpose 定位点；OS 显示缩放只在
+  `video_mode=1`（DVI）相关，本轮非该模式，不再列为首选机制。
+
+**代码内唯一条件态候选**：内存槽轮换（`driver.py:1602-1618`）+ 固件「正在显示的同槽
+`display_memory` 为 no-op」（`drivers/slm/AGENTS.md` 已知坑）。相同字节在不同序位进入
+不同槽；若固件槽表/显示表状态异常，可造成同字节异远场——但该机制本身不产生 90°+×1.6
+几何变换，须由 S1e 判别，不得直接归因。
+
+冻结补充（采集前追加，与 §12.16.3 同时生效）：
+
+- `capture_journal.jsonl` 每次上传必须记录 `video_mode`(=0)、`memory_number`
+  （`display_data` 返回值）、写前/写后 `_current_memory_slot`、`displayed_slot_safe`
+  （可得时）、phase/gray SHA256、发送数组的 shape/dtype/C-contiguous 标志。
+- **D6 槽位规则**：若 D-fail，按 `memory_number` 分组统计轴型；col/row 零例外可由槽位
+  编号/奇偶解释 ⇒ 登记 `slot_state_dependent_display`，转固件槽表/显示表排查；否则不归因
+  槽位。D6 与 D3（前驱）同时成立时，取「零例外且变量更少者」为主归因，报告中并列两者；
+  判据不在采集后改动。
