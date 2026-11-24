@@ -1178,5 +1178,109 @@ PowerShell 报的 `NativeCommandError`/退出码 1 是 stderr WARNING（锁等�
    （OS 显示旋转、桌面缩放、驱动上传分辨率/stride、其它进程对显示的重建）；
    核对驱动在上传时是否做 transpose/resize，增加上传后回读或 dump 实际送显缓冲区。
 2. **S1e 同字节探针（待预注册）**：同一灰度数组连续 6 次上传 + 与第二数组 A/B/A/B 交错，
-   覆盖多个序列位置；加 power-cycle 臂。判据：同字节 ⇒ 同远场（主瓣位置差 ≤1.5 px）。
+   覆盖多个序列位置；加 power-cycle 变体。判据：同字节 ⇒ 同远场（主瓣位置差 ≤1.5 px）。
 3. 在取得「同字节 ⇒ 同远场」之前，一切轴/K 映射、D bracket、G1/G3/G4 不推进。
+
+---
+
+### 12.16 S1e 同字节探针预注册（2026-11-24，采集前冻结）
+
+§12.15.3 已证明同一 `gray_sha256=7276d9da…` 在同一 open/close 会话两次上传给出两种远场。
+本节冻结 S1e：把「同字节是否确定」从 S1d 的偶发对照变成受控重复实验，并分离
+「序列位置 / 前驱数组 / 会话上电态」三个候选变量。**本轮只冻结计划与实现约束，不执行采集**；
+序列、阈值、判据在采集后不得修改。
+
+#### 12.16.1 离线显示通路现状（采集前记录，不作为判据）
+
+- 本机显示控制器：NVIDIA GeForce RTX 5080 Laptop（`2560×1440@59`）、Intel UHD Graphics
+  （`2560×1600@240`）。`HKCU:\Control Panel\Desktop`：`Win8DpiScaling=0`、`LogPixels` 未设置
+  （默认 96 DPI），无显式 DPI 覆盖；`HKLM\...\GraphicsDrivers\Configuration` 无 Rotation 记录。
+- 本 agent 进程处于非交互会话：`EnumDisplaySettings` 返回 `False`；SLM 未 open 时其 display
+  不可枚举。**离线不能确认** SLM 对应显示的旋转/缩放状态，不得据此推断结论。
+- 仓库侧 SLM 上传通路的代码排查由独立离线车道执行，结果回写在本节之后；在 S1e 采到
+  `plan.json` 之前，任何「驱动 transpose/resize」的说法均视为未验证假设。
+
+#### 12.16.2 冻结采集计划
+
+两个固定数组，全部 import 既有 builder，禁止新写相位数学：
+
+- **H**：`grating_phase(shape, period_px=128, axis=1)` → `phase_to_gray(...,1023)`；
+  `gray_sha256=7276d9da3b2a5ea…`、`phase_sha256=d8f16e03d98e7949…`（S1b/S1c/S1d 同一数组）。
+- **B**：`grating_phase(shape, period_px=128, axis=0)` → `phase_to_gray(...,1023)`；
+  `gray_sha256=c8d937cedb294339…`、`phase_sha256=382100b02c8b07a6…`（S1d 的 `grating_y_p128`）。
+
+每个 arm 一次 open/close、**12 次上传 × 2 帧 = 24 帧**，序位冻结如下：
+
+| 序位 | pattern_id | 数组 | 目的 |
+|---|---|---|---|
+| 0 | `flat` | `flat_phase` | 本变体 0th 参考、饱和/光路在靶 |
+| 1 | `s1e_a1` | H | 紧接 flat 的第一次上传 |
+| 2 | `s1e_a2` | H | 同字节连续重复（前驱 H） |
+| 3 | `s1e_b1` | B | 交错数组，前驱 H |
+| 4 | `s1e_a3` | H | 前驱 B |
+| 5 | `s1e_b2` | B | 第二次交错，前驱 H |
+| 6 | `s1e_a4` | H | 第二次前驱 B、较深序位 |
+| 7 | `flat_mid` | `flat_phase` | 中途 0th 漂移、前驱重置 |
+| 8 | `s1e_a5` | H | 前驱 flat_mid |
+| 9 | `s1e_b3` | B | 第三次交错，前驱 H |
+| 10 | `s1e_a6` | H | 第六次 H，前驱 B |
+| 11 | `flat_post` | `flat_phase` | 末态 0th 漂移 |
+
+H 的六个上传覆盖序位 1/2/4/6/8/10，前驱类型分别为 flat/H/B/B/flat/B；B 三次覆盖 3/5/9。
+
+冻结参数与 S1d 完全一致：SLM **#1**（`video_mode=0`，driveboardID 守卫）、Daheng **cam 0**、
+1064 nm、全幅 **Mono12**（full scale 4095）、曝光 **0.087 ms**、settle **0.8 s**、
+`focus_d_m1=0.0`、饱和门 `0.9×4095`、`G_REF=1023`、输出目录全新（`exist_ok=False`）。
+**不采 dark、不操作激光、不并行占用设备**；取锁参数 `--wait-until-idle 1800`。
+`plan.json` 必须记录本变体显示拓扑查询结果（不可得则写 `unavailable`，不得留空推断）、
+设备标识、逐 pattern phase/gray SHA256；`capture_journal.jsonl` 逐帧记录 SHA256 与 UTC；
+`released.json` 四标志与 `summary.json.status` 按 S1d 口径。
+
+- **变体 A**（必做）：`…/s1/s1e_same_bytes_probe_20261124/run_01/`。
+- **变体 P**（条件变体，尚未授权）：由操作者**物理断电重启 SLM** 后，另建 `run_02/` 重复同一
+  12 上传序列；脚本不得自行 power-cycle。变体 P 在变体 A 判读完成且用户明确授权后才可执行，
+  与变体 A 不在同一设备会话，也不得重叠 `released.json` 时窗。
+
+#### 12.16.3 冻结判读（采集后只执行，不改口径）
+
+斑点评判一律复用冻结求解器 `scripts/slm/issue247_axis_map_solve_20261121.py` 的
+`find_spots/principal` 语义（`exclude_core=6`、`min_dist=15`、`thresh=0.01×max`），
+0th 参考取**本变体** `flat` 的 0th 质心，各变体自算，禁止跨变体复用。
+
+- **帧内一致性**：每个上传的 2 帧分别判读，主瓣位置差 ≤1.5 px 记为有效上传；
+  否则标 `intra_upload_flaky`，该上传不参与跨上传统计但保留记录。
+- **D1 同字节确定性**：H 六个有效上传主瓣两两最大欧氏距离 ≤1.5 px ⇒ `D-pass`；
+  否则 `D-fail`。有效上传 <5 ⇒ `inconclusive`，不进任何分支。
+- **D2 轴型指纹**：`col-type` = `|dc|>1.5|dr|` 且 `dist∈[90,102]` px（S1d 异常 95.6）；
+  `row-type` = `|dr|>1.5|dc|` 且 `dist∈[52,64]` px（S1d 正常 58.0）；其余 `other`。
+  三次/五次谐波比（约 2.9–3.0 / 4.9–5.0）仅作佐证记录，不参与判据。
+- **D3 前驱规则**：若 D-fail，按 `flat/H/B` 前驱类型分组统计轴型；若 col/row 分组
+  **零例外**可解释 ⇒ `history_dependent`；否则 `display_nondeterministic`。
+- **D4 B 对照**：B 三次上传同样按 D1 判；B 稳定而 H 不稳 ⇒ 排除「全会话任意上传都不稳」，
+  异常与特定数组/序位绑定；B 也不稳 ⇒ 全局投递不稳定。弱信号规则：
+  峰 <`0.10×flat 峰` 的上传标 `weak`，不计数。
+- **D5 arm P**：若执行，比较同序位 H/B 主瓣差 ≤1.5 px ⇒ 无 power-cycle 效应；
+  若 >1.5 px 且伴随 col/row 翻转 ⇒ `power_cycle_state_dependent`。
+
+#### 12.16.4 分支登记（采集前冻结）
+
+- **E1 `D-pass`**：同字节在本会话确定；S1d 两种远场须由本计划未控变量造成
+  （例如其它进程的显示重建、本计划之外的前驱数组）。下一轮针对该变量做受控变体；
+  不得据此冻结映射。
+- **E2 `D-fail` + B 稳定 + 前驱无零例外规则**：确认
+  `delivery_nondeterministic_same_bytes`，转入显示/固件侧排查（OS 显示重建、
+  视频通路旋转/缩放、驱动缓冲复用、控制器 LUT/波形/上电序列）。
+- **E3 `D-fail` + 前驱零例外规则**：登记 `history_dependent_delivery`，下一轮做前驱扫描变体，
+  不得把「序列位置」误写成「内容依赖」。
+- **E4 arm P 触发**：登记 `power_cycle_state_dependent`，按上电态分支排查。
+- **所有分支**：S1 维持 BLOCKED、不做 D bracket、G1/G3/G4 继续暂缓、冻结测试集不动；
+  S1b/S1c/S1d 原始记录一律不改写。
+
+#### 12.16.5 实现约束与门禁（采集前必须完成，本轮尚未执行）
+
+- 新脚本 `scripts/slm/s1e_same_bytes_probe_capture_20261124.py` + 离线测试；builder 一律
+  import 自 S1d 已冻结的两个来源，phase/gray 只经单一 `phase_to_gray` 封装。
+- `--execute` 之外只打印计划：不建目录、不 import 设备驱动、不取锁、不碰设备。
+- 门禁：`pytest`（离线用例全通过）、`ruff check` 0、BOM=False、术语 dry-run 0 违规、
+  计划中 12 个 `pattern_id` 与本文档表逐项一致、H/B SHA256 与本节一致。
+- 未通过全部门禁前不得 open SLM/camera；门禁与采集之间不得改脚本。
