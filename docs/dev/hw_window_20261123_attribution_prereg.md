@@ -1329,3 +1329,37 @@ H 的六个上传覆盖序位 1/2/4/6/8/10，前驱类型分别为 flat/H/B/B/fl
   编号/奇偶解释 ⇒ 登记 `slot_state_dependent_display`，转固件槽表/显示表排查；否则不归因
   槽位。D6 与 D3（前驱）同时成立时，取「零例外且变量更少者」为主归因，报告中并列两者；
   判据不在采集后改动。
+
+#### 12.16.7 采集前发现的布局证据与更正（2026-11-24，仍不执行采集）
+
+**更正 §12.16.6**：该节写「两 builder 输出 C-contiguous」不成立。离线实测（纯 numpy，
+未开设备）：`grating_phase(shape, period_px=128, axis=1)` → `phase_to_gray(...,1023)`
+得到的 H 灰度 strides `(2, 2400)`、`F_CONTIGUOUS=True`、`C_CONTIGUOUS=False`；
+`content_axis_2x2` 的 A 灰度 strides `(3840, 2)`、`C_CONTIGUOUS=True`。两者
+`np.array_equal=True`，且 `digest()` 用的 `np.ascontiguousarray(...).tobytes()` 给出**同一个**
+`7276d9da…`；但 `driver.py:2656-2665` 的 `ctypes.memmove(dat, phase.ctypes.data,
+phase.nbytes)` 按**物理内存顺序**拷贝，`array.tobytes(order="A")` 才是真正上屏字节流。
+
+| 数组 | 逻辑 SHA256 (`ascontiguousarray`) | 物理 SHA256 (`tobytes(order="A")` = memmove) | 布局 |
+|---|---|---|---|
+| H (`grating_x_p128`) | `7276d9da3b2a5ea…` | `b98be9a6696cd94…` | F-contiguous `(2,2400)` |
+| B (`grating_y_p128`) | `c8d937cedb294339…` | `c8d937cedb294339…` | C-contiguous `(3840,2)` |
+| A (`content_a128`) | `7276d9da3b2a5ea…` | `7276d9da3b2a5ea…` | C-contiguous `(3840,2)` |
+
+离线用 `ctypes.memmove` 复现：`tobytes(order="A")` 与实际 memmove 缓冲区**逐字节相同**，
+H 的物理字节与逻辑字节不同；按 1920×1200 的 C 序解释后，主周期从 128 px 变为约 80 px，
+`128/80=1.6=1920/1200`，且条纹轴从列变行——与 S1d 帧 2/3 的 col 型 95.6 px、
+帧 22/23（`content_a128`）的 row 型 58 px 指纹一致（`95.6/58≈1.65`）。
+
+⇒ §12.15.3 的「同字节异远场」应精确表述为「**同逻辑灰度数组、不同上屏物理字节流**」；
+根因候选前移到 Python 侧 `_write_to_memory()` 缺少连续性与 stride 守卫，而**不是** SDK/固件
+槽表或 OS 显示旋转。S1d 原始记录不改写，以本条为准。仓库内现在存在一个可修定位点
+（`driver.py:2660` 的裸 `memmove`），但**本轮不改驱动、不改采集参数**。
+
+S1e 序列仍然冻结、不增加变体，采集前追加字段（与 §12.16.3、§12.16.6 同时生效）：
+`plan.json` 与 `capture_journal.jsonl` 必须逐数组记录 `strides`、`c_contiguous`、
+`f_contiguous` 和**物理字节 SHA256**；`plan.json` 还需把冻结的物理 SHA256
+（`H=b98be9a6…`、`B=c8d937ce…`）作为采集前期望值写入，上传时实测不符即中止。
+判读时 D1–D5、D6 口径不变；本证据登记为 `non_contiguous_memmove_transpose` 候选，
+只有 S1e 的 journal 证实「H 每次物理 SHA 相同且远场稳定」后才可下最终结论。
+
