@@ -23,6 +23,7 @@ from ao_shaping.tools.slm.transfer.capture import clock
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
+from .splits import SEALED_SPLITS
 from .parallel_fit import EarlyStopper
 
 
@@ -106,7 +107,8 @@ def valid(row, full_scale=None):
             and float(row["exposure_ms"]) > 0)
 
 
-def load_dataset(directory, size, span, samples=None, *, train_all=False):
+def load_dataset(directory, size, span, samples=None, *, train_all=False,
+                 score_final_test=False):
     """Assemble training/validation pairs from a capture manifest.
 
     ``samples`` is an optional ``{manifest "file": payload}`` mapping — the
@@ -123,9 +125,10 @@ def load_dataset(directory, size, span, samples=None, *, train_all=False):
 
     ``train_all=False`` keeps the historical split: the returned ``train`` mask
     marks exactly the ``split == "train"`` rows. Setting ``train_all=True``
-    folds validation/test rows into the training set (the returned ``train``
-    mask is all-true), which is what a re-fit after a failed acceptance round
-    uses to squeeze more performance from the fixed data. The two-phase guard
+    folds the selection (validation) rows into the training set -- sealed
+    ``test`` / ``final_test`` rows NEVER join the fold (#254 T2) -- which is
+    what a re-fit after a failed acceptance round uses to squeeze more
+    performance from the fixed data. The two-phase guard
     is skipped in that mode, since a deliberately single-fold dataset is legal.
     """
     rows = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
@@ -137,7 +140,9 @@ def load_dataset(directory, size, span, samples=None, *, train_all=False):
     centre = spot(references[0])
     yy, xx = np.mgrid[-span:span+1:2, -span:span+1:2]
     xy = np.stack((xx + round(centre[0]), yy + round(centre[1])), axis=-1)
-    selected = [row for row in usable if row.get("split") in {"train", "test", "validation"}]
+    selected = [row for row in usable
+                if row.get("split") in {"train", "test", "validation"}
+                or (score_final_test and row.get("split") == "final_test")]
     phases, images = [], []
     for row in selected:
         payload = samples[row["file"]] if samples is not None else np.load(directory / row["file"])
@@ -161,7 +166,7 @@ def load_dataset(directory, size, span, samples=None, *, train_all=False):
         phases.append(phase)
     train = np.array([row["split"] == "train" for row in selected])
     if train_all:
-        train = np.ones(train.shape, dtype=bool)
+        train = np.array([row["split"] not in SEALED_SPLITS for row in selected])
     elif not train.any() or train.all():
         raise ValueError("independent training and validation phases required")
     return selected, np.stack(phases), np.stack(images), xy, matrix, ramp_samples, train

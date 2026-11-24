@@ -99,13 +99,15 @@ def fit_recorded_subset(directory: Path, checkpoint: Path, calibration: list[dic
                         *, iterations: int, span: int, device: str) -> Path:
     """Fit recorded phases; duplicate training rows implement a phase bootstrap.
 
-    Use a fresh output directory for every input subset. Test rows are rejected
-    so final evaluation observations cannot silently become fitting examples.
+    Use a fresh output directory for every input subset. Sealed rows (``test``
+    / ``final_test``) are rejected so final evaluation observations cannot
+    silently become fitting examples.
     """
     from ao_shaping.tools.slm.transfer.fit import fit
+    from .splits import SEALED_SPLITS
 
-    if any(row["split"] == "test" for row in calibration + training + validation):
-        raise ValueError("test rows cannot participate in subset fitting")
+    if any(row["split"] in SEALED_SPLITS for row in calibration + training + validation):
+        raise ValueError("sealed test/final_test rows cannot participate in subset fitting")
     directory.mkdir(parents=True, exist_ok=False)
     dataset = directory / "dataset"
     dataset.mkdir()

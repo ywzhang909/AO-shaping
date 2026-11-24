@@ -341,6 +341,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `uncertainty.py` | 离线预测诊断与实验性委员会排序: 均值归一化分歧、wrapped 去重选样、配对形状误差与冻结预测复用 (零设备 import, 非生产验收门) |
 | `slm/transfer/` | `response.py` | 固定 CCD 网格上的照明曝光响应拟合与独立校验 |
 | `slm/transfer/` | `simulation.py` | 生成已知真值的线性相机探针, 供免设备迁移测试 |
+| `slm/transfer/` | `splits.py` | 三层分组词汇与按轮预注册划分 (2026-11-24 第 183 批新增, #254 T2): `SELECTION_SPLIT`/`SEALED_SPLITS` 是「谁能被读」口径的单一来源 (validation 层唯一可被选择/晋级读取; `test`/`final_test` 封存, 只经 `adaptation.final_test_quality` 一次性打分); `assign_round_splits` 为 (n_rounds, seed+salt) 纯函数的整轮预注册映射 (`--dry-run` 先打印再采集), `probe_round_of_label` 解析采集行轮次; 自 `capture.py` 抽出过模块规模门禁, `capture`/`adaptation` 按旧名转出 |
 | `slm/transfer/` | `summary.py` | 免开设备的配对实验运行汇总 |
 | `slm/transfer/` | `axial.py` | 已记录相位/CCD 对上的条件 ABCD 输入面扫描 (免设备; 拟合距离是相对冻结标称标定的有效修正, 非 SLM-透镜绝对距离) |
 | `slm/transfer/` | `camera_probe.py` | 不开 SLM 记录相机实际格式与原始精度 |

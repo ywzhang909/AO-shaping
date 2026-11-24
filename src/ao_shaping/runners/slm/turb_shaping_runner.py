@@ -51,13 +51,18 @@ class TurbShapingParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(["spgd", "square", "heuristic"]),
+            type=click.Choice(["spgd", "square", "heuristic", "gs_refine"]),
             help=(
                 "整形变体: spgd=Zernike PIB shape 目标; square=方形综合质量分; "
-                "heuristic=黑盒搜索 (ga/pso/sa/hc/rs/cem/de, 经 --search-algorithm)"
+                "heuristic=黑盒搜索 (ga/pso/sa/hc/rs/cem/de, 经 --search-algorithm); "
+                "gs_refine=GS 预矫正 + 全频 freeform SPGD (M5a, 经 --phase-grid)"
             ),
         ),
     ] = "square"
+    phase_grid: Annotated[
+        int,
+        option("--phase-grid", type=int, help="gs_refine 的 coarse freeform 相位网格边长"),
+    ] = 12
     search_algorithm: Annotated[
         str,
         option(
@@ -171,6 +176,19 @@ def build_click_args(params: TurbShapingParams) -> list[str]:
             "--algorithm", params.search_algorithm,
             "--pop-size", str(params.pop_size),
         ]
+    if params.algorithm == "gs_refine":
+        # freeform (M5a): GS 预矫正 + 粗网格全频 SPGD; 测量走 SimPibCCD 真光路,
+        # install_disturbance_system 的注入系统对它就是"带湍流的实验系统"。
+        return [
+            "--cam-type", "sim", "--cam-id", "0",
+            "--cam-size", str(params.cam_size),
+            "--epochs", str(params.epochs),
+            "--phase-grid", str(params.phase_grid),
+            "--target-shape", "square",
+            "--target-side", str(int(params.target_side)),
+            "--seed", str(params.dist_seed),
+            "--exposure-time-ms", str(params.exposure_ms),
+        ]
     return [
         "--debug", "-d", str(params.out_dir),
         "square", *common,
@@ -181,8 +199,9 @@ def build_click_args(params: TurbShapingParams) -> list[str]:
     ]
 
 
-def _invoke_group(click_args: list[str], *, out_dir: Path) -> int:
-    """进程内调用 ``slm-pib`` 组, 给 ``square`` 变体注入 main 根 ctx 的 obj。
+def _invoke_group(click_args: list[str], *, out_dir: Path,
+                  command_name: str = "slm-pib") -> int:
+    """进程内调用整形命令 (默认 ``slm-pib`` 组), 并注入 main 根 ctx 的 obj。
 
     ``square`` 的 ``-d/--debug`` 只能来自 main 根 group 写入的
     ``ctx.obj`` (组自身不写 obj, 见 ``_resolve_run_context`` 的冲突说明),
@@ -190,16 +209,19 @@ def _invoke_group(click_args: list[str], *, out_dir: Path) -> int:
     ``make_context`` 挂上, 子命令沿 obj 继承链取值; ``spgd`` 变体自带
     RunParams, 同一入口不受影响 (参数仍在子命令位)。
     """
-    from ao_shaping.runners.slm.slm_shaping_runner import run as slm_pib_run
+    if command_name == "slm-gs-refine":
+        from ao_shaping.runners.slm.gs_refine_runner import run as entry
+    else:
+        from ao_shaping.runners.slm.slm_shaping_runner import run as entry
 
     root_ctx = click.Context(
         click.Command("root"), obj={"dir": str(out_dir), "debug": True}
     )
     try:
         with root_ctx:
-            group_ctx = slm_pib_run.make_context("slm-pib", list(click_args), parent=root_ctx)
+            group_ctx = entry.make_context(command_name, list(click_args), parent=root_ctx)
             with group_ctx:
-                slm_pib_run.invoke(group_ctx)
+                entry.invoke(group_ctx)
     except SystemExit as exc:  # 子命令内部 sys.exit
         return int(exc.code) if isinstance(exc.code, int) else 0
     except click.UsageError as exc:
@@ -233,11 +255,13 @@ def run_arm(params: TurbShapingParams) -> dict:
     install_disturbance_system(disturbance, seed=SYSTEM_SEED)
 
     click_args = build_click_args(params)
-    logger.info("slm-pib argv: {}", click_args)
+    command_name = "slm-gs-refine" if params.algorithm == "gs_refine" else "slm-pib"
+    logger.info("{} argv: {}", command_name, click_args)
 
-    exit_code = _invoke_group(click_args, out_dir=params.out_dir)
+    exit_code = _invoke_group(click_args, out_dir=params.out_dir,
+                              command_name=command_name)
     if exit_code != 0:
-        logger.warning("slm-pib runner exited with status {}", exit_code)
+        logger.warning("{} runner exited with status {}", command_name, exit_code)
 
     debug_root = Path(params.out_dir) / "debug"
     pkls = sorted(

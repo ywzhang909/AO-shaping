@@ -35,6 +35,7 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
     RECORD_EPOCH,
     RECORD_IMAGE,
+    RECORD_PHASE,
 )
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -46,7 +47,7 @@ _METRIC_KEYS = ("quality", "shape", "cv", "ee", "ar", "pbr")
 
 #: 各变体的"好坏一分"列名不同: square 记 `quality`, spgd/heuristic 的 shape 目标记
 #: `shape` (= J)。报告一律先找 quality 再找 shape, 缺列时该分节降级而不是打红。
-_SCORE_FALLBACK = ("quality", "shape")
+_SCORE_FALLBACK = ("quality", "shape", "score")
 
 
 def _score_of(row: dict) -> float | None:
@@ -168,11 +169,38 @@ def spot_frames(rows: list[dict], side_px: float | None) -> list[np.ndarray]:
     return frames
 
 
+def _freeform_phase_frames(rows: list[dict], grid: int) -> list[np.ndarray]:
+    """freeform 变体 (gs_refine): 逐轮 ``_phase`` 是下发面板灰度 (uint16, 0..1023)。
+
+    面板为 1200x1920, 取中心方窗再相干降采样到 ``grid``; 除以固定 1023 满量程
+    (非逐帧 PV, 保留 DC 偏置 —— freeform 演化要看的是相对整幅的明暗推进, 不是
+    每帧各自拉满)。
+    """
+    from PIL import Image
+
+    out = []
+    for row in rows:
+        panel = row.get(RECORD_PHASE)
+        if panel is None:
+            continue
+        arr = np.asarray(panel, dtype=np.float64)
+        side = min(arr.shape)
+        y0 = (arr.shape[0] - side) // 2
+        x0 = (arr.shape[1] - side) // 2
+        crop = arr[y0:y0 + side, x0:x0 + side]
+        small = np.asarray(Image.fromarray(crop).resize((grid, grid), Image.BILINEAR))
+        out.append(np.clip(small / 1023.0, 0.0, 1.0))
+    return out
+
+
 def phase_frames(rows: list[dict], n_max: int, grid: int) -> list[np.ndarray]:
-    """整形相位帧: ``_c`` → raw 弧度 → 离线灰度 (全序列同一 PV 归一)。"""
+    """整形相位帧: ``_c`` → raw 弧度 → 离线灰度 (全序列同一 PV 归一)。
+
+    freeform 变体 (无 ``_c`` 但有 ``_phase``) 走 :func:`_freeform_phase_frames`。
+    """
     coeffs = [np.asarray(r[RECORD_COEFFS], dtype=np.float64) for r in rows if r.get(RECORD_COEFFS) is not None]
     if not coeffs:
-        return []
+        return _freeform_phase_frames(rows, grid)
     phases = [
         generate_zernike_phase(list(c), resolution=(grid, grid), n_max=n_max)
         for c in coeffs

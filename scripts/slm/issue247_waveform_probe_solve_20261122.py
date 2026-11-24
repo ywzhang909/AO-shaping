@@ -46,6 +46,11 @@ import numpy as np
 from scipy.ndimage import label, maximum_filter
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts._common import fmt_general
+
 ANALYSIS_JSON_NAME = "waveform_probe_analysis.json"
 REPORT_MD_NAME = "WAVEFORM_PROBE_REPORT.md"
 
@@ -1616,14 +1621,9 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
         handle.write("\n")
 
 
-def _fmt(value: object, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return "pass" if value else "fail"
-    if isinstance(value, (int, float)):
-        return f"{float(value):.{digits}f}"
-    return str(value)
+def _fmt_cell(value: object, digits: int = 2) -> str:
+    return fmt_general(value, f".{digits}f", missing_none="—",
+                       bool_labels=("pass", "fail"))
 
 
 def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
@@ -1634,8 +1634,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
         (
             "drift_gate（flat 质心漂移）",
             _status_text(drift["pass"]),
-            f"{_fmt(drift['measured_max_px'])} px",
-            f"≤ {_fmt(drift['threshold_px'])} px",
+            f"{_fmt_cell(drift['measured_max_px'])} px",
+            f"≤ {_fmt_cell(drift['threshold_px'])} px",
         )
     )
     saturation = gates["saturation_gate"]
@@ -1653,7 +1653,7 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
             (
                 f"waveform_gate[{axis}]（grating vs blaze 主方向）",
                 item["status"],
-                f"{_fmt(item['measured_diff_deg'])}°",
+                f"{_fmt_cell(item['measured_diff_deg'])}°",
                 "≤2° 波形无关 / ≥5° 波形依赖",
             )
         )
@@ -1662,8 +1662,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
         (
             "axis_gate.blaze（两轴方向差）",
             _status_text(blaze["pass"]),
-            f"{_fmt(blaze['measured_diff_deg'])}°",
-            f"{_fmt(blaze['expected_deg'], 3)}° ± {_fmt(blaze['tol_deg'])}°",
+            f"{_fmt_cell(blaze['measured_diff_deg'])}°",
+            f"{_fmt_cell(blaze['expected_deg'], 3)}° ± {_fmt_cell(blaze['tol_deg'])}°",
         )
     )
     tilt = gates["axis_gate"]["tilt"]
@@ -1671,8 +1671,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
         (
             "axis_gate.tilt（两轴方向差）",
             _status_text(tilt["pass"]),
-            f"{_fmt(tilt['measured_diff_deg'])}°",
-            f"> {_fmt(tilt['min_deg'])}°",
+            f"{_fmt_cell(tilt['measured_diff_deg'])}°",
+            f"> {_fmt_cell(tilt['min_deg'])}°",
         )
     )
     for axis in ("x", "y"):
@@ -1681,8 +1681,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
             (
                 f"scale_gate[{axis}]（p128/p256 位移比）",
                 _status_text(item["pass"]),
-                _fmt(item["measured_ratio"]),
-                f"{_fmt(item['expected'])} ± {_fmt(item['tol'])}",
+                _fmt_cell(item["measured_ratio"]),
+                f"{_fmt_cell(item['expected'])} ± {_fmt_cell(item['tol'])}",
             )
         )
     for pair in gates["sign_gate"]["pairs"]:
@@ -1690,8 +1690,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
             (
                 f"sign_gate[{pair['family']}_{pair['axis']}]（+ 与 − 夹角）",
                 _status_text(pair["pass"]),
-                f"{_fmt(pair['measured_angle_deg'])}°",
-                f"{_fmt(pair['expected_deg'])}° ± {_fmt(pair['tol_deg'])}°",
+                f"{_fmt_cell(pair['measured_angle_deg'])}°",
+                f"{_fmt_cell(pair['expected_deg'])}° ± {_fmt_cell(pair['tol_deg'])}°",
             )
         )
     for pair in gates["patch_gate"]["pairs"]:
@@ -1699,8 +1699,8 @@ def _report_gate_rows(gates: dict[str, Any]) -> list[tuple[str, str, str, str]]:
             (
                 f"patch_gate[{pair['axis']}]（patch vs blaze 主方向）",
                 _status_text(pair["pass"]),
-                f"{_fmt(pair['measured_diff_deg'])}°",
-                f"≤ {_fmt(pair['max_deg'])}°",
+                f"{_fmt_cell(pair['measured_diff_deg'])}°",
+                f"≤ {_fmt_cell(pair['max_deg'])}°",
             )
         )
     return rows
@@ -1853,8 +1853,8 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
     lines.append(f"- 采集目录：`{analysis.get('capture_dir') or '（未记录）'}`")
     flat = analysis["flat_reference"]
     lines.append(
-        f"- flat 参考漂移：最大 {_fmt(flat['max_drift_px'])} px"
-        f"（门限 {_fmt(analysis['thresholds']['drift_max_px'])} px）"
+        f"- flat 参考漂移：最大 {_fmt_cell(flat['max_drift_px'])} px"
+        f"（门限 {_fmt_cell(analysis['thresholds']['drift_max_px'])} px）"
         f" → {_status_text(analysis['gates']['drift_gate']['pass'])}"
     )
     saturation = analysis["gates"]["saturation_gate"]
@@ -1865,7 +1865,7 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
     )
     full_scale = analysis["full_scale"]
     lines.append(
-        f"- 满量程：{_fmt(full_scale['value'], 0)} counts"
+        f"- 满量程：{_fmt_cell(full_scale['value'], 0)} counts"
         f"（来源 {full_scale['source']}"
         + ("，assumed_full_scale=true" if full_scale["assumed_full_scale"] else "")
         + "）"
@@ -1891,7 +1891,7 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
         if record is None:
             lines.append(
                 f"| `{spec.pattern_id}` | {spec.family} | {spec.axis or '—'} | "
-                f"{_fmt(spec.period_px, 0)} | — | — | — | — | 0 | 缺帧 |"
+                f"{_fmt_cell(spec.period_px, 0)} | — | — | — | — | 0 | 缺帧 |"
             )
             continue
         principal = record.get("principal")
@@ -1900,11 +1900,11 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
                 spec.pattern_id,
                 spec.family,
                 spec.axis or "—",
-                _fmt(spec.period_px, 0),
-                _fmt(principal["dr"] if principal else None),
-                _fmt(principal["dc"] if principal else None),
-                _fmt(principal["angle_deg"] if principal else None),
-                _fmt(principal["magnitude"] if principal else None),
+                _fmt_cell(spec.period_px, 0),
+                _fmt_cell(principal["dr"] if principal else None),
+                _fmt_cell(principal["dc"] if principal else None),
+                _fmt_cell(principal["angle_deg"] if principal else None),
+                _fmt_cell(principal["magnitude"] if principal else None),
                 record.get("peak_count", 0),
                 "是" if record["saturated"] else "否",
             )
@@ -1925,11 +1925,11 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
                     "| `{}` | {} | {} | {} | {} | {} | {} |".format(
                         record["pattern_id"],
                         "A(主峰)" if index == 0 else "B(反向)",
-                        _fmt(lobe["dr"]),
-                        _fmt(lobe["dc"]),
-                        _fmt(lobe["angle_deg"]),
-                        _fmt(lobe["dist"]),
-                        _fmt(lobe["peak"], 1),
+                        _fmt_cell(lobe["dr"]),
+                        _fmt_cell(lobe["dc"]),
+                        _fmt_cell(lobe["angle_deg"]),
+                        _fmt_cell(lobe["dist"]),
+                        _fmt_cell(lobe["peak"], 1),
                     )
                 )
             if not record["lobes"]:

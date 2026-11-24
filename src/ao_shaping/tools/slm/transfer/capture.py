@@ -50,6 +50,7 @@ from .exposure_policy import (
     resolve_seed_exposure,
 )
 from .live_frame import _resolve_observer, frame_payload, notify_frame
+from .splits import PROBE_ROUND, assign_round_splits, probe_round_of_label
 
 #: Exposure search for one probe: one exact correction + one verification read.
 #: The old loop allowed 12 multiplicative steps under a (0.15, 6.0) clamp; a cold
@@ -252,8 +253,14 @@ class _LivePrediction:
         return self.forward.predict(model_phase)[0].detach().cpu().numpy()
 
 
-def probes(size: int, count: int, seed: int, periods=(64, 128)):
+def probes(size: int, count: int, seed: int, periods=(64, 128), *,
+           split_scheme: str = "legacy", final_test_rounds: int = 1):
     from ao_shaping.tools.slm.transfer.probes import probe_grid
+
+    if split_scheme not in {"legacy", "rounds"}:
+        raise ValueError(f"unknown split scheme {split_scheme!r}")
+    round_map = (assign_round_splits(-(-count // PROBE_ROUND), seed, final_test_rounds)
+                 if split_scheme == "rounds" else None)
 
     zero = np.zeros((size, size), np.float32)
     yield "reference_start", "calibration", zero
@@ -269,11 +276,11 @@ def probes(size: int, count: int, seed: int, periods=(64, 128)):
     for index in range(count):
         family, grid = probe_grid(index, size, seed)
         # All families occur in both disjoint splits.
-        yield (
-            f"probe_{index:03d}_{family}",
-            "validation" if index % 6 >= 3 else "train",
-            grid,
-        )
+        if round_map is None:
+            split = "validation" if index % PROBE_ROUND >= PROBE_ROUND // 2 else "train"
+        else:
+            split = round_map[index // PROBE_ROUND]
+        yield f"probe_{index:03d}_{family}", split, grid
     yield "reference_end", "calibration", zero
 
 
@@ -632,11 +639,18 @@ def capture(args, *, on_frame=None):
 
                 # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
                 session_zero: tuple[float, float] | None = None
+                split_kwargs: dict[str, object] = {}
+                if getattr(args, "split_scheme", "legacy") != "legacy":
+                    split_kwargs = {
+                        "split_scheme": args.split_scheme,
+                        "final_test_rounds": getattr(args, "final_test_rounds", 1),
+                    }
                 for label, split, grid in probes(
                     args.grid,
                     args.count,
                     args.seed,
                     getattr(args, "ramp_periods", (64, 128)),
+                    **split_kwargs,
                 ):
                     live_label[0] = f"探针 {label}"
                     # The parallel-fit worker (or an operator) may ask capture to
@@ -713,6 +727,8 @@ def capture(args, *, on_frame=None):
                     _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
                     flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
                     row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y, full_scale=full_scale)
+                    row["probe_round"] = probe_round_of_label(label)
+                    row["split_scheme"] = getattr(args, "split_scheme", "legacy")
                     manifest.append(row)
                     (args.out / "manifest.json").write_text(
                         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -867,6 +883,13 @@ def main():
     parser.add_argument("--count", type=int, default=12)
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--seed", type=int, default=102319)
+    parser.add_argument("--split-scheme", choices=("legacy", "rounds"), default="legacy",
+                        help="legacy = index%%6 interleaving (historical datasets); "
+                             "rounds = pre-registered whole-round tiers with a sealed "
+                             "final_test round (#254; requires count >= 24)")
+    parser.add_argument("--final-test-rounds", type=int, default=1,
+                        help="rounds scheme: how many trailing shuffled rounds are "
+                             "sealed as final_test (never fitted, never selected)")
     parser.add_argument("--exposure-max-steps", type=int, default=EXPOSURE_MAX_STEPS)
     parser.add_argument(
         "--exposure-ms",
@@ -898,8 +921,17 @@ def main():
         parser.error("frames >= 2 and count >= 6 required")
     plan = [
         (label, split, list(grid.shape))
-        for label, split, grid in probes(args.grid, args.count, args.seed)
+        for label, split, grid in probes(
+            args.grid, args.count, args.seed,
+            split_scheme=args.split_scheme,
+            final_test_rounds=args.final_test_rounds,
+        )
     ]
+    if args.split_scheme == "rounds":
+        logger.info("pre-registered round->split: {}", json.dumps(
+            {str(k): v for k, v in assign_round_splits(
+                -(-args.count // PROBE_ROUND), args.seed, args.final_test_rounds
+            ).items()}))
     if args.execute:
         # 光路无光是实验系统上的预期状态, 不是缺陷: 只报实测数字, 退出码 3, 不打
         # traceback (与探针的 2、普通异常的 1 分开)。

@@ -43,12 +43,19 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from loguru import logger
 from scipy.ndimage import maximum_filter
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts._common import fmt_fixed_or_text
 
 SCHEMA = "efficiency_match_analysis_v1"
 ANALYSIS_NAME = "analysis.json"
@@ -1218,15 +1225,7 @@ def analyze_dir(
 # ---------------------------------------------------------------------------
 # 产物
 # ---------------------------------------------------------------------------
-def _fmt(value: Any, digits: int = 4) -> str:
-    """报告表格里的数值格式。"""
-    if value is None:
-        return "—"
-    if isinstance(value, float):
-        if not np.isfinite(value):
-            return "inf"
-        return f"{value:.{digits}f}"
-    return str(value)
+_fmt = partial(fmt_fixed_or_text, nonfinite_text="inf")
 
 
 def render_report(result: dict[str, Any]) -> str:

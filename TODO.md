@@ -5893,6 +5893,16 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 择优终判 (M2→M4 三轮一致): **湍流 dynamic 下「整形质量 × 求值成本」最优 = n_max=8 spgd-adamod**; 后续若启用 heuristic 需先解决种群/维度配比 (M5 候选)
 - M4 报告入库 `report/turbulence_shaping/matrix_20261121_m4/` (spgd 三档 + heuristic 三档, 双 GIF/单元, 汇总含拐点结论注记); provenance 登记 7 条 (REPORTS 258→265) + sync
 - 载体: provenance+matrix 测试绿 / ruff 0 / term 0 / modsize 0 (门禁按 180b 教训在 rebase 后跑)
+**2026-11-24 · 760500f9 之后 · 第 182 批: CI 红收口 —— 上游 11-22/23 三脚本带回 `def _fmt` 的 R-25 通道清理**
+- tip `760500f9` Pytest 单红 `test_no_generator_redefines_an_extracted_helper[_fmt]`: 上游新脚本 `audit_p3_finite_difference_20261123` / `efficiency_match_analyze_20261123` / `issue247_waveform_probe_solve_20261122` 各带回一份 `def _fmt` (六变体formatter 的第二拷贝, R-25 通道按设计抓红)
+- 修法 (单源 + 逐字节等价, 语义逐项核对): efficiency → `_fmt = partial(fmt_fixed_or_text, nonfinite_text="inf")` (None→"—" 与 digits 默认 4 与非有限→"inf" 与非 float→str 全同, gated_recurrent_transfer 先例); audit → `_fmt_cell` 委托 `fmt_general(spec=f".{digits}f", missing_none/missing_nonfinite="—", bool_labels=("是","否"), verbatim_int=True)`; issue247 → `_fmt_cell` 委托 `fmt_general(missing_none="—", bool_labels=("pass","fail"))` (int 按浮点格式化与原实现一致)
+- 载体: 守卫 74 绿 + 两脚本行为测试 42 绿 (报告输出不变) / ruff 全仓 0 / term 0 / modsize 0 / preflight 449 绿
+**2026-11-24 · 1464a345 之后 · 第 183 批: #254 T2 —— 三层分组防泄漏 + 按轮预注册划分 + final_test 封存层 (软件侧全部可离线部分)**
+- **四条泄漏路径闭合** (口径唯一来源 `transfer/splits.py::SELECTION_SPLIT/SEALED_SPLITS`，第 183 批 `ba50f842d`/`bccf258d8` 后自 `adaptation.py` 迁入 `splits.py` 过模块规模门禁，`adaptation` 按旧名转出): ① `validation_quality` 由 `!= "train"` (混入 test/calibration) 改为只读 `validation` 层 —— 模型晋级从此碰不到封存观测; ② `workflow` 复用打分聚合同型修复; ③ `fit.load_dataset` 的 `train_all` 再训练折叠不再把 `test`/`final_test` 折进训练 mask (原实现 `np.ones` 全折, 是第二处泄漏); ④ `uncertainty.fit_recorded_subset` 拒收范围从 `test` 扩到全部封存层
+- **final_test 封存层支持**: `load_dataset(..., score_final_test=True)` 仅显式一次性打分时装载 (train mask 恒 False); 新增 `final_test_quality` (冻结候选后恰好一次, 永不回灌选择/升级/checkpoint); capture manifest 行新增 `probe_round` + `split_scheme` 审计字段, config.json 经 `vars(args)` 自动落 `--split-scheme/--final-test-rounds`
+- **按轮次预注册划分** `probes(..., split_scheme="rounds")`: 整轮 (6 相位=族循环一周) 归同一层, 漂移时段的相位不再跨层互泄; 映射为 (n_rounds, seed+salt) 纯函数, `--dry-run` 先打印 round→split 预注册再采集; n_rounds≥4 才封存 (≥1 验证轮); **默认 `legacy` 逐字保留** (历史数据集与 11-23 预注册窗口命令的 plan 复现不受影响, 调用面用「仅非默认才传 kwarg」兼容测试桩, fit.load_dataset 同型先例)
+- 测试 `tests/ao_shaping/tools/slm/test_transfer_split_scheme.py` 10 项 (质量三层口径 / strict-zip 长度 / 折叠不碰封存 / legacy 逐字节钉 / rounds 整轮单层+确定性+两档 ValueError / probe_round 解析 / subset 拒封存) + 波及面 tools/slm 1579 passed (multishape/holdout 直吃 probes 的既有断言零修改通过)
+- **#254 边界如实**: T0 (SLM USB 物理恢复, 用户/硬件)、T1 六步预检、T5 #247/#238 采集、T6 物理配对比较、T7 正式报告均需硬件窗口; 预注册计划文档 `transfer_efficiency_and_closed_loop_data_reuse_plan_20261121/plan.md` **不在 origin/master 也不在任何本地 worktree** (仅存硬件侧机器), T3 快照冻结与 T4 四分支训练待该文档同步 + T0 放行, issue 保持 OPEN
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
