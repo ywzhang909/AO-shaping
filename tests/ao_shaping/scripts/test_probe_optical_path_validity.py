@@ -16,6 +16,7 @@ summary/verdict dicts out, no camera and no device.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import sys
@@ -23,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+from ao_shaping.tools.slm.panel.focus_probe import FocusPoint, FocusProbeResult
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "slm" / "probe_optical_path_validity.py"
@@ -610,6 +613,437 @@ def test_bit_depth_flag_defaults_to_the_s0_mono12_precondition() -> None:
     assert parser.parse_args([]).bit_depth == 12
     assert parser.parse_args(["--bit-depth", "12"]).bit_depth == 12
     assert parser.parse_args(["--bit-depth", "16"]).bit_depth == 16
+
+
+# ---------------------------------------------------------------------------
+# Fresnel D 标定段 (--focus-calibration, 默认关闭) —— 全部离线假设备
+# ---------------------------------------------------------------------------
+
+
+class _FakeFocusSlm:
+    """只满足记录段只读自检; 相位下发被假 sweep 截获, 不会碰到设备。"""
+
+    def get_device_info(self) -> dict[str, object]:
+        return {"driveboard_id": "fake-board"}
+
+    def drive_board_status(self) -> None:
+        raise RuntimeError("fake slm: no drive status")
+
+    def get_wavelength_info(self) -> tuple[int, int]:
+        return 1064, 993
+
+
+class _FakeFocusCamera:
+    bit_depth = 12
+    pixel_size_um = 3.45
+    model_name = "fake-cam"
+
+    def get_numpy_image(self, n_sample: int = 1) -> np.ndarray:
+        return np.zeros((8, 8), dtype=np.uint16)
+
+
+def _focus_config_from_args(args: argparse.Namespace | None = None) -> object:
+    """把 CLI 命名空间里的标定项搬进 ProbeConfig (测的是契约, 不是整套 run_probe)。"""
+    if args is None:
+        args = probe.build_parser().parse_args([])
+    return probe.ProbeConfig(
+        exposures_ms=[0.05, 1.0, 10.0],
+        focus_calibration=bool(args.focus_calibration),
+        focus_coarse_points=int(args.focus_coarse_points),
+        focus_diopter_range=float(args.focus_diopter_range),
+        focus_refine_points=int(args.focus_refine_points),
+        focus_frames=int(args.focus_frames),
+        focus_floor_ms=args.focus_floor_ms,
+        focus_ceiling_ms=args.focus_ceiling_ms,
+        focus_centre_px=args.focus_centre_px,
+        focus_radius_px=args.focus_radius_px,
+    )
+
+
+def _focus_point(diopter: float = -0.42, peak_per_ms: float = 600.0) -> FocusPoint:
+    return FocusPoint(
+        diopter_m1=diopter,
+        focal_mm=1000.0 / diopter,
+        exposure_ms=2.0,
+        peak=1200.0,
+        peak_fraction=1200.0 / 4095.0,
+        peak_per_ms=peak_per_ms,
+        fwhm_px=15.0,
+        hollowness=0.1,
+        status="ok",
+    )
+
+
+def _focus_result(
+    *,
+    diopter: float = -0.42,
+    linearity: float | None = 1.02,
+    range_m1: tuple[float, float] = (-1.5, 1.5),
+    path_blocked: bool = False,
+) -> FocusProbeResult:
+    point = _focus_point(diopter)
+    return FocusProbeResult(
+        points=(point,),
+        best=point,
+        best_focal_mm=point.focal_mm,
+        best_diopter_m1=diopter,
+        gain_vs_flat=3.0,
+        linearity_ratio=linearity,
+        range_m1=range_m1,
+        exposure_bounds_ms=(0.02, 10.0),
+        notes=(),
+        path_blocked=path_blocked,
+        blockage_reason="" if not path_blocked else "no local structure",
+    )
+
+
+def _forbid_call(*args: object, **kwargs: object) -> None:
+    raise AssertionError("设备无关的标定调用不该在开关关闭/前置失败时发生")
+
+
+def _record_with_focus(evidence: dict[str, object] | None = None) -> dict[str, object]:
+    kwargs: dict[str, object] = {}
+    if evidence is not None:
+        kwargs["focus_calibration"] = evidence
+    return probe._record_inputs(
+        run_id="test_run",
+        config_id="S0",
+        probe_report=Path("optical_path_probe.json"),
+        config=probe.ProbeConfig(),
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        device_info={"cam_serial": "fake-cam-01"},
+        exposure_used_ms=1.0,
+        full_scale=4095.0,
+        ladder_summary={"saturation_counts": 3890.25},
+        response={"baseline_peak_counts": 120.0},
+        verdict={"state": "ok"},
+        acquired_at="2026-11-24T00:00:00+00:00",
+        **kwargs,
+    )
+
+
+def test_focus_calibration_default_off_leaves_record_and_devices_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(probe, "sweep_focus", _forbid_call)
+    monkeypatch.setattr(probe, "slm_self_check", _forbid_call)
+
+    config = _focus_config_from_args()
+    assert config.focus_calibration is False
+    assert probe._run_slm_self_check_for_focus(config, _FakeFocusSlm()) is None
+    assert (
+        probe._maybe_run_focus_calibration(
+            slm=_FakeFocusSlm(),
+            camera=_FakeFocusCamera(),
+            config=config,
+            start_exposure_ms=1.0,
+            out_dir=Path("unused"),
+            run_id="off",
+        )
+        is None
+    )
+
+    record = _record_with_focus()
+    assert record["optical_path"]["fresnel_compensation_m_inv"] is None
+    assert "fresnel_calibration" not in record["optical_path"]
+    assert record["reasons"]["optical_path.fresnel_compensation_m_inv"] == (
+        "探针不做 Fresnel 补偿标定 (compensation 由焦面标定给出)"
+    )
+
+
+def test_focus_calibration_ok_writes_measured_d_and_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_sweep(**kwargs: object) -> FocusProbeResult:
+        captured.update(kwargs)
+        return _focus_result()
+
+    monkeypatch.setattr(probe, "sweep_focus", fake_sweep)
+    self_check = {
+        "grayscale": 0.0,
+        "memory_slot": None,
+        "displayed_phase_source": "none",
+    }
+    monkeypatch.setattr(probe, "slm_self_check", lambda slm: dict(self_check))
+
+    config = _focus_config_from_args(
+        probe.build_parser().parse_args(["--focus-calibration"])
+    )
+    config.pupil_center = (960, 600)
+    slm = _FakeFocusSlm()
+    assert probe._run_slm_self_check_for_focus(config, slm) == self_check
+    evidence = probe._maybe_run_focus_calibration(
+        slm=slm,
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="ok_run",
+        self_check=self_check,
+    )
+    assert evidence is not None
+    assert evidence["status"] == "ok"
+    assert evidence["accepted"] is True
+    assert evidence["best_diopter_m1"] == -0.42
+    assert evidence["peak_per_ms"] == 600.0
+    assert evidence["exposure_ms"] == 2.0
+    assert evidence["slm_self_check"] == self_check
+    assert evidence["centre_px"] == [960.0, 600.0]
+    assert evidence["centre_source"] == "config_pupil_center"
+    assert evidence["requested"]["max_extends"] == 1
+    assert captured["max_extends"] == 1
+    assert captured["centre_px"] == (960.0, 600.0)
+    assert captured["radius_px"] == 450.0
+    assert len(evidence["points"]) == 1
+    assert evidence["points"][0]["peak_per_ms"] == 600.0
+
+    saved = json.loads(
+        (tmp_path / "focus_calibration.json").read_text(encoding="utf-8")
+    )
+    assert saved == evidence
+    assert (tmp_path / "focus_calibration.json").read_bytes()[:3] != b"\xef\xbb\xbf"
+
+    record = _record_with_focus(evidence)
+    assert record["optical_path"]["fresnel_compensation_m_inv"] == -0.42
+    assert "optical_path.fresnel_compensation_m_inv" not in record["reasons"]
+    assert record["optical_path"]["fresnel_calibration"] == evidence
+
+    # The canonical record builder filters its fixed-schema sections, so verify
+    # the probe writer restores its documented additive evidence field on disk.
+    probe._PENDING_RECORD = {"out_dir": tmp_path, "inputs": record}
+    written = probe._write_pending_record()
+    assert written == tmp_path / "optical_path_record.json"
+    saved_record = json.loads(written.read_text(encoding="utf-8"))
+    assert saved_record["optical_path"]["fresnel_calibration"] == evidence
+    assert saved_record["optical_path"]["fresnel_compensation_m_inv"] == -0.42
+
+
+def test_focus_calibration_non_ok_keeps_d_null_and_writes_failure_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        probe, "sweep_focus", lambda **kwargs: _focus_result(linearity=0.5)
+    )
+    monkeypatch.setattr(probe, "slm_self_check", lambda slm: {"grayscale": 0.0})
+    config = _focus_config_from_args(
+        probe.build_parser().parse_args(["--focus-calibration"])
+    )
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="bad_linearity",
+        self_check={"grayscale": 0.0},
+    )
+    assert evidence is not None
+    assert evidence["status"] == "linearity_failed"
+    assert evidence["accepted"] is False
+    json.loads((tmp_path / "focus_calibration.json").read_text(encoding="utf-8"))
+
+    record = _record_with_focus(evidence)
+    assert record["optical_path"]["fresnel_compensation_m_inv"] is None
+    reason = record["reasons"]["optical_path.fresnel_compensation_m_inv"]
+    assert "status=linearity_failed" in reason
+    assert "曝光线性度" in reason
+    assert "D 保持 null" in reason
+    # 标定真跑过并失败时, 不能停在那句「探针不做 Fresnel 补偿标定」的旧话上。
+    assert "探针不做" not in reason
+
+
+def test_focus_calibration_out_of_range_after_one_extension_never_writes_d(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        probe,
+        "sweep_focus",
+        lambda **kwargs: _focus_result(diopter=-3.0, range_m1=(-3.0, 1.5)),
+    )
+    config = _focus_config_from_args(
+        probe.build_parser().parse_args(["--focus-calibration"])
+    )
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="edge",
+        self_check={"grayscale": 0.0},
+    )
+    assert evidence is not None
+    assert evidence["status"] == "out_of_range"
+    record = _record_with_focus(evidence)
+    assert record["optical_path"]["fresnel_compensation_m_inv"] is None
+    reason = record["reasons"]["optical_path.fresnel_compensation_m_inv"]
+    assert "扫描边界" in reason
+    assert "status=out_of_range" in reason
+    assert "D 保持 null" in reason
+    assert "探针不做" not in reason
+
+
+def test_slm_self_check_failure_aborts_only_focus_segment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(probe, "sweep_focus", _forbid_call)
+
+    def failing_check(slm: object) -> dict[str, object]:
+        raise RuntimeError("SLM grayscale not 0 after open (read 512)")
+
+    monkeypatch.setattr(probe, "slm_self_check", failing_check)
+    config = _focus_config_from_args(
+        probe.build_parser().parse_args(["--focus-calibration"])
+    )
+    failure = probe._run_slm_self_check_for_focus(config, _FakeFocusSlm())
+    assert isinstance(failure, str)
+    assert "grayscale not 0" in failure
+
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="self_check_failed",
+        self_check=failure,
+    )
+    assert evidence is not None
+    assert evidence["status"] == "slm_self_check_failed"
+    assert evidence["slm_self_check"] == failure
+    saved = json.loads(
+        (tmp_path / "focus_calibration.json").read_text(encoding="utf-8")
+    )
+    assert saved["slm_self_check"] == failure
+
+    record = _record_with_focus(evidence)
+    assert record["optical_path"]["fresnel_compensation_m_inv"] is None
+    reason = record["reasons"]["optical_path.fresnel_compensation_m_inv"]
+    assert "SLM 相位自检失败" in reason and "需人工检查面板状态后重排" in reason
+    assert "grayscale not 0" in reason
+    assert "status=slm_self_check_failed" in reason
+    assert "D 保持 null" in reason
+    # 自检失败也是「标定跑了但没成」, 不能留着「探针不做标定」的旧 reason。
+    assert "探针不做" not in reason
+
+
+def test_focus_centre_and_radius_source_and_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        probe,
+        "sweep_focus",
+        lambda **kwargs: captured.update(kwargs) or _focus_result(),
+    )
+    monkeypatch.setattr(probe, "slm_self_check", lambda slm: {"grayscale": 0.0})
+
+    explicit = probe.build_parser().parse_args(
+        [
+            "--focus-calibration",
+            "--focus-centre-px",
+            "1234,567",
+            "--focus-radius-px",
+            "300",
+        ]
+    )
+    config = _focus_config_from_args(explicit)
+    assert config.focus_centre_px == (1234.0, 567.0)
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="explicit",
+        self_check={"grayscale": 0.0},
+    )
+    assert evidence is not None
+    assert evidence["centre_px"] == [1234.0, 567.0]
+    assert evidence["centre_source"] == "cli"
+    assert captured["centre_px"] == (1234.0, 567.0)
+    assert captured["radius_px"] == 300.0
+
+    # 无 CLI 值但有本次 S0 的光瞳中心 (panel px) ⇒ 直接复用, 与离焦相位同口径。
+    from_config = probe.build_parser().parse_args(["--focus-calibration"])
+    config = _focus_config_from_args(from_config)
+    config.pupil_center = (960, 600)
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="from_config",
+        self_check={"grayscale": 0.0},
+    )
+    assert evidence is not None
+    assert evidence["centre_px"] == [960.0, 600.0]
+    assert evidence["centre_source"] == "config_pupil_center"
+
+    # 两者都没有时回落到 fresnel_panel 的缺省光瞳中心 (panel px), 不报错。
+    config.pupil_center = None
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="default",
+        self_check={"grayscale": 0.0},
+    )
+    assert evidence is not None
+    assert evidence["centre_px"] == [960.0, 600.0]
+    assert evidence["centre_source"] == "default_beam_center"
+    assert captured["radius_px"] == 450.0
+
+
+def test_focus_cli_defaults_and_explicit_values() -> None:
+    parser = probe.build_parser()
+    args = parser.parse_args([])
+    assert args.focus_calibration is False
+    assert args.focus_coarse_points == 13
+    assert args.focus_diopter_range == 1.5
+    assert args.focus_refine_points == 7
+    assert args.focus_frames == 3
+    assert args.focus_floor_ms is None
+    assert args.focus_ceiling_ms is None
+    assert args.focus_centre_px is None
+    assert args.focus_radius_px is None
+
+    args = parser.parse_args(
+        [
+            "--focus-calibration",
+            "--focus-coarse-points",
+            "9",
+            "--focus-diopter-range",
+            "2.5",
+            "--focus-refine-points",
+            "5",
+            "--focus-frames",
+            "4",
+            "--focus-floor-ms",
+            "0.05",
+            "--focus-ceiling-ms",
+            "20",
+            "--focus-centre-px",
+            "1300,980",
+            "--focus-radius-px",
+            "300",
+        ]
+    )
+    assert args.focus_calibration is True
+    assert args.focus_coarse_points == 9
+    assert args.focus_diopter_range == 2.5
+    assert args.focus_refine_points == 5
+    assert args.focus_frames == 4
+    assert args.focus_floor_ms == 0.05
+    assert args.focus_ceiling_ms == 20.0
+    assert args.focus_centre_px == (1300.0, 980.0)
+    assert args.focus_radius_px == 300.0
     assert probe.S0_BIT_DEPTH == 12
 
 

@@ -81,6 +81,12 @@ from ao_shaping.drivers.ccd.common import (
     set_camera_exposure_ms,
 )
 from ao_shaping.tools.kernels import device_mutex
+
+# Fresnel D 段的缺省光瞳几何 = fresnel_panel 自己的缺省 (面板坐标 px)。
+from ao_shaping.tools.kernels.bench_kernels import (
+    BEAM_CENTER_PANEL as FOCUS_BEAM_CENTER_PANEL,
+    BEAM_RADIUS_PANEL as FOCUS_BEAM_RADIUS_PANEL,
+)
 from ao_shaping.tools.kernels.device_mutex import DeviceLock, WAITABLE_KINDS
 from ao_shaping.utils.image.beam_metrics import (
     beam_radius_second_moment,
@@ -101,9 +107,27 @@ from ao_shaping.utils.slm.bench_constants import (
 from ao_shaping.utils.slm.phase_display import (
     display_phase as display_phase_on_slm,
 )
+from ao_shaping.tools.slm.panel.display_state import slm_self_check
+from ao_shaping.tools.slm.panel.focus_probe import (
+    FLOOR_MS as FOCUS_FLOOR_MS,
+    sweep_focus,
+)
 from ao_shaping.utils.wavefront.zernike_utils import (
     generate_zernike_phase,
 )
+
+#: Fresnel D 标定段的缺省值 (设备无关实现在 focus_probe.sweep_focus)。
+#: 这里的 coarse/range 比 focus_probe 自己的缺省更窄: S0 会话里 D 只是一个附带
+#: 标定项, 不能让它把整次设备会话拖成一次完整的焦面探测。
+FOCUS_COARSE_POINTS = 13
+FOCUS_DIOPTER_RANGE = 1.5
+FOCUS_REFINE_POINTS = 7
+FOCUS_FRAMES = 3
+#: 曝光线性度必须落在 [0.8, 1.25] 才相信 peak/ms 排序 (focus_probe 同一判据)。
+FOCUS_LINEARITY_MIN = 0.8
+FOCUS_LINEARITY_MAX = 1.25
+#: 预注册 R1 §10.4 D1: 最优点落在边界时**只**允许自动外扩一次。
+FOCUS_MAX_EXTENDS = 1
 
 #: 采集驱动 (``scripts/slm/run_hw_sweep_groups.py``) —— 设备互斥的探针与分类
 #: 都在那里, 这里按路径加载复用, 不另写一份。
@@ -1162,6 +1186,18 @@ class ProbeConfig:
     #: 请求的相机位深 (bit); 开相机后按设备回读校验, 不符即报错。
     bit_depth: int = S0_BIT_DEPTH
     wait_until_idle_s: float = 0.0
+    #: Fresnel D 标定段 (默认关闭: 老会话行为逐位不变)。
+    focus_calibration: bool = False
+    focus_coarse_points: int = FOCUS_COARSE_POINTS
+    focus_diopter_range: float = FOCUS_DIOPTER_RANGE
+    focus_refine_points: int = FOCUS_REFINE_POINTS
+    focus_frames: int = FOCUS_FRAMES
+    focus_floor_ms: float | None = None
+    focus_ceiling_ms: float | None = None
+    #: sweep_focus 的 centre_px = Fresnel 透镜的 SLM 面板光瞳中心 (panel px);
+    #: 缺省 = 本探针自己的 pupil_center, 与前面段的离焦相位同一口径。
+    focus_centre_px: tuple[float, float] | None = None
+    focus_radius_px: float | None = None
 
 
 def _parse_float_list(text: str, label: str) -> list[float]:
@@ -1177,6 +1213,17 @@ def _parse_float_list(text: str, label: str) -> list[float]:
     if not values:
         raise argparse.ArgumentTypeError(f"{label} 不能是空列表")
     return values
+
+
+def _parse_float_pair(text: str, label: str) -> tuple[float, float]:
+    """把 ``"x,y"`` 解析成浮点坐标对 (零级中心允许亚像素)。"""
+    parts = [p.strip() for p in str(text).split(",") if p.strip()]
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(f"{label} 必须是 'x,y', 收到 {text!r}")
+    try:
+        return float(parts[0]), float(parts[1])
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{label} 里 {text!r} 不是数字对") from exc
 
 
 def _parse_center(text: str) -> tuple[int, int]:
@@ -1216,6 +1263,64 @@ def build_parser() -> argparse.ArgumentParser:
              "满量程, 均匀度/线性度结论会被量化噪声主导。只对登记了 "
              "supported_bit_depths 的后端 (daheng/miicam) 生效: 开相机后按设备"
              "回读校验, 不符即报错 (其它后端没有位深可切, 按帧 dtype 兜底满量程)",
+    )
+    parser.add_argument(
+        "--focus-calibration",
+        action="store_true",
+        help="跑 Fresnel 离焦补偿 D 标定 (默认关); 结果写进 S0 记录的 "
+        "fresnel_compensation_m_inv 与 focus_calibration.json",
+    )
+    parser.add_argument(
+        "--focus-coarse-points",
+        type=int,
+        default=FOCUS_COARSE_POINTS,
+        help="Fresnel D 标定的粗扫点数 (默认 %(default)s)",
+    )
+    parser.add_argument(
+        "--focus-diopter-range",
+        type=float,
+        default=FOCUS_DIOPTER_RANGE,
+        help="Fresnel D 标定的屈光度扫描半径 (m⁻¹, 扫 ±该值; 默认 %(default)s)",
+    )
+    parser.add_argument(
+        "--focus-refine-points",
+        type=int,
+        default=FOCUS_REFINE_POINTS,
+        help="Fresnel D 标定极值点附近的细扫点数 (默认 %(default)s)",
+    )
+    parser.add_argument(
+        "--focus-frames",
+        type=int,
+        default=FOCUS_FRAMES,
+        help="Fresnel D 标定每个扫描点平均的帧数 (默认 %(default)s)",
+    )
+    parser.add_argument(
+        "--focus-floor-ms",
+        type=float,
+        default=None,
+        help="Fresnel D 标定的曝光下限 (ms); 缺省 = focus_probe.FLOOR_MS",
+    )
+    parser.add_argument(
+        "--focus-ceiling-ms",
+        type=float,
+        default=None,
+        help="Fresnel D 标定的曝光上限 (ms); 缺省 = --exposures 的最大值",
+    )
+    parser.add_argument(
+        "--focus-centre-px",
+        type=_parse_focus_centre,
+        default=None,
+        help="Fresnel 透镜在 SLM 面板上的光瞳中心 'x,y' (panel px); "
+        "缺省 = 本次 --pupil-center, 再缺省 = BEAM_CENTER_PANEL",
+    )
+    parser.add_argument(
+        "--focus-radius-px",
+        type=float,
+        default=None,
+        help=(
+            "Fresnel 透镜的面板照明半径 (px); 缺省 = BEAM_RADIUS_PANEL "
+            f"({FOCUS_BEAM_RADIUS_PANEL:g})"
+        ),
     )
     parser.add_argument(
         "--wait-until-idle",
@@ -1441,6 +1546,439 @@ def _collect_record_devices(
     }
 
 
+# ---------------------------------------------------------------------------
+# Fresnel D 标定段 (--focus-calibration, 默认关闭)
+# ---------------------------------------------------------------------------
+# 目的: 让 S0 记录里的 ``fresnel_compensation_m_inv`` 变成**本窗口实测值**, 而不
+# 是一直硬编码 ``None``。设备无关的扫描与判定口径全在
+# :func:`ao_shaping.tools.slm.panel.focus_probe.sweep_focus`, 这里只做
+# 「设备 ↔ 参数」的接线、中心/半径的显式给定与证据落盘。
+
+#: 证据里写清「这份 D 是怎么来的」, 便于后人独立复算, 不把结论当事实引用。
+_FOCAL_CALIBRATION_METHOD = (
+    "focus_probe.sweep_focus: 每个屈光度点重设曝光后按 peak/ms (counts/ms) 排序, "
+    "极值点做抛物线细化并复测; D 只在有可用点、曝光线性度落在 0.8–1.25、"
+    "且光路未受阻时才写入 S0 记录, 否则 fresnel_compensation_m_inv 保持 null"
+)
+
+
+def _parse_focus_centre(text: str) -> tuple[float, float]:
+    """``--focus-centre-px``: SLM **面板**光瞳中心 (panel px, 浮点)。"""
+    return _parse_float_pair(text, "--focus-centre-px")
+
+
+def _resolve_focus_centre(
+    config: ProbeConfig,
+) -> tuple[tuple[float, float], str]:
+    """给出 sweep_focus 的照明光瞳中心 (**SLM 面板坐标**, 不是相机帧坐标) 与来源。
+
+    ``centre_px`` 是 :func:`fresnel_panel` 的 ``pupil_center``: 它决定 Fresnel 相位
+    加在面板的哪个圆上。相机帧只通过 ``read_frame`` 提供峰值读数, 与它的坐标空间
+    无关 —— 所以这里**绝不**用相机帧里测到的零级质心/argmax 兜底 (量纲错: 那是
+    2f Fourier 后焦面上的空间频率坐标)。
+
+    缺省 = 本次 S0 探针自己的光瞳中心 (config ``pupil_center``, CLI 默认
+    (960, 600)), 与同一次探测里离焦相位的口径一致; 它也拿不到时才回落到
+    ``BEAM_CENTER_PANEL``。
+    """
+    if config.focus_centre_px is not None:
+        return (
+            float(config.focus_centre_px[0]),
+            float(config.focus_centre_px[1]),
+        ), "cli"
+    pupil_center = config.pupil_center
+    if pupil_center is not None:
+        return (float(pupil_center[0]), float(pupil_center[1])), "config_pupil_center"
+    return (
+        float(FOCUS_BEAM_CENTER_PANEL[0]),
+        float(FOCUS_BEAM_CENTER_PANEL[1]),
+    ), "default_beam_center"
+
+
+def _run_slm_self_check_for_focus(
+    config: ProbeConfig, slm: Any
+) -> dict[str, Any] | str | None:
+    """``--focus-calibration`` 的相位自检前置 (只读回, 不写相位)。
+
+    返回 ``dict`` = 自检回读记录, ``str`` = 失败原因 (标定段因此中止), ``None`` =
+    未开标定段 (老行为逐位不变, 连调用都不发生)。
+
+    失败**不抛**: 只中止这一段标定, 前面的曝光阶梯 / 离焦响应读数仍然有效 ——
+    S0 的判定与退出码不因为 D 没测出来而作废。
+    """
+    if not config.focus_calibration:
+        return None
+    try:
+        return dict(slm_self_check(slm))
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.error(
+            f"SLM 相位自检失败, Fresnel D 标定段中止 (其余探测读数仍有效): {reason}"
+        )
+        return reason
+
+
+def _resolve_camera_full_scale(
+    camera: Any, read_frame: Any
+) -> tuple[float | None, str]:
+    """相机的生效满量程 —— **按设备位深/相机契约取, 不按帧 dtype 猜**。
+
+    大恒 MONO12 的帧 dtype 是 ``uint16``, 按 dtype 会得到 65535 而真实满量程是
+    4095 (issue #246): 每个点都按自己的曝光归一, 满量程错了 ⇒ peak/ms 排序全错。
+    """
+    reported = getattr(camera, "bit_depth", None)
+    if reported is not None:
+        return float((1 << int(reported)) - 1), "camera_bit_depth"
+    resolver = getattr(camera, "effective_full_scale", None)
+    if callable(resolver):
+        try:
+            value = float(resolver(np.asarray(read_frame())))
+        except Exception:  # 兜底路径不能因为后端实现缺陷而中止标定
+            value = 0.0
+        if value > 0.0:
+            return value, "camera_effective_full_scale"
+    return None, "unavailable"
+
+
+def _evaluate_focus_result(result: Any) -> tuple[str, str | None]:
+    """把 :class:`FocusProbeResult` 折成 ``(status, 拒绝原因)``。
+
+    status = ``ok`` 时 ``reject_reason`` 为 ``None``; 否则 ``ok`` 之外的每个值都要
+    带一句人能读懂的失败原因, 它会被写进 S0 记录的 ``reasons``。
+    """
+    if bool(getattr(result, "path_blocked", False)):
+        reason = str(getattr(result, "blockage_reason", "") or "画面里没有局域光斑")
+        return "path_blocked", f"光路受阻: {reason}"
+    best = getattr(result, "best", None)
+    best_diopter = getattr(result, "best_diopter_m1", None)
+    usable = [
+        p for p in getattr(result, "points", ()) if getattr(p, "status", "") == "ok"
+    ]
+    if best is None or best_diopter is None or not usable:
+        notes = "; ".join(getattr(result, "notes", ())) or "扫描范围内没有可用点"
+        return "no_usable_point", f"没有可用点: {notes}"
+    # D1: 只允许一次外扩; 外扩之后最优点仍压在 (实测) 扫描边界上, 说明真正的 D
+    # 在窗口之外 —— 这个值不能当标定结果写进 S0 记录。
+    scan_range = getattr(result, "range_m1", None)
+    if scan_range is not None:
+        lower, upper = float(scan_range[0]), float(scan_range[1])
+        value = float(best_diopter)
+        if math.isclose(value, lower, rel_tol=1e-6, abs_tol=1e-9) or math.isclose(
+            value, upper, rel_tol=1e-6, abs_tol=1e-9
+        ):
+            return (
+                "out_of_range",
+                f"最优点 {value:+.3f} m⁻¹ 仍落在扫描边界 "
+                f"[{lower:+.3f}, {upper:+.3f}] (最多外扩 {FOCUS_MAX_EXTENDS} 次), "
+                "真实 D 可能在窗口外",
+            )
+    ratio = getattr(result, "linearity_ratio", None)
+    if ratio is None:
+        return (
+            "linearity_unavailable",
+            "FocusProbeResult 未提供曝光线性度, peak/ms 排序不可信",
+        )
+    if not (FOCUS_LINEARITY_MIN <= float(ratio) <= FOCUS_LINEARITY_MAX):
+        return (
+            "linearity_failed",
+            f"曝光线性度 {float(ratio):.2f} 偏离 1 ({FOCUS_LINEARITY_MIN:g}–"
+            f"{FOCUS_LINEARITY_MAX:g}), peak/ms 排序不可信",
+        )
+    return "ok", None
+
+
+def _write_focus_calibration_json(out_dir: Path, evidence: dict[str, Any]) -> Path:
+    """证据文件落盘 (UTF-8 无 BOM), 与 S0 记录里的 ``fresnel_calibration`` 同源。"""
+    path = out_dir / "focus_calibration.json"
+    path.write_text(
+        json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _focus_evidence(
+    *,
+    status: str,
+    reject_reason: str | None,
+    config: ProbeConfig,
+    centre_px: tuple[float, float],
+    centre_source: str,
+    radius_px: float,
+    floor_ms: float,
+    ceiling_ms: float,
+    start_exposure_ms: float,
+    full_scale: float | None,
+    full_scale_source: str,
+    pixel_um: float,
+    self_check: dict[str, Any] | str | None,
+    slm_serial: str | None,
+    cam_serial: str | None,
+    measured: dict[str, Any] | None,
+    run_id: str,
+) -> dict[str, Any]:
+    evidence: dict[str, Any] = {
+        "method": _FOCAL_CALIBRATION_METHOD,
+        "run_id": run_id,
+        "timestamp_utc": _utc_iso(),
+        "status": status,
+        "accepted": status == "ok",
+        "reject_reason": reject_reason,
+        "centre_px": [float(centre_px[0]), float(centre_px[1])],
+        "centre_source": centre_source,
+        "radius_px": float(radius_px),
+        "full_scale": full_scale,
+        "full_scale_source": full_scale_source,
+        "pixel_um": float(pixel_um),
+        "slm_self_check": self_check,
+        "slm_serial": slm_serial,
+        "cam_serial": cam_serial,
+        "requested": {
+            "coarse_points": int(config.focus_coarse_points),
+            "diopter_range": float(config.focus_diopter_range),
+            "refine_points": int(config.focus_refine_points),
+            "frames": int(config.focus_frames),
+            "max_extends": FOCUS_MAX_EXTENDS,
+            "floor_ms": float(floor_ms),
+            "ceiling_ms": float(ceiling_ms),
+            "start_exposure_ms": float(start_exposure_ms),
+            "wavelength_nm": int(config.slm_wavelength_nm),
+        },
+    }
+    if measured is not None:
+        # best_diopter_m1 / points / linearity_ratio / notes 等原始读数。
+        evidence.update(measured)
+        best_diopter = measured.get("best_diopter_m1")
+        best_point = next(
+            (
+                point
+                for point in measured.get("points", [])
+                if point.get("diopter_m1") == best_diopter
+            ),
+            None,
+        )
+        evidence["peak_per_ms"] = (
+            float(best_point["peak_per_ms"]) if best_point is not None else None
+        )
+        evidence["exposure_ms"] = (
+            float(best_point["exposure_ms"]) if best_point is not None else None
+        )
+    else:
+        evidence["peak_per_ms"] = None
+        evidence["exposure_ms"] = None
+    return evidence
+
+
+def _run_focus_calibration(
+    *,
+    slm: Any,
+    camera: Any,
+    config: ProbeConfig,
+    centre_px: tuple[float, float],
+    centre_source: str,
+    radius_px: float,
+    floor_ms: float,
+    ceiling_ms: float,
+    start_exposure_ms: float,
+    self_check: dict[str, Any] | str | None,
+    out_dir: Path,
+    run_id: str,
+    slm_serial: str | None = None,
+    cam_serial: str | None = None,
+) -> dict[str, Any]:
+    """跑一次 Fresnel D 扫描, 返回 (并落盘) 证据对象。
+
+    Args:
+        slm / camera: 已经打开 (握在设备锁里) 的设备。
+        config: 本次探测的配置, 标定段的参数全从它来。
+        centre_px / centre_source: :func:`_resolve_focus_centre` 的产物。
+        self_check: :func:`_run_slm_self_check_for_focus` 的产物; 是字符串即失败。
+    """
+    logger.info(
+        f"Fresnel 标定: coarse_points={int(config.focus_coarse_points)} "
+        f"diopter_range={float(config.focus_diopter_range)} "
+        f"refine={int(config.focus_refine_points)} frames={int(config.focus_frames)} "
+        f"centre=({centre_px[0]:g}, {centre_px[1]:g}) [{centre_source}], "
+        f"radius={float(radius_px):g} px, 曝光窗口 "
+        f"{float(floor_ms):g}-{float(ceiling_ms):g} ms, 起曝 "
+        f"{float(start_exposure_ms):g} ms"
+    )
+
+    evidence: dict[str, Any]
+    if isinstance(self_check, str):
+        evidence = _focus_evidence(
+            status="slm_self_check_failed",
+            reject_reason=(f"SLM 相位自检失败：{self_check}，需人工检查面板状态后重排"),
+            config=config,
+            centre_px=centre_px,
+            centre_source=centre_source,
+            radius_px=radius_px,
+            floor_ms=floor_ms,
+            ceiling_ms=ceiling_ms,
+            start_exposure_ms=start_exposure_ms,
+            full_scale=None,
+            full_scale_source="skipped",
+            pixel_um=0.0,
+            self_check=self_check,
+            slm_serial=slm_serial,
+            cam_serial=cam_serial,
+            measured=None,
+            run_id=run_id,
+        )
+        _write_focus_calibration_json(out_dir, evidence)
+        logger.error(
+            f"Fresnel 标定中止 (SLM 相位自检失败, 不写 D): {evidence['reject_reason']}"
+        )
+        return evidence
+
+    pixel_um = float(getattr(camera, "pixel_size_um", 0.0) or 0.0)
+    if pixel_um <= 0.0:
+        evidence = _focus_evidence(
+            status="unavailable",
+            reject_reason=f"相机未登记像元尺寸 (pixel_size_um={pixel_um:g}), 无法生成 Fresnel 相位",
+            config=config,
+            centre_px=centre_px,
+            centre_source=centre_source,
+            radius_px=radius_px,
+            floor_ms=floor_ms,
+            ceiling_ms=ceiling_ms,
+            start_exposure_ms=start_exposure_ms,
+            full_scale=None,
+            full_scale_source="skipped",
+            pixel_um=pixel_um,
+            self_check=self_check,
+            slm_serial=slm_serial,
+            cam_serial=cam_serial,
+            measured=None,
+            run_id=run_id,
+        )
+        _write_focus_calibration_json(out_dir, evidence)
+        logger.error(
+            f"Fresnel 标定中止 (相机的像元尺寸不可用): {evidence['reject_reason']}"
+        )
+        return evidence
+
+    def read_frame() -> np.ndarray:
+        return np.asarray(camera.get_numpy_image(n_sample=1))
+
+    full_scale, full_scale_source = _resolve_camera_full_scale(camera, read_frame)
+
+    def _set_exposure_ms(ms: float) -> float:
+        """改曝光并回读生效值 (驱动会夹到设备范围, 请求值不是生效值)。"""
+        set_camera_exposure_ms(camera, float(ms))
+        return float(get_camera_exposure_ms(camera))
+
+    status = "ok"
+    reject_reason: str | None = None
+    measured: dict[str, Any] | None = None
+    try:
+        result = sweep_focus(
+            apply_phase=lambda phase: display_phase_on_slm(slm, phase, config.settle_s),
+            read_frame=read_frame,
+            set_exposure_ms=_set_exposure_ms,
+            centre_px=centre_px,
+            radius_px=radius_px,
+            coarse_points=int(config.focus_coarse_points),
+            diopter_range=float(config.focus_diopter_range),
+            refine_points=int(config.focus_refine_points),
+            start_exposure_ms=float(start_exposure_ms),
+            floor_ms=float(floor_ms),
+            ceiling_ms=float(ceiling_ms),
+            frames=int(config.focus_frames),
+            max_extends=FOCUS_MAX_EXTENDS,
+            full_scale=full_scale,
+            wavelength_nm=float(config.slm_wavelength_nm),
+            pixel_um=pixel_um,
+        )
+        measured = dict(result.as_evidence())
+        status, reject_reason = _evaluate_focus_result(result)
+    except Exception as exc:  # 设备抖动不该让整次探测死掉, 但不许把 D 写出来
+        status = "error"
+        reject_reason = f"Fresnel 标定执行失败 ({type(exc).__name__}: {exc})"
+
+    evidence = _focus_evidence(
+        status=status,
+        reject_reason=reject_reason,
+        config=config,
+        centre_px=centre_px,
+        centre_source=centre_source,
+        radius_px=radius_px,
+        floor_ms=floor_ms,
+        ceiling_ms=ceiling_ms,
+        start_exposure_ms=start_exposure_ms,
+        full_scale=full_scale,
+        full_scale_source=full_scale_source,
+        pixel_um=pixel_um,
+        self_check=self_check,
+        slm_serial=slm_serial,
+        cam_serial=cam_serial,
+        measured=measured,
+        run_id=run_id,
+    )
+    path = _write_focus_calibration_json(out_dir, evidence)
+
+    best = evidence.get("best_diopter_m1")
+    if best is not None:
+        logger.info(
+            f"Fresnel 标定: best={float(best):+.3f} m⁻¹, "
+            f"peak/ms={float(evidence['peak_per_ms']):.2f}, "
+            f"exposure={float(evidence['exposure_ms']):g} ms, "
+            f"status={status}" + (f" ({reject_reason})" if reject_reason else "")
+        )
+    else:
+        logger.info(f"Fresnel 标定: 无可用结论 (status={status}): {reject_reason}")
+    logger.info(f"Fresnel 标定证据: {path}")
+    return evidence
+
+
+def _maybe_run_focus_calibration(
+    *,
+    slm: Any,
+    camera: Any,
+    config: ProbeConfig,
+    start_exposure_ms: float,
+    out_dir: Path,
+    run_id: str,
+    self_check: dict[str, Any] | str | None = None,
+    slm_serial: str | None = None,
+    cam_serial: str | None = None,
+) -> dict[str, Any] | None:
+    """标定段总开关: 关闭时直接返回 ``None`` (与没有这段的行为逐位一致)。"""
+    if not config.focus_calibration:
+        return None
+    centre_px, centre_source = _resolve_focus_centre(config)
+    radius_px = (
+        float(config.focus_radius_px)
+        if config.focus_radius_px is not None
+        else float(FOCUS_BEAM_RADIUS_PANEL)
+    )
+    floor_ms = (
+        float(config.focus_floor_ms)
+        if config.focus_floor_ms is not None
+        else float(FOCUS_FLOOR_MS)
+    )
+    ceiling_ms = (
+        float(config.focus_ceiling_ms)
+        if config.focus_ceiling_ms is not None
+        else (float(max(config.exposures_ms)) if config.exposures_ms else 50.0)
+    )
+    return _run_focus_calibration(
+        slm=slm,
+        camera=camera,
+        config=config,
+        centre_px=centre_px,
+        centre_source=centre_source,
+        radius_px=radius_px,
+        floor_ms=floor_ms,
+        ceiling_ms=ceiling_ms,
+        start_exposure_ms=start_exposure_ms,
+        self_check=self_check,
+        out_dir=out_dir,
+        run_id=run_id,
+        slm_serial=slm_serial,
+        cam_serial=cam_serial,
+    )
+
+
 def _record_inputs(
     *,
     run_id: str,
@@ -1456,11 +1994,17 @@ def _record_inputs(
     response: dict[str, Any],
     verdict: dict[str, Any],
     acquired_at: str,
+    focus_calibration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """把已经采到的读数整理成 ``build_optical_path_record`` 的输入。
 
     只做搬运, 不碰设备: 设备相关的读取全在 :func:`_collect_record_devices` 里,
     到了这一步已经全是普通数字/字符串。
+
+    ``focus_calibration`` 是 :func:`_run_focus_calibration` 的证据对象。给了它就
+    用**实测的** D 填 ``fresnel_compensation_m_inv`` 并把证据挂进
+    ``optical_path.fresnel_calibration``; 没给 (默认关) 时逐位保持老行为:
+    D = ``None`` + 那句「探针不做 Fresnel 补偿标定」的 reason。
     """
     reasons: dict[str, str] = {}
     devices = _collect_record_devices(
@@ -1490,22 +2034,48 @@ def _record_inputs(
     saturation_counts = float(ladder_summary["saturation_counts"])
     baseline_peak = float(response["baseline_peak_counts"])
 
+    # Fresnel D: 只在标定段真跑过、且通过了它的自检 (曝光线性度 / 有可用点 /
+    # 光路没被挡) 时才写实测值。可疑值绝不进记录 —— 保持 None 并在 reason 里写
+    # 明实测失败的原因, 这样 D 缺失永远是「没测出来」而不是「测了不放心」。
+    fresnel_compensation: float | None = None
+    if focus_calibration is not None:
+        status = str(focus_calibration.get("status") or "unknown")
+        reject_reason = str(focus_calibration.get("reject_reason") or "无可用结论")
+        best = focus_calibration.get("best_diopter_m1")
+        if bool(focus_calibration.get("accepted")) and best is not None:
+            fresnel_compensation = float(best)
+            reasons.pop("optical_path.fresnel_compensation_m_inv", None)
+        elif status == "slm_self_check_failed":
+            # 自检失败的 reject_reason 已带「SLM 相位自检失败：…」前缀, 这里再补
+            # status 与「D 保持 null」, 免得记录里停在那句「探针不做标定」的旧话上。
+            reasons["optical_path.fresnel_compensation_m_inv"] = (
+                f"{reject_reason} (status={status}; D 保持 null, 未写入记录)"
+            )
+        else:
+            reasons["optical_path.fresnel_compensation_m_inv"] = (
+                f"Fresnel 标定实测失败 (status={status}), D 保持 null 未写入记录: "
+                f"{reject_reason}"
+            )
+
+    optical_path: dict[str, Any] = {
+        "config_id": config_id,
+        "aperture": None,
+        "fresnel_compensation_m_inv": fresnel_compensation,
+        "geometry_calib_file": (_rel_to_root(geometry) if geometry.exists() else None),
+        "geometry_calib_mtime": geometry_mtime,
+        "probe_status": verdict["state"],
+        "probe_report": _rel_to_root(probe_report),
+    }
+    if focus_calibration is not None:
+        # 与 focus_calibration.json 同源: 同一个 dict, 不改一份留另一份。
+        optical_path["fresnel_calibration"] = dict(focus_calibration)
+
     return {
         "run_id": run_id,
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "operator_note": "",
         "devices": devices,
-        "optical_path": {
-            "config_id": config_id,
-            "aperture": None,
-            "fresnel_compensation_m_inv": None,
-            "geometry_calib_file": (
-                _rel_to_root(geometry) if geometry.exists() else None
-            ),
-            "geometry_calib_mtime": geometry_mtime,
-            "probe_status": verdict["state"],
-            "probe_report": _rel_to_root(probe_report),
-        },
+        "optical_path": optical_path,
         "exposure_check": {
             "peak_counts_at_used_exposure": baseline_peak,
             "saturation_threshold_counts": saturation_counts,
@@ -1540,6 +2110,15 @@ def _write_pending_record() -> Path | None:
     inputs["occupancy"] = occupancy
     try:
         record = build_optical_path_record(**inputs)
+        # build_optical_path_record intentionally keeps optical_path to its fixed
+        # schema fields; the Fresnel evidence is this probe's additive extension.
+        # Attach it after the canonical builder so its full independently
+        # recomputable payload survives in optical_path_record.json.
+        focus_evidence = (inputs.get("optical_path") or {}).get("fresnel_calibration")
+        if focus_evidence is not None:
+            record.setdefault("optical_path", {})["fresnel_calibration"] = (
+                focus_evidence
+            )
         path = Path(pending["out_dir"]) / "optical_path_record.json"
         path.write_text(
             json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1589,6 +2168,27 @@ def run_probe(args: argparse.Namespace) -> int:
         cam_id=int(args.cam_id),
         bit_depth=int(getattr(args, "bit_depth", S0_BIT_DEPTH)),
         wait_until_idle_s=float(args.wait_until_idle),
+        focus_calibration=bool(getattr(args, "focus_calibration", False)),
+        focus_coarse_points=int(
+            getattr(args, "focus_coarse_points", FOCUS_COARSE_POINTS)
+        ),
+        focus_diopter_range=float(
+            getattr(args, "focus_diopter_range", FOCUS_DIOPTER_RANGE)
+        ),
+        focus_refine_points=int(
+            getattr(args, "focus_refine_points", FOCUS_REFINE_POINTS)
+        ),
+        focus_frames=int(getattr(args, "focus_frames", FOCUS_FRAMES)),
+        focus_floor_ms=(
+            float(args.focus_floor_ms) if args.focus_floor_ms is not None else None
+        ),
+        focus_ceiling_ms=(
+            float(args.focus_ceiling_ms) if args.focus_ceiling_ms is not None else None
+        ),
+        focus_centre_px=args.focus_centre_px,
+        focus_radius_px=(
+            float(args.focus_radius_px) if args.focus_radius_px is not None else None
+        ),
     )
     # 标准记录 (SKILL §4) 的 config_id: 有 lane 名就用 lane 名, 否则用相机+波长
     # 拼一个能对出"这是哪条光路"的标识。
@@ -1612,6 +2212,10 @@ def run_probe(args: argparse.Namespace) -> int:
 
     device_info: dict[str, Any] = {}
     with slm:
+        # SLM 相位自检前置: 只在 --focus-calibration 时做, 且在任何相位下发之前。
+        # 失败只中止新加的 D 标定段 (见 _run_focus_calibration), S0 的曝光阶梯与
+        # 离焦响应照跑, 判定/退出码不受影响。
+        focus_self_check = _run_slm_self_check_for_focus(config, slm)
         with camera:
             # 位深必须按设备回读校验: 请求值不是生效值 (gxipy 越界/拉流中写入会
             # 静默保留旧 PixelFormat)。带着错的位深继续, 满量程与全部饱和判据
@@ -1842,6 +2446,21 @@ def run_probe(args: argparse.Namespace) -> int:
                     f"({saved['recorded_utc']}); 下一次探测起生效"
                 )
 
+            # -- 阶段三: Fresnel D 标定 (默认关闭) -------------------------
+            # 必须在放锁之前: 前面两段的曝光/位深纪律已经走完, 这段的曝光还要按
+            # 每点重新设, 全程握着同一份 SLM / 相机句柄。
+            focus_evidence = _maybe_run_focus_calibration(
+                slm=slm,
+                camera=camera,
+                config=config,
+                start_exposure_ms=float(defocus_exposure),
+                out_dir=out_dir,
+                run_id=run_id,
+                self_check=focus_self_check,
+                slm_serial=device_info.get("slm_serial"),
+                cam_serial=device_info.get("cam_serial"),
+            )
+
             # 标准记录 (SKILL §4, ``ao-optical-path-record/v1``): 在这里只组装输入 ——
             # 设备还开着 (设备标识要现场读), 而写盘要等 main() 放锁之后才能补上
             # occupancy.released_at, 所以先挂到模块级的 _PENDING_RECORD 上。
@@ -1865,6 +2484,7 @@ def run_probe(args: argparse.Namespace) -> int:
                     response=response,
                     verdict=verdict,
                     acquired_at=acquired_at,
+                    focus_calibration=focus_evidence,
                 ),
             }
 
