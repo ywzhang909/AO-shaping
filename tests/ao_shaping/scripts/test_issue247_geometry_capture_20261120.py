@@ -17,6 +17,12 @@
 10. 波形判别计划（``--plan waveform``）：15 个 id 的顺序/数量/帧数、局部 blaze patch
     只沿单轴变化且 patch 外为 0、period=128 时 blaze_x_plus 与 tilt_x_plus 相位
     逐元素相同、``--patterns`` 子集与未知 id 硬失败。
+11. 同窗口重复性计划（``--plan reproduction``）：69 个唯一 id / 276 帧、轮次顺序
+    r1 冻结 / r2 反序 / r3 冻结、``base_pattern_id`` + ``repeat_index`` 元数据、
+    同一 base 相位摘要逐轮一致、``--patterns`` 被拒绝。
+12. ``capture_settings``：所有计划（含 reproduction）都记录已解析的 settle_s /
+    exposure_ms / saturation_fraction / wait_until_idle_s / 设备选择，summary 镜像
+    同一块，CLI 覆盖值生效。
 
 本测试只用 ``tmp_path``，不 import 任何驱动，也不读写 ``data/``。
 """
@@ -88,6 +94,8 @@ def test_help_exits_zero():
         "--cam-id",
     ):
         assert flag in result.stdout
+    # --plan 的选择必须包含本轮新增的 reproduction（CLI 名称即契约）。
+    assert "reproduction" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +752,7 @@ def test_frozen_and_waveform_plans_are_unchanged_regression(tmp_path: Path):
     # frozen / waveform plan JSON 不引入新键；两种老 plan 的图样也没有 role。
     for plan in (frozen, waveform):
         assert "role_by_pattern" not in plan, plan["plan_name"]
+        assert "reproduction" not in plan, plan["plan_name"]
         for key in SCRIPT.PLAN_KEYS:
             assert key in plan, key
     for builder in (SCRIPT.build_patterns, SCRIPT.build_waveform_patterns):
@@ -766,3 +775,199 @@ def test_frozen_and_waveform_plans_are_unchanged_regression(tmp_path: Path):
             ),
         ), pid
 
+
+# ---------------------------------------------------------------------------
+# 11. 同窗口重复性计划（--plan reproduction）
+# ---------------------------------------------------------------------------
+def test_reproduction_plan_ids_rounds_frames_and_metadata():
+    plan = SCRIPT.build_plan(
+        argparse.Namespace(out=Path("__plan__"), plan="reproduction", patterns=None)
+    )
+    ids = tuple(plan["pattern_ids"])
+    assert len(ids) == 69
+    assert len(set(ids)) == 69
+    assert plan["n_patterns"] == 69
+    assert plan["n_frames_expected"] == 276
+    assert set(plan["frames_per_pattern"].values()) == {4}
+
+    meta = plan["reproduction"]
+    assert meta["rounds"] == ["r1", "r2", "r3"]
+    assert meta["round_order"] == ["frozen", "reversed", "frozen"]
+    assert meta["base_pattern_count"] == 23
+    assert meta["n_unique_patterns"] == 69
+    assert meta["n_frames_expected"] == 276
+    assert meta["frames_per_pattern"] == 4
+    assert meta["phase_hash_identical_across_rounds"] is True
+    assert meta["single_slm_session"] is True
+    assert "role_by_pattern" not in plan
+
+    # 冻结轮次顺序：r1/r3 按冻结 attribution 顺序，r2 反序；三轮依次排布。
+    base_ids = list(SCRIPT.ATTRIBUTION_PATTERN_IDS)
+    round_ids = {
+        label: [pid for pid in ids if pid.endswith(f"__{label}")]
+        for label in ("r1", "r2", "r3")
+    }
+    assert round_ids["r1"] == [f"{pid}__r1" for pid in base_ids]
+    assert round_ids["r2"] == [f"{pid}__r2" for pid in reversed(base_ids)]
+    assert round_ids["r3"] == [f"{pid}__r3" for pid in base_ids]
+    assert list(ids) == round_ids["r1"] + round_ids["r2"] + round_ids["r3"]
+
+    # 每条 pattern 记录 base id 与 1 基 repeat_index；kind / role / 帧数沿用 base。
+    attrib = {p["id"]: p for p in SCRIPT.build_attribution_patterns()}
+    for item in plan["patterns"]:
+        assert item["id"] == f"{item['base_pattern_id']}__r{item['repeat_index']}"
+        assert int(item["repeat_index"]) in (1, 2, 3)
+        ref = attrib[item["base_pattern_id"]]
+        assert item["kind"] == ref["kind"]
+        assert item.get("role") == ref.get("role")
+        assert int(item["frames"]) == 4
+
+
+def test_reproduction_phase_hashes_are_identical_across_rounds():
+    reproduction = SCRIPT.build_reproduction_patterns()
+    attrib = {p["id"]: p for p in SCRIPT.build_attribution_patterns()}
+    for pid in SCRIPT.ATTRIBUTION_PATTERN_IDS:
+        rounds = [p for p in reproduction if p["base_pattern_id"] == pid]
+        assert [int(p["repeat_index"]) for p in rounds] == [1, 2, 3], pid
+        # 相位摘要必须与 base 图样逐字节一致（相同 phase，不携带轮次信息）。
+        assert {p["phase_sha256"] for p in rounds} == {attrib[pid]["phase_sha256"]}, pid
+    # 摘要已覆盖全部 23 个 base；再对三种 kind 抽查像素级一致。
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    for pid in ("grating_x_p128", "tilt_y_minus_p192", "patch_x_plus_p128"):
+        arrays = [
+            SCRIPT.pattern_array(p, shape)
+            for p in reproduction
+            if p["base_pattern_id"] == pid
+        ]
+        assert np.array_equal(arrays[0], arrays[1]), pid
+        assert np.array_equal(arrays[0], arrays[2]), pid
+
+
+def test_reproduction_plan_rejects_patterns_subset():
+    with pytest.raises(SystemExit):
+        SCRIPT.build_plan(
+            argparse.Namespace(
+                out=Path("__plan__"), plan="reproduction", patterns="flat_pre"
+            )
+        )
+
+
+def test_reproduction_cli_plan_only_creates_no_directory(tmp_path: Path):
+    target = tmp_path / "repro-out"
+    result = _run("--plan", "reproduction", "--out", str(target))
+    assert result.returncode == 0, result.stderr
+    assert not target.exists(), "plan-only mode must not create --out"
+    plan = json.loads(result.stdout)
+    assert plan["plan_name"] == "reproduction"
+    assert plan["n_patterns"] == 69
+    assert plan["n_frames_expected"] == 276
+    assert plan["reproduction"]["rounds"] == ["r1", "r2", "r3"]
+    assert "requires --execute" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# 12. capture_settings：已解析的采集设置（plan.json / summary.json 共有）
+# ---------------------------------------------------------------------------
+CAPTURE_SETTING_KEYS = (
+    "plan_name",
+    "settle_s",
+    "exposure_ms",
+    "saturation_fraction",
+    "wait_until_idle_s",
+    "slm_number",
+    "wavelength_nm",
+    "cam_id",
+)
+
+
+def test_capture_settings_defaults_present_for_every_plan():
+    """所有计划都带同一块 capture_settings，冻结值可直接被离线检查器核对。"""
+    for plan_name in ("frozen", "waveform", "attribution", "reproduction"):
+        plan = SCRIPT.build_plan(argparse.Namespace(out=None, plan=plan_name))
+        block = plan["capture_settings"]
+        # 键集合固定且顺序固定，检查器按名读取不必容错。
+        assert tuple(block) == CAPTURE_SETTING_KEYS, plan_name
+        assert block["plan_name"] == plan_name
+        # 预注册冻结项：settle 0.8 s、饱和门 0.9、等待 1800 s。
+        assert block["settle_s"] == 0.8, plan_name
+        assert isinstance(block["settle_s"], float)
+        assert block["saturation_fraction"] == 0.9, plan_name
+        assert block["wait_until_idle_s"] == 1800.0, plan_name
+        # 曝光只记录请求值（默认 0.05；硬件轮次由操作者显式传 0.04）。
+        assert block["exposure_ms"] == SCRIPT.DEFAULT_EXPOSURE_MS, plan_name
+        # 设备选择默认值。
+        assert (block["slm_number"], block["wavelength_nm"], block["cam_id"]) == (
+            1,
+            1064,
+            0,
+        ), plan_name
+        # 必须可 JSON 序列化（plan.json 直接写盘）。
+        assert json.loads(json.dumps(plan))["capture_settings"] == block
+
+
+def test_capture_settings_follow_resolved_cli_values():
+    args = argparse.Namespace(
+        out=None,
+        plan="reproduction",
+        settle_s=0.8,
+        exposure_ms=0.04,
+        saturation_fraction=0.9,
+        wait_until_idle=1800.0,
+        slm_number=2,
+        wavelength_nm=1064,
+        cam_id=1,
+    )
+    plan = SCRIPT.build_plan(args)
+    block = plan["capture_settings"]
+    assert block == {
+        "plan_name": "reproduction",
+        "settle_s": 0.8,
+        "exposure_ms": 0.04,
+        "saturation_fraction": 0.9,
+        "wait_until_idle_s": 1800.0,
+        "slm_number": 2,
+        "wavelength_nm": 1064,
+        "cam_id": 1,
+    }
+
+
+def test_summary_mirrors_plan_capture_settings():
+    plan = SCRIPT.build_plan(argparse.Namespace(out=None, plan="attribution"))
+    summary = SCRIPT.summary_skeleton(plan["capture_settings"])
+    assert summary["capture_settings"] == plan["capture_settings"]
+    assert summary["capture_settings"]["plan_name"] == "attribution"
+    # 未传块时键仍存在（schema 一致），但内容为空。
+    assert SCRIPT.summary_skeleton()["capture_settings"] == {}
+    assert "capture_settings" in SCRIPT.PLAN_KEYS
+    assert "capture_settings" in SCRIPT.SUMMARY_KEYS
+
+
+def test_cli_plan_only_records_resolved_capture_settings(tmp_path: Path):
+    target = tmp_path / "settings-out"
+    result = _run(
+        "--plan",
+        "reproduction",
+        "--settle-s",
+        "0.8",
+        "--exposure-ms",
+        "0.04",
+        "--saturation-fraction",
+        "0.9",
+        "--wait-until-idle",
+        "1800",
+        "--out",
+        str(target),
+    )
+    assert result.returncode == 0, result.stderr
+    assert not target.exists(), "plan-only mode must not create --out"
+    plan = json.loads(result.stdout)
+    block = plan["capture_settings"]
+    assert block["plan_name"] == "reproduction"
+    assert block["settle_s"] == 0.8
+    assert block["exposure_ms"] == 0.04
+    assert block["saturation_fraction"] == 0.9
+    assert block["wait_until_idle_s"] == 1800.0
+    # 计划内容不受影响：capture_settings 只是新增块。
+    assert plan["n_patterns"] == 69
+    assert plan["n_frames_expected"] == 276
+    assert plan["reproduction"]["rounds"] == ["r1", "r2", "r3"]

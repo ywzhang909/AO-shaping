@@ -61,7 +61,28 @@ Usage::
     python scripts/slm/issue247_geometry_capture_20261120.py --self-test
     python scripts/slm/issue247_geometry_capture_20261120.py --out <fresh-dir>            # plan only
     python scripts/slm/issue247_geometry_capture_20261120.py --execute --out <fresh-dir>  # hardware
+
+Same-window repeatability preregistration (docs/dev/hw_window_20261124_issue247_reproducibility_prereg.md)::
+
+    python scripts/slm/issue247_geometry_capture_20261120.py --plan reproduction \\
+        --out <fresh-dir>                                                   # plan only: 69 ids / 276 frames
+    python scripts/slm/issue247_geometry_capture_20261120.py --plan reproduction \\
+        --execute --wait-until-idle 1800 --out <fresh-dir>                  # hardware, one SLM open/close
+
+The ``reproduction`` plan is the frozen 23-pattern ``attribution`` list captured three
+times in a single SLM session: ``r1`` frozen order, ``r2`` reversed, ``r3`` frozen
+order, 4 frames each, so 69 unique pattern ids (``<base_pattern_id>__<round_id>``) and
+276 frames.  ``--patterns`` is rejected for that plan: the preregistration fixes the
+whole list, so a partial run can never be produced by accident.
+
+Both ``plan.json`` and ``summary.json`` carry one resolved-settings block,
+``capture_settings`` (all plans): ``plan_name``, ``settle_s``, ``exposure_ms``
+(requested value), ``saturation_fraction``, ``wait_until_idle_s``,
+``slm_number``, ``wavelength_nm``, ``cam_id``.  Offline checkers read the frozen
+values from there (e.g. ``capture_settings.settle_s == 0.8``) instead of
+assuming CLI defaults.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -220,6 +241,15 @@ ATTRIBUTION_PATTERN_IDS: tuple[str, ...] = (
 #: 与 Windows 内既有波形计划共用同一帧预算；每项恰好 4 帧。
 ATTRIBUTION_FRAMES = WAVEFORM_FRAMES
 
+# ---------------------------------------------------------------------------
+# 同窗口重复性复核（docs/dev/hw_window_20261124_issue247_reproducibility_prereg.md §2）
+# ---------------------------------------------------------------------------
+#: 完整 attribution 23 图样 × 3 轮 = 69 个唯一 pattern、每项 4 帧 = 276 帧。
+REPRODUCTION_ROUNDS: tuple[str, ...] = ("r1", "r2", "r3")
+REPRODUCTION_FRAMES = ATTRIBUTION_FRAMES
+#: 冻结轮次顺序：r1 冻结顺序、r2 反序、r3 再按冻结顺序；轮间不得重开 SLM。
+REPRODUCTION_ROUND_ORDER: tuple[str, ...] = ("frozen", "reversed", "frozen")
+
 DEFAULT_EXPOSURE_MS = 0.05
 DEFAULT_SATURATION_FRACTION = 0.9
 DEFAULT_SETTLE_S = 0.8
@@ -234,6 +264,7 @@ PLAN_KEYS: tuple[str, ...] = (
     "schema",
     "task",
     "plan_name",
+    "capture_settings",
     "patterns",
     "pattern_ids",
     "n_patterns",
@@ -260,6 +291,7 @@ SUMMARY_KEYS: tuple[str, ...] = (
     "per_pattern",
     "frame_digests",
     "saturation_count",
+    "capture_settings",
     "declared_constants",
     "missing",
     "elapsed_s",
@@ -813,16 +845,15 @@ def build_waveform_patterns(
     return _finalize_patterns(_narrow_patterns(patterns, only))
 
 
-def build_attribution_patterns(
-    only: list[str] | None = None,
-) -> list[dict[str, Any]]:
+def _build_attribution_base() -> list[dict[str, Any]]:
     """#247 波形族归因计划：23 图样 × 4 帧，顺序与 role 由预注册 §2 冻结。
 
     p128 图样（含 flat_pre/flat_mid）是 fit 判据集；p192 图样与 flat_post
     是绝不相交的 held_out 验证集。二值 grating 的 ±1 级同帧天然对称，不另设
     minus；tilt / patch 则各有显式 ± 对照。tilt 与 patch 的周期**显式**写成
     128.0 / 192.0，不走 ``tilt_geometry`` 的 y 轴 120 px clamp，保证 y 轴
-    真的等频。``only`` 只能缩小到本计划内的子集，未知 id 硬失败。
+    真的等频。返回未 finalize 的条目；``only`` 缩小与 phase 摘要由
+    :func:`build_attribution_patterns` 负责（重复性计划复用同一 base 序列）。
     """
     patterns: list[dict[str, Any]] = []
 
@@ -871,7 +902,56 @@ def build_attribution_patterns(
     add_family(192, "held_out")
     add("flat_post", "flat", ATTRIBUTION_FRAMES, role="held_out")
 
-    return _finalize_patterns(_narrow_patterns(patterns, only))
+    return patterns
+
+
+def build_attribution_patterns(
+    only: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """23 图样归因计划（冻结顺序）；``only`` 只能缩小到本计划内的子集。"""
+    return _finalize_patterns(_narrow_patterns(_build_attribution_base(), only))
+
+
+def build_reproduction_patterns() -> list[dict[str, Any]]:
+    """同窗口重复性计划：23 个归因图样 × 3 轮 = 69 个唯一 id，每项 4 帧。
+
+    预注册 docs/dev/hw_window_20261124_issue247_reproducibility_prereg.md §2：
+    ``r1`` 按冻结归因顺序、``r2`` 反序、``r3`` 再按冻结顺序，轮间不重开 SLM。
+    唯一 id 为 ``<base_pattern_id>__<round_id>``（base id 本身不含 ``__``，可无
+    歧义解析），每条另记 ``base_pattern_id`` 与 1 基 ``repeat_index``。相位只取
+    base 图样参数，因此同一 base 的三轮 ``phase_sha256`` 必须逐字节一致。
+    """
+    base = _build_attribution_base()
+    patterns: list[dict[str, Any]] = []
+    for repeat_index, (round_id, order) in enumerate(
+        zip(REPRODUCTION_ROUNDS, REPRODUCTION_ROUND_ORDER, strict=True), start=1
+    ):
+        round_items = list(reversed(base)) if order == "reversed" else list(base)
+        for item in round_items:
+            entry = dict(item)
+            entry["id"] = f"{item['id']}__{round_id}"
+            entry["base_pattern_id"] = item["id"]
+            entry["repeat_index"] = repeat_index
+            patterns.append(entry)
+    return _finalize_patterns(patterns)
+
+
+def build_reproduction_meta() -> dict[str, Any]:
+    """重复性计划的轮次/计数元数据，写入 plan JSON 的 ``reproduction`` 键。"""
+    n_base = len(ATTRIBUTION_PATTERN_IDS)
+    n_unique = n_base * len(REPRODUCTION_ROUNDS)
+    return {
+        "prereg": "docs/dev/hw_window_20261124_issue247_reproducibility_prereg.md",
+        "rounds": list(REPRODUCTION_ROUNDS),
+        "round_order": list(REPRODUCTION_ROUND_ORDER),
+        "base_pattern_count": n_base,
+        "n_unique_patterns": n_unique,
+        "frames_per_pattern": int(REPRODUCTION_FRAMES),
+        "n_frames_expected": n_unique * int(REPRODUCTION_FRAMES),
+        "id_pattern": "{base_pattern_id}__{round_id}",
+        "phase_hash_identical_across_rounds": True,
+        "single_slm_session": True,
+    }
 
 
 def tilt_expected_ccd_formula() -> str:
@@ -1055,6 +1135,29 @@ def build_declared_constants(
     return declared, missing
 
 
+def build_capture_settings(args: argparse.Namespace) -> dict[str, Any]:
+    """已解析的采集设置：预注册冻结值（settle/曝光/饱和门/等待/设备选择）。
+
+    写入 plan.json 与 summary.json 的 ``capture_settings`` 块，使离线检查器无需
+    猜测 CLI 默认值即可核对 ``capture_settings.settle_s`` 等冻结项。``args`` 可能
+    来自 ``--self-test`` 的最小 Namespace，故一律用 ``getattr`` 取默认值。
+    """
+    return {
+        "plan_name": str(getattr(args, "plan", "frozen") or "frozen"),
+        "settle_s": float(getattr(args, "settle_s", DEFAULT_SETTLE_S)),
+        "exposure_ms": float(getattr(args, "exposure_ms", DEFAULT_EXPOSURE_MS)),
+        "saturation_fraction": float(
+            getattr(args, "saturation_fraction", DEFAULT_SATURATION_FRACTION)
+        ),
+        "wait_until_idle_s": float(
+            getattr(args, "wait_until_idle", DEFAULT_WAIT_IDLE_S)
+        ),
+        "slm_number": int(getattr(args, "slm_number", 1)),
+        "wavelength_nm": int(getattr(args, "wavelength_nm", 1064)),
+        "cam_id": int(getattr(args, "cam_id", 0)),
+    }
+
+
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     raw_only = getattr(args, "patterns", None)
     only: list[str] | None = None
@@ -1078,6 +1181,22 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "128 px (fit set) and re-tested at 192 px (held-out set). "
             "Descriptive only; no fitting, no calibration."
         )
+    elif plan_name == "reproduction":
+        if only:
+            raise SystemExit(
+                "--plan reproduction: --patterns is not allowed; the prereg "
+                "requires all 69 unique ids (23 attribution patterns x 3 rounds "
+                "r1/r2/r3). Run the whole plan, or use --plan attribution for a "
+                "narrowed subset."
+            )
+        patterns = build_reproduction_patterns()
+        task = (
+            "issue #247 same-window repeatability check: the frozen 23-pattern "
+            "attribution list captured three times inside one hardware session "
+            "(r1 frozen order, r2 reversed, r3 frozen order), 4 frames each, "
+            "identical phase hashes across rounds. Descriptive only; no fitting, "
+            "no calibration."
+        )
     elif plan_name == "frozen":
         patterns = build_patterns(only)
         task = (
@@ -1088,12 +1207,14 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         )
     else:
         raise SystemExit(
-            f"--plan: unknown plan {plan_name!r}; known: ['frozen', 'waveform', 'attribution']"
+            f"--plan: unknown plan {plan_name!r}; known: ['frozen', 'waveform', "
+            "'attribution', 'reproduction']"
         )
     planned_ids = {p["id"] for p in patterns}
     declared, missing = build_declared_constants()
     frames = {p["id"]: int(p["frames"]) for p in patterns}
-    # 只有归因计划有 role 切分；frozen / waveform 的 plan JSON 保持逐键不变。
+    # capture_settings 对所有计划都有（冻结值可核对）；role 切分只有 attribution
+    # 有；reproduction 另有自己的元数据块；除此之外 frozen / waveform 不加键。
     role_by_pattern = {str(p["id"]): str(p["role"]) for p in patterns if "role" in p}
     out = getattr(args, "out", None)
     tilt_period = float(
@@ -1104,6 +1225,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "task": task,
         "plan_name": plan_name,
         "out": None if out is None else str(out),
+        "capture_settings": build_capture_settings(args),
         "patterns": patterns,
         "pattern_ids": [p["id"] for p in patterns],
         "n_patterns": len(patterns),
@@ -1124,10 +1246,18 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "requested_exposure_ms": float(getattr(args, "exposure_ms", DEFAULT_EXPOSURE_MS)),
         "timestamp_utc": utc_now(),
         **({"role_by_pattern": role_by_pattern} if plan_name == "attribution" else {}),
+        **(
+            {"reproduction": build_reproduction_meta()}
+            if plan_name == "reproduction"
+            else {}
+        ),
     }
 
 
-def summary_skeleton() -> dict[str, Any]:
+def summary_skeleton(
+    capture_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Summary schema skeleton; ``capture_settings`` mirrors ``plan["capture_settings"]``."""
     declared, missing = build_declared_constants()
     return {
         "schema": SUMMARY_SCHEMA,
@@ -1143,6 +1273,7 @@ def summary_skeleton() -> dict[str, Any]:
         "per_pattern": {},
         "frame_digests": [],
         "saturation_count": 0,
+        "capture_settings": dict(capture_settings or {}),
         "declared_constants": declared,
         "missing": missing,
         "elapsed_s": None,
@@ -1516,6 +1647,108 @@ def run_self_test() -> int:
         pass
     else:
         raise AssertionError("--patterns must reject unknown ids in the attribution plan")
+
+    # 7) 同窗口重复性计划（--plan reproduction）：23×3=69 唯一 id / 276 帧，
+    #    r1 冻结顺序、r2 反序、r3 冻结顺序，同一 base 的相位摘要逐轮一致。
+    reproduction = build_reproduction_patterns()
+    assert len(reproduction) == 69, len(reproduction)
+    assert len({p["id"] for p in reproduction}) == 69
+    assert all(int(p["frames"]) == REPRODUCTION_FRAMES for p in reproduction)
+    assert all(int(p["repeat_index"]) in (1, 2, 3) for p in reproduction)
+    for repeat_index, expected_order in (
+        (1, list(ATTRIBUTION_PATTERN_IDS)),
+        (2, list(reversed(ATTRIBUTION_PATTERN_IDS))),
+        (3, list(ATTRIBUTION_PATTERN_IDS)),
+    ):
+        round_base_ids = [
+            p["base_pattern_id"]
+            for p in reproduction
+            if int(p["repeat_index"]) == repeat_index
+        ]
+        assert round_base_ids == expected_order, repeat_index
+    base_hashes = {p["id"]: p["phase_sha256"] for p in attribution}
+    for pid in ATTRIBUTION_PATTERN_IDS:
+        rounds = [p for p in reproduction if p["base_pattern_id"] == pid]
+        assert [int(p["repeat_index"]) for p in rounds] == [1, 2, 3], pid
+        assert [p["id"] for p in rounds] == [
+            f"{pid}__r1",
+            f"{pid}__r2",
+            f"{pid}__r3",
+        ], pid
+        assert {p["phase_sha256"] for p in rounds} == {base_hashes[pid]}, pid
+    # 摘要相同已覆盖全部 23 个 base；再抽查三种 kind 的像素级一致。
+    for pid in ("grating_x_p128", "tilt_y_minus_p192", "patch_x_plus_p128"):
+        arrays = [
+            pattern_array(p, DEFAULT_PANEL_SHAPE)
+            for p in reproduction
+            if p["base_pattern_id"] == pid
+        ]
+        assert np.array_equal(arrays[0], arrays[1]), pid
+        assert np.array_equal(arrays[0], arrays[2]), pid
+    repro_plan = build_plan(
+        argparse.Namespace(out=Path("__selftest__"), plan="reproduction", patterns=None)
+    )
+    assert repro_plan["plan_name"] == "reproduction"
+    assert repro_plan["n_patterns"] == 69
+    assert repro_plan["n_frames_expected"] == 276
+    assert repro_plan["reproduction"] == build_reproduction_meta()
+    assert repro_plan["reproduction"]["n_unique_patterns"] == 69
+    assert "role_by_pattern" not in repro_plan
+    try:
+        build_plan(
+            argparse.Namespace(
+                out=Path("__selftest__"), plan="reproduction", patterns="flat_pre"
+            )
+        )
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("--plan reproduction must reject --patterns")
+
+    # 8) capture_settings：已解析的采集设置块（plan.json 与 summary.json 共有），
+    #    冻结值（settle / 曝光 / 饱和门 / 等待 / 设备选择）可被离线检查器直接核对。
+    settings = build_capture_settings(
+        argparse.Namespace(
+            plan="reproduction",
+            settle_s=0.8,
+            exposure_ms=0.04,
+            saturation_fraction=0.9,
+            wait_until_idle=1800.0,
+            slm_number=1,
+            wavelength_nm=1064,
+            cam_id=0,
+        )
+    )
+    assert settings == {
+        "plan_name": "reproduction",
+        "settle_s": 0.8,
+        "exposure_ms": 0.04,
+        "saturation_fraction": 0.9,
+        "wait_until_idle_s": 1800.0,
+        "slm_number": 1,
+        "wavelength_nm": 1064,
+        "cam_id": 0,
+    }, settings
+    defaults = build_capture_settings(argparse.Namespace())
+    assert defaults["settle_s"] == DEFAULT_SETTLE_S == 0.8
+    assert defaults["exposure_ms"] == DEFAULT_EXPOSURE_MS
+    assert defaults["saturation_fraction"] == DEFAULT_SATURATION_FRACTION == 0.9
+    assert defaults["wait_until_idle_s"] == DEFAULT_WAIT_IDLE_S == 1800.0
+    assert defaults["plan_name"] == "frozen"
+    assert (
+        defaults["slm_number"],
+        defaults["wavelength_nm"],
+        defaults["cam_id"],
+    ) == (1, 1064, 0)
+    assert "capture_settings" in PLAN_KEYS
+    assert "capture_settings" in SUMMARY_KEYS
+    for plan_obj in (plan, attr_plan, repro_plan):
+        block = plan_obj["capture_settings"]
+        assert set(block) == set(settings), plan_obj["plan_name"]
+        assert block["plan_name"] == plan_obj["plan_name"]
+        assert block["settle_s"] == 0.8
+    assert summary_skeleton(settings)["capture_settings"] == settings
+    assert summary_skeleton()["capture_settings"] == {}
 
     logger.info("issue247 geometry capture self-test: all invariants passed")
     return 0
@@ -1905,7 +2138,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             plan["missing"] = missing
             write_json(out / "plan.json", plan)
 
-            summary = summary_skeleton()
+            summary = summary_skeleton(plan.get("capture_settings"))
             summary.update(
                 status=status,
                 n_frames=len(frame_records),
@@ -1950,7 +2183,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--plan",
-        choices=("frozen", "waveform", "attribution"),
+        choices=("frozen", "waveform", "attribution", "reproduction"),
         default="frozen",
         help=(
             "pattern plan: 'frozen' = the 15-pattern frozen probe list "
@@ -1958,7 +2191,10 @@ def main(argv: list[str] | None = None) -> int:
             "waveform-discrimination list (binary gratings vs continuous ramps "
             "vs a local blaze patch on the same panel axis); 'attribution' = "
             "the 23-pattern waveform-family attribution list with +/- controls "
-            "at 128 px (fit) and held-out 192 px"
+            "at 128 px (fit) and held-out 192 px; 'reproduction' = the same 23 "
+            "attribution patterns repeated 3 rounds (r1 frozen order, r2 "
+            "reversed, r3 frozen order) = 69 unique ids x 4 frames = 276 frames "
+            "in one hardware session; --patterns is rejected for it"
         ),
     )
     parser.add_argument(
@@ -1968,7 +2204,8 @@ def main(argv: list[str] | None = None) -> int:
             "comma-separated pattern ids to run within the selected --plan "
             "(default: that plan's whole list). Unknown ids abort. Used to keep a "
             "run inside the currently approved scope, e.g. "
-            "'flat,blaze2d_px128_py192_sx+1_sy+1,...'"
+            "'flat,blaze2d_px128_py192_sx+1_sy+1,...'. Not available with "
+            "--plan reproduction, which must run all 69 ids."
         ),
     )
     parser.add_argument(

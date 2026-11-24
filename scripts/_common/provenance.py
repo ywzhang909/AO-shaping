@@ -341,6 +341,31 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/probe_optical_path_validity.py",
         ),
     ),
+    "report/shape_trials/issue247_reproducibility_20261124/issue247_reproducibility_20261124.md": ReportProvenance(
+        script="scripts/slm/issue247_reproducibility_check_20261124.py",
+        command=(
+            "python scripts/slm/issue247_reproducibility_check_20261124.py "
+            "--dir data/debug/hw_window_20261124_issue247_reproducibility_v2 "
+            "--baseline-dir data/debug/hw_window_20261123_issue247_waveform_attribution "
+            "--probe-dir data/debug/optical_path_probe/issue247_reproducibility_20261124_v2/20261124_103335Z "
+            "--out-dir report/shape_trials/issue247_reproducibility_20261124"
+        ),
+        environment="离线+硬件（Santec SLM-200 #1 1064 nm + Daheng MER2-507-23GM cam 0，2026-11-24 采集；报告本体不占用设备）",
+        note=(
+            "Issue #247 波形归因信号同窗口重复性复核（预注册 hw_window_20261124_issue247_reproducibility_prereg.md）："
+            "同一 SLM 打开周期内 23 图样 × 4 帧 × 3 轮（frozen / reversed / frozen）= 69 唯一图样 / 276 帧，"
+            "曝光 0.04 ms、settle 0.8 s、饱和门 0.9 × full_scale、零饱和帧；每轮独立重跑同一分析器。"
+            "方向重复性门（至少两轮可评估且任两轮 axis_angle_deg 差 ≤ 2°）：复现 15 / 未复现 0 / 缺测 5，"
+            "overall_pass=True；可评估项轮间最大轴角差 1.343°（tilt_y_plus），flat 跨轮最大漂移 0.469 px。"
+            "5 个 p192 图样因 principal 峰心落在帧边界 8 px 带内（peak 21.75–25.0 counts / 背景 15.5）"
+            "按预注册保留为缺测、不调阈值救回；逐轮 G1–G4 全 fail（verdict=tilt_specific），与 v2 归因窗口一致。"
+            "本轮只回答同窗口重复性，不冻结映射、不证明根因、不关闭 issue。"
+        ),
+        extra_scripts=(
+            "scripts/slm/issue247_geometry_capture_20261120.py",
+            "scripts/slm/probe_optical_path_validity.py",
+        ),
+    ),
     "report/shape_trials/transfer_candidates_timing_20261117/transfer_candidates_timing_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（仅 CUDA，不占 SLM/CCD/激光；2026-11-17 生成）",
