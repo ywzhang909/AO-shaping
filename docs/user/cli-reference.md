@@ -312,6 +312,7 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--camera` | TEXT | `daheng` | 相机后端名（`--help` 无说明文案，逐字取自源码默认值） |
 | `--cam-id` | INTEGER | `0` | 相机设备 ID（`--help` 无说明文案） |
 | `--slm-number` | INTEGER | `1` | SLM 设备编号（`--help` 无说明文案） |
+| `--reuse-device-session / --no-reuse-device-session` | 开关 | 不启用（`no-reuse-device-session`） | 整形段单会话复用：8 个 (shape, stage) 段共用一次 camera+SLM 的打开/探针/关闭，回收逐段固定开销（ab_session_20261124 实测 666 s/8 段）；默认关闭，逐段独立设备会话的历史行为不变 |
 | `--device` | `[auto\|cpu\|cuda]` | `auto` | 计算设备（auto = 有 CUDA 用 CUDA） |
 | `--initial-phase` | `[auto\|plane\|random\|transport\|backprojection\|gs]` | `auto` | 初相位构造；auto = 正方形用非 GS 传输，其余用非 GS 反投影；plane/random = 严格冷启动（不读目标、不用物理预测模型） |
 | `--seed-bakeoff / --no-seed-bakeoff` | 开关 | 开启（`seed-bakeoff`） | 先实测各候选初相位的核心 CV，逐形状择优（对比择优） |
@@ -320,6 +321,9 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--replay-exposures-auto` | 开关 | 不启用 | 按本 lane 已测各块的核心峰值率推导共同重放曝光（覆盖 `--replay-exposures`）；固定 ladder 只在一个 lane 内成立，不能跨尺寸共用 |
 | `--record-responses / --no-record-responses` | 开关 | 不启用（`no-record-responses`） | 拟合时记录逐批物理响应统计（fit `--record-responses`），写入 `fit/` |
 | `--model-dir` | PATH | 未指定 | 复用已有会话目录（含 `capture/` 与 `fit/`），跳过模型采集与拟合 |
+| `--auto-reuse / --no-auto-reuse` | 开关 | 开启（`auto-reuse`） | 当 `--model-dir` 未指定时，开一次相机读几帧探测当前光路、扫描历史检查点，若兼容性 ≥ 0.80 则自动复用，跳过采集与拟合；`--no-auto-reuse` 强制从头采集 |
+| `--hdr / --no-hdr` | 开关 | 不启用（`no-hdr`） | HDR 探测：实时画面（⑥）用多曝光融合的宽动态图，前端色调映射（Reinhard）回 0..255 正常展示；`--no-hdr` 走单帧线性峰值归一 |
+| `--hdr-exposures-ms` | FLOAT | `1.0, 4.0, 16.0` | HDR 曝光阶梯（ms，至少两档）；可重复传入（`multiple=True`，须逐值重复旗标） |
 | `--records-only` | 开关 | 不启用 | 只从已有的分段目录重建 Recorder 记录（离线，不打开设备） |
 | `--resume` | 开关 | 不启用 | 跳过已有 manifest.json 的阶段（journal 记 reused）并沿用其目录作为下一段种子 |
 | `--order` | `[shape\|stage]` | `shape` | shape = 逐形状跑完四段；stage = 先跑所有形状的第 1 段，再第 2 段（连续几次运行共用同一 bit depth / window step / 曝光策略，中断只损失一个形状的一段） |
@@ -338,7 +342,7 @@ SLM（Santec）+ CCD 相机；不涉及 DM / WFS。设备只被需要它的阶�
 | `--objective` | 选择 | `cv` | 优化目标族：`cv` 只磨核心均匀度（历史行为）；`shape` 加能量项与形状项；`formation` 再启用 partition / peripheral / floor / boundary 四项（本 campaign 从未计算过，抽取它们等于换实验变体，须单独成组，不得与 `cv` 变体混读）。**验收判据不随此选项改变** |
 | `--weight-schedule` | 选择 | `constant` | 损失权重随时间变化的方式（issue #213 质量项 4c）。`constant` = 历史常数；`staged` = 前 1/3 块偏 `energy`、中段偏 `shape`、后 1/3 偏 `cv2`。只移动优化路径，不改验收判据；每块实际用到的权重写进 `summary.json` 条目。需 `--objective` 非 `cv`（CV-only 损失没有可调项，故该组合在解析参数时直接拒绝） |
 
-共 46 项。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
+共 50 项（2026-11-24 复核：上游 `71d274f2`/`540b1dc4` 新增 `--reuse-device-session`、`--auto-reuse`、`--hdr`、`--hdr-exposures-ms` 四项，由 46 项增至 50 项）。该命令的选项全部是 `runners/slm/transfer_shapes_runner.py` 里的 `@click.option` 直接声明（无 params dataclass）；拼写、取值域与默认值逐字来自 `--help` 转储，与源码一致，无分歧。
 
 ℹ️ 其中九项服务于 issue #213 的**质量侧**，不属于原始测量协议：`--jacobian-guard` 与它的四个阈值只调度下一块的 `phase_rms_cap`（不参与接受/拒绝，默认开启；`--jacobian-min-signal` 只把实测信号低于阈值的样本剔出方向一致性统计）；`--spectral-weight` / `--spectral-cutoff` 只改变 loss 组成（默认关闭，等实测 MTF）；`--weight-schedule` 与它的前置 `--objective` 只改变优化路径与 loss 权重（默认 `constant` + `cv` = 历史行为）。验收判据默认不变：`--accept-rel-tol` / `--accept-abs-tol` 默认 `0.0` = 严格改进判定，仅非零时放宽接受阈值（2026-11-05 `bcfec136` 之前计划字典漏转发这两项 + `--jacobian-min-signal`，`--execute` 静默回落默认值，已修）。
 
