@@ -436,3 +436,78 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
   S0 的**正式记录**；02:42Z 那次**保持原样不改**，作为「探针通过但 D 缺失」的历史证据。
 - S0‑R1 失败（D0–D5 任一不过）⇒ S0 仍未闭合，S1 继续封锁，按失败原因另起 R2（不外推、不降级判据）。
 - 本节不改变 §2/§6 的判据；若需改判据本身，按 §8 另起带日期的新文件。
+
+---
+
+## 11. R1 实测回写与修订 R2（2026-11-24）：只扩大曝光/SNR 窗口
+
+### 11.1 R1 实测结果（已执行，非推测）
+
+| 项 | 实测 |
+|---|---|
+| 执行 | `2026-11-24 11:45:02`–`11:46:53`（本地）；SLM #1 + Daheng CCD，全程一次 open/close，无激光操作 |
+| 证据目录 | `data/experiments/attribution_20261123/s0/s0r1_dcal_20261124/20261124_034502Z/` |
+| 设备 | `drive_board_id` 正常、`readsu_status_at_open=0`、Mono12/满量程 4095；`released_at=11:46:53`、`closed_normally=true` |
+| S0 判定 | `probe_status=low_snr`（平场峰值 39–41 counts，噪声底 20.9；离焦响应不可分辨） |
+| D 标定 | `status=no_usable_point`：13 个粗扫点在 `0.02–0.2 ms` 内全部 `dim`（clipped 0 / dim 13），未排序、无外扩 |
+| D 结果 | **`fresnel_compensation_m_inv=null`**，具体失败原因已写入标准记录；本段不产生任何 D |
+| 代码版本 | `aa7c5234`（探针实现与本节预注册） |
+
+与 10:42 那次 S0（同为 `0.05 ms`）对比：平场峰值由约 2803 counts 降到约 41 counts，但全帧
+总和仅由 76.27 M 降到 75.25 M。R1 后、R2 前曾据此提出「亮斑被摊开/离焦、曝光窗口不够」的
+**初步假设**；§11.3 的 R2 阶梯与标定结果已否决「单纯扩大曝光即可补救」这一假设。峰值下降的
+根因仍未定位，不能据全帧总和断言激光功率、离焦或衰减状态。
+
+### 11.2 R2 变更（仅曝光/SNR，判据不动）
+
+- S0 阶梯曝光：`0.05,0.2,1,2 ms`（原 `0.05`）。任一档饱和即按 §2 通用规则降曝，不裁数据。
+- 焦面标定自适应曝光窗口：`0.02–2 ms`（原 `0.02–0.2`）。按 `0.05 ms` 实测的 `peak/ms`，
+  `2 ms` 足以把峰值抬进可用带；若亮斑随后变亮，自适应曝光会下调，不会过曝。
+- **不变**：D 范围 `±1.5 m⁻¹`、`max_extends=1`、13 粗扫 + 7 细化、线性度 `0.8–1.25`、
+  光路受阻判据、D 写入条件、`fresnel_compensation_m_inv` 失败保持 `null`；不引用任何历史 D。
+- 输出仍为新目录（`s0r2_dcal_20261124/<UTC戳>/`）；R1 目录保持原样，作为失败证据。
+- 若 R2 仍 `no_usable_point` 或 `path_blocked` ⇒ **停止软件侧重试**，S1 继续封锁，转为现场检查
+  激光/准直与焦面（不靠继续调曝光或放宽判据）。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/probe_optical_path_validity.py `
+  --bit-depth 12 --wait-until-idle 600 --exposures "0.05,0.2,1,2" `
+  --session s0r2_dcal_20261124 `
+  --out-root data/experiments/attribution_20261123/s0 `
+  --focus-calibration `
+  --focus-floor-ms 0.02 --focus-ceiling-ms 2
+```
+
+帧预算与 §10.6 相同（≤28 点 / ≤84 统计帧）；曝光窗口变宽只增加每点的自适应试采帧，
+实际仍以 `focus_calibration.json` 的各点 `n_discarded` 与点数回写。
+
+### 11.3 R2 实测结果（已执行，非推测）
+
+| 项 | 实测 |
+|---|---|
+| 执行 | `2026-11-24 11:56:38`–`11:58:32`（本地）；SLM #1 + Daheng CCD，全程一次 open/close，无激光操作 |
+| 证据目录 | `data/experiments/attribution_20261123/s0/s0r2_dcal_20261124/20261124_035638Z/` |
+| 设备 | `drive_board_id` 正常、`readsu_status_at_open=0`、Mono12/满量程 4095；`released_at=11:58:32`、`closed_normally=true` |
+| S0 判定 | `probe_status=low_snr`；噪声底 20.9；离焦响应不可分辨（宽度/峰值均淹没在噪声） |
+| D 标定 | `status=no_usable_point`：13 个粗扫点全部 `dim`（clipped 0 / dim 13），均顶到上界 `2 ms`；未排序、无外扩；`n_discarded_total=0` |
+| D 结果 | **`fresnel_compensation_m_inv=null`**；`accepted=false`、`best_diopter_m1=null`，失败原因已写入标准记录 `missing` |
+| 代码版本 | 探针实现 `aa7c5234`；运行记录 `git_commit=8032b3f6` |
+| 证据哈希 | `focus_calibration.json` sha256 `b8de7a82…`；`optical_path_record.json` sha256 `847c5763…` |
+
+**关键观测：曝光阶梯无响应。** 阶梯各档平场峰值（处理后 counts）：
+
+| 曝光 (ms) | 0.05 | 0.2 | 1 | 2 |
+|---|---|---|---|---|
+| 峰值 | 40 | 43 | 38 | 41 |
+
+曝光从 `0.05` 提到 `2 ms`（40 倍），峰值基本不变（`38–43 counts`）。这**不符合正常曝光响应**，
+与 §11.1「亮斑被摊开/离焦、曝光窗口不够」的初步假设矛盾——若只是曝光不足，峰值应随曝光
+近似线性抬升。R2 因此**否决了「单纯扩大曝光即可补救」**；峰值下降根因仍未定位。
+
+**结论与后续（按 §11.2 停止规则）：**
+
+- R2 仍为 `no_usable_point` ⇒ **停止软件侧重试**，不再调曝光、不外扩、不放宽判据。
+- `fresnel_compensation_m_inv` 保持 `null`，**S1 继续封锁**。
+- 转为**现场检查**：激光功率、准直/光路遮挡、焦面位置与 SLM 面板实际显示，定位峰值异常根因后
+  再按 §8 另起带日期的新预注册。
+- R1（`s0r1_dcal_20261124`）与 R2（`s0r2_dcal_20261124`）目录均保持原样，作为失败证据。
