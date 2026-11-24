@@ -21,7 +21,19 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 - 占用 SLM / 相机 / 激光前后，都要在回复中报告：占用了什么、做了什么、何时释放、是否正常关闭（`docs/dev/hardware_discipline.md`）。
 - 设备被占用时，不要并行启动第二个占用同一设备的进程；带 `--wait-until-idle` 的脚本可以用。
 - **DVI 模式打开 SLM 会挂起**，挂起后内存模式打开也可能挂。恢复方式是**给 SLM 控制器断电重启**，软件无法恢复（`report/fouriergsnet_pipeline/TODO.md:35, :71, :142`）。
-- 背对背 open/close SLM 会触发驱动板假死（memory 中已记录），两次开关之间要间隔一个 settle 时长。
+- 背对背 open/close SLM 会触发驱动板假死（memory 中已记录）：从上次 `close()` 或异常退出/被 kill 的时刻算起，下一次 `open()` 前至少间隔 **200 s**。启动前按**实际剩余冷却**等待，不要无条件写死 `Start-Sleep 210`；只有无法确认上次退出时刻时才用 210 s（200 s + 10 s 余量）兜底。`Start-Sleep` 只是启动前等待，不占设备，也不是采集耗时：
+
+  ```powershell
+  # 从日志“成功关闭SLM #1”或进程退出时刻取本机时间；异常退出后重新计时
+  $lastSlmExit = [datetime]('<yyyy-MM-dd HH:mm:ss>')  # 填入上次 close/kill 的本机时间；不填会报错，避免误用旧值
+  $remaining = [Math]::Max(0, [int](210 - ([datetime]::Now - $lastSlmExit).TotalSeconds))
+  if ($remaining -gt 0) {
+      Write-Host "SLM 冷却剩余 $remaining s"
+      Start-Sleep -Seconds $remaining
+  }
+  ```
+
+  只有 `$remaining -eq 0` 且设备锁空闲、无硬件进程时才启动下一段；中途 kill/断电会产生新的异常退出，后续从该时刻重新计时。
 - **CCD 不做物理开窗**：实验期间保持全幅采集，需要缩小分析范围时只在后处理做算法裁切。物理开窗一旦设错，原始数据就丢了全幅上下文，无法从记录里复盘当时到底裁掉了什么（memory 中已记录此类教训）。
 - **未加倾斜 / 离焦相位时轻微过曝采集**：SLM 只做整形相位、不叠加倾斜或离焦相位时，0 级光斑未被分离，强度远强于被整形的图案，CCD 上可能完全看不清整形图样。此时应**轻微过曝采集**，让整形图案的弱峰可见；这是采集策略上的例外，与 Step 4「正常采集不超量程」的判据区分开，记录中要注明本次采用了过曝采集。
 
