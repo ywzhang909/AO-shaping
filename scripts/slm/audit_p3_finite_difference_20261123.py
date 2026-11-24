@@ -63,6 +63,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts" / "slm"))
+sys.path.insert(0, str(ROOT))
 
 from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
     FrozenDefocusForward,
@@ -76,6 +77,8 @@ from ao_shaping.tools.slm.transfer.jacobian_guard import (
 )
 
 import direction_holdout_gate_20261119 as gate
+
+from scripts._common import fmt_general
 
 # ---------------------------------------------------------------------------
 # Constants (all single-sourced; the provenance of each is recorded in the JSON)
@@ -926,18 +929,11 @@ def p0_recipe_recompute(
 # ---------------------------------------------------------------------------
 
 
-def _fmt(value, digits: int = 3) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return "是" if value else "否"
-    if isinstance(value, (int, np.integer)):
-        return str(int(value))
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            return "—"
-        return f"{value:.{digits}f}"
-    return str(value)
+def _fmt_cell(value, digits: int = 3) -> str:
+    return fmt_general(
+        value, f".{digits}f", missing_none="—", missing_nonfinite="—",
+        bool_labels=("是", "否"), verbatim_int=True,
+    )
 
 
 def write_markdown(path: Path, report: dict) -> None:
@@ -970,13 +966,13 @@ def write_markdown(path: Path, report: dict) -> None:
         ceiling = row["reproducibility"]["ceiling_mean"]
         lines.append(
             "| {amp} | Z{mode} | {p} | {v} | {ok} | {sig} | {ceil} |".format(
-                amp=_fmt(row["amplitude_rad"], 2),
+                amp=_fmt_cell(row["amplitude_rad"], 2),
                 mode=row["mode"],
-                p=_fmt(row["pearson"], 4),
+                p=_fmt_cell(row["pearson"], 4),
                 v=row["verdict"],
                 ok="PASS" if row["passed"] else "FAIL",
-                sig=_fmt(row["signal_measured_rms_over_anchor"], 4),
-                ceil=_fmt(ceiling, 4),
+                sig=_fmt_cell(row["signal_measured_rms_over_anchor"], 4),
+                ceil=_fmt_cell(ceiling, 4),
             )
         )
     lines.append("")
@@ -1022,9 +1018,9 @@ def write_markdown(path: Path, report: dict) -> None:
         row10 = new_rows.get((mode, 0.10))
         row20 = new_rows.get((mode, 0.20))
         lines.append(
-            f"| Z{mode} | {_fmt(pass1, 4)} | {_fmt(pass2, 4)} | "
-            f"{_fmt(row10['pearson'] if row10 else None, 4)} | "
-            f"{_fmt(row20['pearson'] if row20 else None, 4)} |"
+            f"| Z{mode} | {_fmt_cell(pass1, 4)} | {_fmt_cell(pass2, 4)} | "
+            f"{_fmt_cell(row10['pearson'] if row10 else None, 4)} | "
+            f"{_fmt_cell(row20['pearson'] if row20 else None, 4)} |"
         )
     lines.append("")
     lines.append(
@@ -1054,10 +1050,10 @@ def write_markdown(path: Path, report: dict) -> None:
                     n=name,
                     p=point,
                     m=len(stats["modes"]),
-                    c1=_fmt(stats["condition_number_of_column_correlation_matrix"], 2),
-                    c2=_fmt(stats["condition_number_of_JtJ"], 2),
-                    r=_fmt(stats["diag_off_ratio"], 3),
-                    ir=_fmt(stats["identifiability_rate_peak_leakage"], 3),
+                    c1=_fmt_cell(stats["condition_number_of_column_correlation_matrix"], 2),
+                    c2=_fmt_cell(stats["condition_number_of_JtJ"], 2),
+                    r=_fmt_cell(stats["diag_off_ratio"], 3),
+                    ir=_fmt_cell(stats["identifiability_rate_peak_leakage"], 3),
                 )
             )
     lines.append("")
@@ -1068,9 +1064,9 @@ def write_markdown(path: Path, report: dict) -> None:
     fitted_flat = part_b["residual_jacobian"]["fitted_residual"]["per_operating_point"]["flat"]
     for column in fitted_flat["per_column"]:
         lines.append(
-            f"| Z{column['mode']} | {_fmt(column['max_abs_offdiag_r'], 4)} | "
-            f"Z{column['worst_offdiag_mode']} | {_fmt(column['mean_abs_offdiag_r'], 4)} | "
-            f"{_fmt(column['peak_leakage_ratio'], 3)} | "
+            f"| Z{column['mode']} | {_fmt_cell(column['max_abs_offdiag_r'], 4)} | "
+            f"Z{column['worst_offdiag_mode']} | {_fmt_cell(column['mean_abs_offdiag_r'], 4)} | "
+            f"{_fmt_cell(column['peak_leakage_ratio'], 3)} | "
             f"{'是' if column['coupled_abs_r_ge_0p50'] else '否'} |"
         )
     lines.append("")
@@ -1085,15 +1081,15 @@ def write_markdown(path: Path, report: dict) -> None:
         ):
             state = "PASS" if mode in selected else f"FAIL({block['rejected'].get(mode)})"
             lines.append(
-                f"| {_fmt(block['amplitude_rad'], 2)} | Z{mode} | "
-                f"{_fmt(correlation, 4)} | {state} | "
+                f"| {_fmt_cell(block['amplitude_rad'], 2)} | Z{mode} | "
+                f"{_fmt_cell(correlation, 4)} | {state} | "
                 f"{block['passed_columns']}/{block['total_columns']} | "
                 f"{block['passed_columns_residual_modes']}/"
                 f"{block['total_columns_residual_modes']} |"
             )
         gate_all = block["matrix_gate_on_all_columns"]
         lines.append(
-            f"| {_fmt(block['amplitude_rad'], 2)} | 全列矩阵 | — | — | — | "
+            f"| {_fmt_cell(block['amplitude_rad'], 2)} | 全列矩阵 | — | — | — | "
             f"对角/非对角 {gate_all['diag_off_ratio']}，cond {gate_all['condition_number']}，"
             f"matrix_ok={gate_all['matrix_ok']} |"
         )

@@ -5893,6 +5893,10 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - 择优终判 (M2→M4 三轮一致): **湍流 dynamic 下「整形质量 × 求值成本」最优 = n_max=8 spgd-adamod**; 后续若启用 heuristic 需先解决种群/维度配比 (M5 候选)
 - M4 报告入库 `report/turbulence_shaping/matrix_20261121_m4/` (spgd 三档 + heuristic 三档, 双 GIF/单元, 汇总含拐点结论注记); provenance 登记 7 条 (REPORTS 258→265) + sync
 - 载体: provenance+matrix 测试绿 / ruff 0 / term 0 / modsize 0 (门禁按 180b 教训在 rebase 后跑)
+**2026-11-24 · 760500f9 之后 · 第 182 批: CI 红收口 —— 上游 11-22/23 三脚本带回 `def _fmt` 的 R-25 通道清理**
+- tip `760500f9` Pytest 单红 `test_no_generator_redefines_an_extracted_helper[_fmt]`: 上游新脚本 `audit_p3_finite_difference_20261123` / `efficiency_match_analyze_20261123` / `issue247_waveform_probe_solve_20261122` 各带回一份 `def _fmt` (六变体formatter 的第二拷贝, R-25 通道按设计抓红)
+- 修法 (单源 + 逐字节等价, 语义逐项核对): efficiency → `_fmt = partial(fmt_fixed_or_text, nonfinite_text="inf")` (None→"—" 与 digits 默认 4 与非有限→"inf" 与非 float→str 全同, gated_recurrent_transfer 先例); audit → `_fmt_cell` 委托 `fmt_general(spec=f".{digits}f", missing_none/missing_nonfinite="—", bool_labels=("是","否"), verbatim_int=True)`; issue247 → `_fmt_cell` 委托 `fmt_general(missing_none="—", bool_labels=("pass","fail"))` (int 按浮点格式化与原实现一致)
+- 载体: 守卫 74 绿 + 两脚本行为测试 42 绿 (报告输出不变) / ruff 全仓 0 / term 0 / modsize 0 / preflight 449 绿
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
