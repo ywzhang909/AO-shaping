@@ -3408,6 +3408,46 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="M4 单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.906 rad, n_max=11/120ep); 提维劣化第三档复现; 相位/光斑双 GIF + metrics.png",
     ),
+    "report/turbulence_shaping/matrix_20261121_m5a/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --variants gs_refine "
+            "--out-root data/turb_matrix_m5a --report-root report/turbulence_shaping/matrix_20261121_m5a"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M5a/M5b 汇总: GS-refine freeform (12x12 全频网格) 湍流矩阵三档 (gs_refine 臂自带孪生湍流通道, "
+            "测量走 SimPibCCD 真光路); 高 σ 末值不降反为三档最高, Zernike square 的高 σ 退化在 freeform 下消失"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5a/gs_refine_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --variants gs_refine "
+            "--out-root data/turb_matrix_m5a --report-root report/turbulence_shaping/matrix_20261121_m5a"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5a 单元 gs_refine x cn2=1e-14 (实测 σ≈0.063 rad); freeform 相位帧取逐轮下发面板灰度; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5a/gs_refine_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --variants gs_refine "
+            "--out-root data/turb_matrix_m5a --report-root report/turbulence_shaping/matrix_20261121_m5a"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5a 单元 gs_refine x cn2=2e-13 (实测 σ≈0.278 rad); freeform 相位帧取逐轮下发面板灰度; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5a/gs_refine_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --variants gs_refine "
+            "--out-root data/turb_matrix_m5a --report-root report/turbulence_shaping/matrix_20261121_m5a"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5a 单元 gs_refine x cn2=2e-12 (实测 σ≈0.911 rad); 综合质量 0.279→0.593 (最优 0.623), 高 σ 无退化; 双 GIF + metrics.png",
+    ),
 }
 
 
