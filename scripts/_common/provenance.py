@@ -3488,6 +3488,62 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="M5a 单元 gs_refine x cn2=2e-12 (实测 σ≈0.911 rad); 综合质量 0.279→0.593 (最优 0.623), 高 σ 无退化; 双 GIF + metrics.png",
     ),
+    "report/turbulence_shaping/matrix_20261121_m5c_n8p24/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--pop-size 24 --variants heuristic --cn2-grid 2e-12 "
+            "--out-root data/turb_matrix_m5c_n8p24b "
+            "--report-root report/turbulence_shaping/matrix_20261121_m5c_n8p24"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M5c 汇总 (heuristic n8 pop24 @2e-12): 与基线/M3/m4b 同 slot 配对 (首值逐位同); "
+            "best -0.632 vs 8×12 的 -0.621 (2× 求值, 增益噪声量级) → n8 种群翻倍无收益; "
+            "配对口径结论表与 n4/n8/n11 × pop12/24/36 六行对照见正文 M5c 节; "
+            "#253 择优终判不变 (n_max=8 spgd-adamod)"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5c_n8p24/heuristic_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 8 "
+            "--pop-size 24 --variants heuristic --cn2-grid 2e-12 "
+            "--out-root data/turb_matrix_m5c_n8p24b "
+            "--report-root report/turbulence_shaping/matrix_20261121_m5c_n8p24"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5c 单元 heuristic(PSO) x cn2=2e-12 (实测 σ≈0.898 rad, n_max=8/pop=24/120ep, 2908 求值; 首-1.3575/末-0.9161/最优-0.6325); 相位/光斑双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5c_n11p36/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 "
+            "--pop-size 36 --variants heuristic --cn2-grid 2e-12 "
+            "--out-root data/turb_matrix_m5c_n11p36 "
+            "--report-root report/turbulence_shaping/matrix_20261121_m5c_n11p36"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M5c 汇总 (heuristic n11 pop36 @2e-12): 同 slot 配对; best -0.702 vs 11×12 的 "
+            "-0.840 (3× 求值收复 0.138, 仍劣于 8×12 且远差于 4×12) → 种群重配不能翻案维度排序, "
+            "升维劣化主因是 PSO 搜索结构而非种群不足; 六行对照表见正文 M5c 节; "
+            "#253 择优终判不变 (n_max=8 spgd-adamod)"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261121_m5c_n11p36/heuristic_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 "
+            "--pop-size 36 --variants heuristic --cn2-grid 2e-12 "
+            "--out-root data/turb_matrix_m5c_n11p36 "
+            "--report-root report/turbulence_shaping/matrix_20261121_m5c_n11p36"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5c 单元 heuristic(PSO) x cn2=2e-12 (实测 σ≈0.897 rad, n_max=11/pop=36/120ep, 4360 求值; 首-1.3575/末-0.8253/最优-0.7022); 相位/光斑双 GIF + metrics.png",
+    ),
 }
 
 
