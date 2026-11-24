@@ -33,15 +33,25 @@ def spot(row):
 
 
 def geometry(rows):
-    """Fit full 2D ramp displacement; preserve sign and both CCD axes."""
+    """Fit full 2D ramp displacement; preserve sign and both CCD axes.
+
+    Only ``split == "calibration"`` ramp rows may define the matrix: a
+    validation/test ramp deliberately probes the held-out phase and must not
+    leak into the geometry estimate.  Historical captures are all
+    ``calibration``, and a row that declares no split at all (the in-memory
+    capture manifest before the fitter assigns splits) keeps the historical
+    behaviour of being usable, so their matrix is unchanged.
+    """
+    ramps = [row for row in rows if row.get("split", "calibration") == "calibration"]
     slopes = {"x": [], "y": []}
-    for row in rows:
+    for row in ramps:
         if not row["label"].startswith("ramp_"):
             continue
         _, axis, period, sign = row["label"].split("_")
         if int(sign) != 1:
             continue
-        negative = next((other for other in rows if other["label"] == f"ramp_{axis}_{period}_-1"
+        negative = next((other for other in ramps
+                         if other["label"] == f"ramp_{axis}_{period}_-1"
                          and other.get("branch") == row.get("branch")), None)
         if negative is None:
             raise ValueError(f"missing negative ramp: {row['label']}")
@@ -53,6 +63,22 @@ def geometry(rows):
         raise ValueError("degenerate camera geometry")
     spread = {axis: np.asarray(values).tolist() for axis, values in slopes.items()}
     return matrix, spread
+
+
+def effective_ramp_matrix(matrix, correction):
+    """Ramp matrix equivalent to a camera->panel correction ``G``.
+
+    The fit uses ``inverse_eff = inv(matrix) @ G`` as its camera->panel map, so
+    the matching panel->camera ramp matrix is
+    ``inv(inverse_eff) = inv(G) @ matrix``.  Solved with numpy so the exported
+    checkpoint never depends on the fitted torch tensors; ``G = I`` returns
+    ``matrix`` bit-for-bit unchanged.
+    """
+    base = np.asarray(matrix, dtype=np.float64)
+    gain = np.asarray(correction, dtype=np.float64)
+    if np.array_equal(gain, np.eye(2)):
+        return base
+    return np.linalg.solve(gain, base)
 
 
 def valid(row, full_scale=None):
@@ -173,7 +199,8 @@ class FitComponents:
 
 def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
                    amplitude_center_lr=None, radiometry="exposure", samples=None,
-                   train_all=False):
+                   train_all=False, learn_geometry=False, learn_psf=False,
+                   psf_sigma_init=None, psf_sigma_max=8.0):
     """Assemble a physical-forward fit model from a recorded dataset.
 
     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
@@ -230,16 +257,30 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
                 generate_zernike_phase({j: 1.0}, (old.grid_size, old.grid_size)))
     # Global registration (issue #237) is carried in from the checkpoint and is not
     # fitted here, so the refit sees the same camera correspondence the frozen model did.
+    # The trainable static CCD PSF is also opt-in.  When its start value is omitted
+    # it reuses the checkpoint's sigma if that one is physical (> 0); a frozen
+    # ``sigma_ccd_px = 0.0`` means "no blur" and is not a useful start for a
+    # trainable Gaussian, so 1.0 px is used instead.
+    if learn_psf and psf_sigma_init is None:
+        old_sigma = float(old.sigma_ccd_px)
+        initial_psf_sigma = old_sigma if old_sigma > 0 else 1.0
+    else:
+        initial_psf_sigma = 1.0 if psf_sigma_init is None else float(psf_sigma_init)
     model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
                               learn_amplitude=True, initial_defocus=old.defocus_diopter,
                               learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
                               basis_arrays=basis, batch_size=4, device=device,
-                              registration_shift_ccd_px=old.registration_shift_ccd_px)
+                              registration_shift_ccd_px=old.registration_shift_ccd_px,
+                              learn_geometry=bool(learn_geometry),
+                              learn_psf=bool(learn_psf),
+                              initial_psf_sigma_ccd_px=initial_psf_sigma,
+                              psf_sigma_max_ccd_px=float(psf_sigma_max))
     with torch.no_grad():
         model.origin.copy_(torch.tensor(measured_origin))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
         model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
-    configure_adaptation(model, adaptation)
+    configure_adaptation(model, adaptation, learn_geometry=bool(learn_geometry),
+                         learn_psf=bool(learn_psf))
     if amplitude_center_lr is not None:
         if not np.isfinite(amplitude_center_lr) or amplitude_center_lr <= 0:
             raise ValueError("amplitude_center_lr must be finite and positive")
@@ -248,6 +289,8 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
                 group["lr"] = amplitude_center_lr
     owner = {id(model.d): "d", id(model.origin): "origin", id(model.center): "center",
              id(model.log_width): "log_width", id(model.residual): "residual"}
+    if getattr(model, "psf_raw", None) is not None:
+        owner[id(model.psf_raw)] = "psf_raw"
     for group in model.optimizer.param_groups:
         group.setdefault("name", owner.get(id(group["params"][0]), "unknown"))
     return FitComponents(model=model, rows=rows, phases=phases, images=images, xy=xy,
@@ -264,7 +307,12 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
 
     started = clock()
     prediction = model.prediction()
-    kernel = comps.kernel
+    # A trainable static CCD PSF replaces ``comps.kernel`` (never both: that
+    # would double-convolve).  Disabled or absent -> the frozen kernel exactly.
+    psf_kernel = getattr(model, "psf_kernel", None)
+    kernel = psf_kernel() if callable(psf_kernel) else None
+    if kernel is None:
+        kernel = comps.kernel
     if kernel is not None:
         prediction = conv2d(prediction[:, None], kernel, padding=12)[:, 0]
     optical_prediction = prediction.detach().cpu().numpy()
@@ -289,15 +337,24 @@ def fit_loss(model, comps, radiometry_mode="exposure", iteration=0):
     loss = correlation_loss + .25 * relative_mse + .25 * ((cv - target_cv) / target_cv.clamp_min(.1)).square().mean()
     if not torch.isfinite(loss):
         raise RuntimeError("nonfinite training loss; prior snapshots retained")
+    sigma_getter = getattr(model, "psf_sigma_value", None)
+    sigma_ccd_px = sigma_getter() if callable(sigma_getter) else None
+    if sigma_ccd_px is None:
+        sigma_ccd_px = comps.old.sigma_ccd_px
     params = dict(defocus_diopter=float(model.d.detach()), origin=model.origin.detach().tolist(),
                   amplitude_center=model.center.detach().tolist(),
                   amplitude_width=model.log_width.detach().exp().tolist(),
                   residual_noll_radians={str(j): float(v) for j, v in zip(model.residual_modes, model.residual.detach())},
-                  gain=1., background=0., sigma_ccd_px=comps.old.sigma_ccd_px)
+                  gain=1., background=0., sigma_ccd_px=sigma_ccd_px)
     predicted = prediction.detach().cpu().numpy()
     params.update(radiometry)
+    correction = model.geometry_value()
     entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
-                 metrics=metrics(predicted, comps.images), **started,
+                 metrics=metrics(predicted, comps.images),
+                 base_ramp_matrix=comps.matrix.tolist(),
+                 learned_geometry_correction=correction.tolist(),
+                 effective_ramp_matrix=effective_ramp_matrix(comps.matrix, correction).tolist(),
+                 **started,
                  end_monotonic_ns=__import__("time").monotonic_ns())
     return loss, entry, predicted
 
@@ -375,7 +432,11 @@ def fit(args):
                             amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
                             radiometry=getattr(args, "radiometry", "exposure"),
                             samples=getattr(args, "samples", None),
-                            train_all=bool(getattr(args, "train_all", False)))
+                            train_all=bool(getattr(args, "train_all", False)),
+                            learn_geometry=bool(getattr(args, "learn_geometry", False)),
+                            learn_psf=bool(getattr(args, "learn_psf", False)),
+                            psf_sigma_init=getattr(args, "psf_sigma_init", None),
+                            psf_sigma_max=float(getattr(args, "psf_sigma_max", 8.0)))
     import torch
     args.out.mkdir(parents=True, exist_ok=False)
     provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
@@ -384,6 +445,13 @@ def fit(args):
                       sample_source="memory" if getattr(args, "samples", None) is not None else "dataset",
                       device=comps.model._device.type, device_requested=getattr(args, "device", None),
                       iterations=args.iterations, ramp_matrix=comps.matrix.tolist(), ramp_samples=comps.ramp_samples,
+                      base_ramp_matrix=comps.matrix.tolist(),
+                      learned_geometry_correction=np.eye(2).tolist(),
+                      effective_ramp_matrix=comps.matrix.tolist(),
+                      learn_geometry=bool(getattr(args, "learn_geometry", False)),
+                      learn_psf=bool(getattr(args, "learn_psf", False)),
+                      psf_sigma_init=getattr(args, "psf_sigma_init", None),
+                      psf_sigma_bound_ccd_px=float(getattr(args, "psf_sigma_max", 8.0)),
                       record_responses=bool(getattr(args, "record_responses", False)),
                       adaptation=adaptation,
                       amplitude_center_lr=getattr(args, "amplitude_center_lr", None),
@@ -479,14 +547,29 @@ def fit(args):
     best = json.loads((args.out / "result.json").read_text())
     provenance["early_stopped"] = stopped_at is not None
     provenance["stopped_iteration"] = stopped_at
+    # The exported geometry is the *selected* iteration's, not the last one's:
+    # ``result.json`` holds the best training-loss entry, and its correction is
+    # what that iteration actually predicted with.  With geometry learning off
+    # this is the identity, so the historical matrix goes out unchanged.
+    correction = np.asarray(best.get("learned_geometry_correction", np.eye(2)), dtype=np.float64)
+    exported_matrix = effective_ramp_matrix(comps.matrix, correction)
+    learned_geometry = dict(base_ramp_matrix=comps.matrix.tolist(),
+                            learned_geometry_correction=correction.tolist(),
+                            effective_ramp_matrix=exported_matrix.tolist())
+    provenance.update(learned_geometry)
+    # The exported PSF sigma is the selected iteration's: the learned value when
+    # ``--learn-psf`` is on, the checkpoint's otherwise.  ``result.json`` already
+    # carries it in ``parameters`` for the checkpoint writer below.
+    provenance["sigma_ccd_px"] = float(best["parameters"].get("sigma_ccd_px", 0.0))
     (args.out / "provenance.json").write_text(
         json.dumps(provenance, indent=2), encoding="utf-8"
     )
     # Self-contained checkpoint, with explicit geometry rather than a stale upstream chain.
     # The fitted global registration goes out with it so a reloaded checkpoint keeps the
-    # camera correspondence it was fitted with (issue #237).
+    # camera correspondence it was fitted with (issue #237).  ``ramp_matrix`` carries the
+    # effective matrix so ``inv(ramp_matrix) == inv(base) @ G`` reloads directly.
     (args.out / "frozen_parameters.json").write_text(json.dumps(dict(
-        **best["parameters"], ramp_matrix=comps.matrix.tolist(), grid_size=comps.old.grid_size,
+        **best["parameters"], ramp_matrix=exported_matrix.tolist(), grid_size=comps.old.grid_size,
         fft_size=comps.old.fft_size, pixel_samples=comps.old.pixel_samples,
         registration_shift_ccd_px=comps.model.registration_value), indent=2), encoding="utf-8")
     print(f"selected iteration={best['iteration']} using training loss only", flush=True)
@@ -564,6 +647,18 @@ def main():
     parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
     parser.add_argument("--amplitude-center-lr", type=float, help="Override illumination position learning rate (panel px/update)")
     parser.add_argument("--radiometry", choices=("shared", "exposure"), default="exposure")
+    parser.add_argument("--learn-geometry", action="store_true",
+                        help="Fit a small bounded 2x2 rotation/shear/anisotropy correction "
+                             "on top of the measured ramp matrix. Off by default: the "
+                             "effective matrix stays bit-identical to the measured one.")
+    parser.add_argument("--learn-psf", action="store_true",
+                        help="Fit one bounded static CCD Gaussian PSF (sigma in CCD px) "
+                             "instead of the frozen checkpoint blur. Off by default: the "
+                             "frozen kernel is used unchanged.")
+    parser.add_argument("--psf-sigma-init", type=float, default=None,
+                        help="Initial PSF sigma in CCD px (default: checkpoint sigma if > 0, else 1.0)")
+    parser.add_argument("--psf-sigma-max", type=float, default=8.0,
+                        help="Upper bound for the learned PSF sigma in CCD px")
     parser.add_argument("--record-responses", action="store_true",
                         help="Record detached physical-stage response statistics in every iteration (adds diagnostic overhead)")
     parser.add_argument("--debug-weights", action="store_true",

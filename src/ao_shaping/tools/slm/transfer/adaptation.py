@@ -4,8 +4,17 @@ from __future__ import annotations
 import numpy as np
 
 
-def configure_adaptation(model, mode):
-    """Reuse measured geometry; release only parameters justified by the stage."""
+def configure_adaptation(model, mode, learn_geometry=False, learn_psf=False):
+    """Reuse measured geometry; release only parameters justified by the stage.
+
+    ``learn_geometry`` only releases the optional bounded 2x2 geometry
+    correction of :class:`PhysicalForwardFit`; it never turns that parameter on
+    by itself (a model built without ``learn_geometry=True`` has none), and the
+    historical two-argument call keeps every other parameter exactly as before.
+    ``learn_psf`` does the same for the optional bounded static CCD PSF
+    (``psf_raw``): the model must have been built with ``learn_psf=True`` for
+    the parameter to exist, and this call only decides whether it trains.
+    """
     if mode not in {"alignment", "full"}:
         raise ValueError("adaptation must be alignment or full")
     model.d.requires_grad_(mode == "full")
@@ -14,6 +23,12 @@ def configure_adaptation(model, mode):
     # Position and shared NNLS gain/background adapt in both modes.
     model.center.requires_grad_(True)
     model.origin.requires_grad_(True)
+    raw = getattr(model, "geometry_raw", None)
+    if raw is not None:
+        raw.requires_grad_(bool(learn_geometry))
+    psf_raw = getattr(model, "psf_raw", None)
+    if psf_raw is not None:
+        psf_raw.requires_grad_(bool(learn_psf))
 
 
 def validation_quality(entry, rows):

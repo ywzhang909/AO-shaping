@@ -57,7 +57,10 @@ class PhysicalForwardFit(torch.nn.Module):
                  slm_phase_a=0., slm_phase_b=0., amplitude_residual_coeffs=(),
                  monotonic_ccd_h=(), monotonic_ccd_v_max=255., phase_sign=1.,
                  phase_sign_scope="command", focus_phase=None, carrier_phase=None,
-                 registration_shift_ccd_px=None, learn_registration=False):
+                 registration_shift_ccd_px=None, learn_registration=False,
+                 learn_geometry=False, geometry_max_deviation=0.05,
+                 learn_psf=False, initial_psf_sigma_ccd_px=1.0,
+                 psf_sigma_max_ccd_px=8.0):
         super().__init__()
         from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
         from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -143,6 +146,49 @@ class PhysicalForwardFit(torch.nn.Module):
                 requires_grad=bool(learn_registration))
             if learn_registration:
                 params += [{"params": [self.registration_shift], "lr": .05}]
+        # Optional small, bounded 2x2 geometry correction (default off).  The
+        # signed ramp fit yields one global panel->camera matrix; a residual
+        # rotation/shear/anisotropy between camera and panel axes is not in it.
+        # ``G = I + geometry_max_deviation * tanh(raw)`` is applied in the
+        # *camera* frame, so the camera->panel map used by the forward pass is
+        # ``inverse @ G`` (panel frequency = inverse @ G @ (xy - origin)).
+        # ``raw`` starts at zero, i.e. G = I.  Creating the parameter only when
+        # asked keeps the default path numerically untouched.
+        self.geometry_max_deviation = float(geometry_max_deviation)
+        if not np.isfinite(self.geometry_max_deviation) or not 0 < self.geometry_max_deviation < 1:
+            raise ValueError("geometry_max_deviation must be finite and in (0, 1)")
+        if learn_geometry:
+            self.geometry_raw = torch.nn.Parameter(
+                torch.zeros((2, 2), dtype=torch.float32, device=self._device),
+                requires_grad=True)
+            params += [{"params": [self.geometry_raw], "lr": .01}]
+        else:
+            self.geometry_raw = None
+        # Optional trainable, bounded static CCD Gaussian PSF (default off).
+        # ``sigma_ccd_px`` keeps the ``FrozenDefocusForward`` export convention:
+        # the stored value is the requested sigma, while the 25x25 kernel uses
+        # ``grid / (sigma / 2)`` (see ``_build_blaze_kernel``).  A sigmoid keeps
+        # the learned value strictly inside ``(0, psf_sigma_max_ccd_px)`` so the
+        # kernel stays normalisable and the exported sigma stays valid.
+        self.psf_sigma_max_ccd_px = float(psf_sigma_max_ccd_px)
+        if not np.isfinite(self.psf_sigma_max_ccd_px) or self.psf_sigma_max_ccd_px <= 0:
+            raise ValueError("psf_sigma_max_ccd_px must be finite and positive")
+        if learn_psf:
+            initial_sigma = float(initial_psf_sigma_ccd_px)
+            if not np.isfinite(initial_sigma) or initial_sigma <= 0:
+                raise ValueError("initial_psf_sigma_ccd_px must be finite and positive")
+            # Clamp away from the exact bounds so the sigmoid keeps a gradient.
+            margin = 1e-3 * self.psf_sigma_max_ccd_px
+            start = float(np.clip(initial_sigma, margin,
+                                  self.psf_sigma_max_ccd_px - margin))
+            ratio = float(np.clip(start / self.psf_sigma_max_ccd_px, 1e-6, 1 - 1e-6))
+            self.psf_raw = torch.nn.Parameter(
+                torch.tensor(float(np.log(ratio / (1.0 - ratio))),
+                             dtype=torch.float32, device=self._device),
+                requires_grad=True)
+            params += [{"params": [self.psf_raw], "lr": .05}]
+        else:
+            self.psf_raw = None
         self.optimizer = torch.optim.Adam(params)
         self.history = []
         self.iteration_records = []
@@ -189,6 +235,77 @@ class PhysicalForwardFit(torch.nn.Module):
             value = [float(v) for v in value.detach().cpu().reshape(-1).tolist()]
         return (float(value[0]), float(value[1]))
 
+    def geometry_correction(self):
+        """Current bounded camera-frame correction ``G`` as a torch tensor.
+
+        ``G = I + geometry_max_deviation * tanh(geometry_raw)``, shape ``(2, 2)``.
+        With ``learn_geometry=False`` no raw parameter exists and this is the
+        exact identity; it keeps the autograd connection to ``geometry_raw``.
+        """
+        raw = getattr(self, "geometry_raw", None)
+        torch = self.torch
+        if raw is None:
+            return torch.eye(2, dtype=self.inverse.dtype, device=self.inverse.device)
+        eye = torch.eye(2, dtype=raw.dtype, device=raw.device)
+        return eye + self.geometry_max_deviation * torch.tanh(raw)
+
+    def effective_inverse(self):
+        """Camera->panel map actually used by :meth:`prediction`.
+
+        ``self.inverse @ G`` with ``inverse = inv(ramp_matrix)``.  Disabled
+        geometry returns ``self.inverse`` itself (no arithmetic), so the
+        historical forward pass stays bit-for-bit identical.
+        """
+        if getattr(self, "geometry_raw", None) is None:
+            return self.inverse
+        return self.inverse @ self.geometry_correction()
+
+    def geometry_value(self):
+        """Detached ``(2, 2)`` float64 numpy read of ``G`` for checkpoint export.
+
+        Identity when geometry learning is disabled, so callers can always
+        write the correction into provenance without a second code path.
+        """
+        with self.torch.no_grad():
+            return self.geometry_correction().detach().cpu().numpy().astype(np.float64)
+
+    def psf_sigma(self):
+        """Current bounded static-CCD-PSF sigma as a torch scalar, or None when off.
+
+        Disabled (the default) creates no parameter and returns ``None``, so the
+        baseline forward pass and numbers stay exactly as before.
+        """
+        raw = getattr(self, "psf_raw", None)
+        if raw is None:
+            return None
+        # Clamp the sigmoid ratio to keep the sigma strictly positive and below
+        # the configured max even when float32 saturates at a large |raw|.
+        ratio = self.torch.clamp(self.torch.sigmoid(raw), min=1e-6, max=1 - 1e-6)
+        return self.psf_sigma_max_ccd_px * ratio
+
+    def psf_sigma_value(self):
+        """Detached float sigma in CCD pixels for provenance/export, or None."""
+        sigma = self.psf_sigma()
+        return None if sigma is None else float(sigma.detach().cpu())
+
+    def psf_kernel(self):
+        """Normalised differentiable 25x25 Gaussian kernel, or None when off.
+
+        Matches ``FrozenDefocusForward._build_blaze_kernel`` exactly: the stored
+        ``sigma_ccd_px`` maps to a Gaussian with ``grid / (sigma / 2)`` and the
+        separable kernel is normalised to unit sum.  The autograd path runs
+        through ``sigma``, so a loss on the convolved prediction reaches
+        ``psf_raw``.
+        """
+        sigma = self.psf_sigma()
+        if sigma is None:
+            return None
+        torch = self.torch
+        grid = torch.arange(-12, 13, dtype=sigma.dtype, device=sigma.device)
+        kernel = torch.exp(-0.5 * (grid / (sigma / 2.0)) ** 2)
+        kernel = kernel / kernel.sum()
+        return (kernel[:, None] * kernel[None, :])[None, None]
+
     def prediction(self):
         torch = self.torch
         width = self.log_width.exp()
@@ -204,7 +321,7 @@ class PhysicalForwardFit(torch.nn.Module):
         # the grid untouched, so the baseline stays bit-for-bit identical.
         xy = registration_sample_grid(torch, self.xy, self.registration_shift)
         grids = camera_sample_grids(
-            torch, xy, self.origin, self.inverse,
+            torch, xy, self.origin, self.effective_inverse(),
             subpixel_offsets(torch, self.pixel_samples, device=self.xy.device),
             fft_size=self.fft_size, pitch=self.pitch)
         predictions = []
