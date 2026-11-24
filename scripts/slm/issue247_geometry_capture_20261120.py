@@ -186,6 +186,40 @@ WAVEFORM_PATTERN_IDS: tuple[str, ...] = (
     "flat_post",
 )
 
+# ---------------------------------------------------------------------------
+# #247 波形族归因窗口（docs/dev/hw_window_20261123_issue247_waveform_attribution_prereg.md §2）
+# ---------------------------------------------------------------------------
+#: 23 图样 × 4 帧 = 92 帧；顺序被预注册冻结，不得事后重排。
+#: fit=12（flat_pre + 10 个 p128 图样 + flat_mid），held_out=11
+#: （10 个 p192 图样 + flat_post）。
+ATTRIBUTION_PATTERN_IDS: tuple[str, ...] = (
+    "flat_pre",
+    "grating_x_p128",
+    "tilt_x_plus",
+    "tilt_x_minus",
+    "patch_x_plus_p128",
+    "patch_x_minus_p128",
+    "grating_y_p128",
+    "tilt_y_plus",
+    "tilt_y_minus",
+    "patch_y_plus_p128",
+    "patch_y_minus_p128",
+    "flat_mid",
+    "grating_x_p192",
+    "tilt_x_plus_p192",
+    "tilt_x_minus_p192",
+    "patch_x_plus_p192",
+    "patch_x_minus_p192",
+    "grating_y_p192",
+    "tilt_y_plus_p192",
+    "tilt_y_minus_p192",
+    "patch_y_plus_p192",
+    "patch_y_minus_p192",
+    "flat_post",
+)
+#: 与 Windows 内既有波形计划共用同一帧预算；每项恰好 4 帧。
+ATTRIBUTION_FRAMES = WAVEFORM_FRAMES
+
 DEFAULT_EXPOSURE_MS = 0.05
 DEFAULT_SATURATION_FRACTION = 0.9
 DEFAULT_SETTLE_S = 0.8
@@ -417,8 +451,12 @@ def blaze_patch_phase(
     period_px: float = LADDER_BASE_PERIOD_PX,
     side: int = LADDER_PATCH_SIZE_PX,
     origin: tuple[int, int] = LADDER_PATCH_ORIGINS[0],
+    sign: int = 1,
 ) -> np.ndarray:
     """单个 600x600 blaze patch：patch 内沿指定轴 2*pi/period 连续 ramp，patch 外 0。
+
+    ``sign`` 只翻转 ramp 方向（默认 +1 与历史行为逐元素相同）；patch 外恒为 0，
+    与 sign 无关。用于 #247 波形族归因的 ± 对照。
 
     与 ``ladder_phase`` 的区别只有「一个 patch vs 多个 patch」：用于对照 ladder，
     检验 §H4 假设（patch 位置是否被误当成相位）。patch 的 panel 原点同样只带来
@@ -427,6 +465,8 @@ def blaze_patch_phase(
     """
     if axis not in (0, 1):
         raise ValueError("axis must be 0 or 1")
+    if sign not in (-1, 1):
+        raise ValueError("blaze patch sign must be +1 or -1")
     period = float(period_px)
     if period <= 0:
         raise ValueError("blaze patch period_px must be positive")
@@ -441,7 +481,7 @@ def blaze_patch_phase(
         raise ValueError("blaze patch falls outside the panel")
     n = axis_length((block_side, block_side), axis)
     coord = np.arange(n, dtype=np.float64)
-    ramp = TWO_PI * coord / period
+    ramp = float(sign) * TWO_PI * coord / period
     phase = np.zeros((height, width), dtype=np.float64)
     block = np.broadcast_to(
         ramp.reshape((1, n) if axis == 1 else (n, 1)), (block_side, block_side)
@@ -552,6 +592,7 @@ def pattern_phase(item: dict[str, Any], shape: tuple[int, int]) -> np.ndarray:
             period_px=float(item.get("period_px", LADDER_BASE_PERIOD_PX)),
             side=int(item.get("side_px", LADDER_PATCH_SIZE_PX)),
             origin=(int(origin[0]), int(origin[1])),
+            sign=int(item.get("sign", 1)),
         )
     if kind == "blaze2d":
         return blaze2d_phase(
@@ -772,6 +813,67 @@ def build_waveform_patterns(
     return _finalize_patterns(_narrow_patterns(patterns, only))
 
 
+def build_attribution_patterns(
+    only: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """#247 波形族归因计划：23 图样 × 4 帧，顺序与 role 由预注册 §2 冻结。
+
+    p128 图样（含 flat_pre/flat_mid）是 fit 判据集；p192 图样与 flat_post
+    是绝不相交的 held_out 验证集。二值 grating 的 ±1 级同帧天然对称，不另设
+    minus；tilt / patch 则各有显式 ± 对照。tilt 与 patch 的周期**显式**写成
+    128.0 / 192.0，不走 ``tilt_geometry`` 的 y 轴 120 px clamp，保证 y 轴
+    真的等频。``only`` 只能缩小到本计划内的子集，未知 id 硬失败。
+    """
+    patterns: list[dict[str, Any]] = []
+
+    def add(pid: str, kind: str, frames: int, *, role: str, **params: Any) -> None:
+        patterns.append(dict(id=pid, kind=kind, frames=int(frames), role=role, **params))
+
+    def add_family(period: int, role: str) -> None:
+        period_float = float(period)
+        suffix = "" if period == 128 else f"_p{period}"
+        for axis, name in ((1, "x"), (0, "y")):
+            add(
+                f"grating_{name}_p{period}",
+                "grating",
+                ATTRIBUTION_FRAMES,
+                role=role,
+                period_px=period,
+                axis=axis,
+            )
+            for sign, sname in ((1, "plus"), (-1, "minus")):
+                add(
+                    f"tilt_{name}_{sname}{suffix}",
+                    "tilt",
+                    ATTRIBUTION_FRAMES,
+                    role=role,
+                    axis=axis,
+                    sign=sign,
+                    period_px=period_float,
+                    requested_period_px=period_float,
+                )
+            for sign, sname in ((1, "plus"), (-1, "minus")):
+                add(
+                    f"patch_{name}_{sname}_p{period}",
+                    "blaze_patch",
+                    ATTRIBUTION_FRAMES,
+                    role=role,
+                    axis=axis,
+                    sign=sign,
+                    period_px=period_float,
+                    side_px=int(LADDER_PATCH_SIZE_PX),
+                    origin=list(LADDER_PATCH_ORIGINS[0]),
+                )
+
+    add("flat_pre", "flat", ATTRIBUTION_FRAMES, role="fit")
+    add_family(128, "fit")
+    add("flat_mid", "flat", ATTRIBUTION_FRAMES, role="fit")
+    add_family(192, "held_out")
+    add("flat_post", "flat", ATTRIBUTION_FRAMES, role="held_out")
+
+    return _finalize_patterns(_narrow_patterns(patterns, only))
+
+
 def tilt_expected_ccd_formula() -> str:
     return (
         "ccd_px = order * lambda_nm*1e-9 * focal_mm*1e-3 / "
@@ -967,6 +1069,15 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "panel axis (waveform as the independent variable, panel axis as the "
             "control). Descriptive only; no fitting, no calibration."
         )
+    elif plan_name == "attribution":
+        patterns = build_attribution_patterns(only)
+        task = (
+            "issue #247 waveform-family attribution with an independent "
+            "held-out period: binary 0/pi gratings vs continuous single-axis "
+            "ramps vs localized blaze patches, each with +/- controls at matched "
+            "128 px (fit set) and re-tested at 192 px (held-out set). "
+            "Descriptive only; no fitting, no calibration."
+        )
     elif plan_name == "frozen":
         patterns = build_patterns(only)
         task = (
@@ -977,11 +1088,13 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         )
     else:
         raise SystemExit(
-            f"--plan: unknown plan {plan_name!r}; known: ['frozen', 'waveform']"
+            f"--plan: unknown plan {plan_name!r}; known: ['frozen', 'waveform', 'attribution']"
         )
     planned_ids = {p["id"] for p in patterns}
     declared, missing = build_declared_constants()
     frames = {p["id"]: int(p["frames"]) for p in patterns}
+    # 只有归因计划有 role 切分；frozen / waveform 的 plan JSON 保持逐键不变。
+    role_by_pattern = {str(p["id"]): str(p["role"]) for p in patterns if "role" in p}
     out = getattr(args, "out", None)
     tilt_period = float(
         getattr(args, "tilt_period_px", DEFAULT_TILT_PERIOD_PX)
@@ -1010,6 +1123,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "frame_digests": [],
         "requested_exposure_ms": float(getattr(args, "exposure_ms", DEFAULT_EXPOSURE_MS)),
         "timestamp_utc": utc_now(),
+        **({"role_by_pattern": role_by_pattern} if plan_name == "attribution" else {}),
     }
 
 
@@ -1292,6 +1406,116 @@ def run_self_test() -> int:
         pass
     else:
         raise AssertionError("--patterns must reject unknown ids in the waveform plan")
+
+    # 6) 波形族归因计划（--plan attribution）：23 项 / 92 帧 / role 切分 / ± 对照。
+    expected_attribution_ids = list(ATTRIBUTION_PATTERN_IDS)
+    assert len(expected_attribution_ids) == 23
+    assert len(set(expected_attribution_ids)) == 23
+    attribution = build_attribution_patterns()
+    assert [p["id"] for p in attribution] == expected_attribution_ids
+    assert len(attribution) == 23
+    assert all(int(p["frames"]) == WAVEFORM_FRAMES for p in attribution)
+    attr_by_id = {p["id"]: p for p in attribution}
+    attr_plan = build_plan(
+        argparse.Namespace(out=Path("__selftest__"), plan="attribution", patterns=None)
+    )
+    assert attr_plan["plan_name"] == "attribution"
+    assert attr_plan["pattern_ids"] == expected_attribution_ids
+    assert attr_plan["n_patterns"] == 23
+    assert attr_plan["n_frames_expected"] == 92
+    assert attr_plan["blaze2d_designs"] == []
+    roles = {p["id"]: p["role"] for p in attribution}
+    assert set(roles.values()) == {"fit", "held_out"}
+    assert attr_plan["role_by_pattern"] == roles
+    fit_ids = {pid for pid, role in roles.items() if role == "fit"}
+    held_out_ids = {pid for pid, role in roles.items() if role == "held_out"}
+    assert len(fit_ids) == 12 and len(held_out_ids) == 11, (fit_ids, held_out_ids)
+    assert not (fit_ids & held_out_ids)
+    assert fit_ids | held_out_ids == set(expected_attribution_ids)
+    for pid in ("flat_pre", "flat_mid", "flat_post"):
+        assert attr_by_id[pid]["kind"] == "flat", pid
+        assert "period_px" not in attr_by_id[pid], pid
+        assert "requested_period_px" not in attr_by_id[pid], pid
+    assert roles["flat_pre"] == "fit" and roles["flat_mid"] == "fit"
+    assert roles["flat_post"] == "held_out"
+
+    for period in (128, 192):
+        suffix = "" if period == 128 else f"_p{period}"
+        for axis, name in ((1, "x"), (0, "y")):
+            grating = attr_by_id[f"grating_{name}_p{period}"]
+            assert grating["kind"] == "grating", grating["id"]
+            assert int(grating["period_px"]) == period, grating["id"]
+            assert int(grating["axis"]) == axis, grating["id"]
+            assert "sign" not in grating, grating["id"]
+            assert "requested_period_px" not in grating, grating["id"]
+            assert roles[grating["id"]] == ("fit" if period == 128 else "held_out")
+            for sign, sname in ((1, "plus"), (-1, "minus")):
+                tilt = attr_by_id[f"tilt_{name}_{sname}{suffix}"]
+                assert tilt["kind"] == "tilt", tilt["id"]
+                assert int(tilt["axis"]) == axis and int(tilt["sign"]) == sign
+                # 显式周期，绕过 tilt_geometry 的 y 轴 120 px clamp。
+                assert float(tilt["period_px"]) == float(period), tilt["id"]
+                assert float(tilt["requested_period_px"]) == float(period), tilt["id"]
+                assert roles[tilt["id"]] == ("fit" if period == 128 else "held_out")
+            plus_patch = attr_by_id[f"patch_{name}_plus_p{period}"]
+            minus_patch = attr_by_id[f"patch_{name}_minus_p{period}"]
+            for patch in (plus_patch, minus_patch):
+                assert patch["kind"] == "blaze_patch", patch["id"]
+                assert int(patch["axis"]) == axis, patch["id"]
+                assert float(patch["period_px"]) == float(period), patch["id"]
+                assert int(patch["side_px"]) == LADDER_PATCH_SIZE_PX, patch["id"]
+                assert list(patch["origin"]) == list(LADDER_PATCH_ORIGINS[0])
+                assert roles[patch["id"]] == ("fit" if period == 128 else "held_out")
+            plus_phase = pattern_phase(plus_patch, DEFAULT_PANEL_SHAPE)
+            minus_phase = pattern_phase(minus_patch, DEFAULT_PANEL_SHAPE)
+            assert np.array_equal(plus_phase, -minus_phase), (name, period)
+            row, col = LADDER_PATCH_ORIGINS[0]
+            side = int(LADDER_PATCH_SIZE_PX)
+            outside = np.ones(plus_phase.shape, dtype=bool)
+            outside[row : row + side, col : col + side] = False
+            assert np.all(plus_phase[outside] == 0.0), (name, period)
+            assert np.all(minus_phase[outside] == 0.0), (name, period)
+
+    # 6a) sign 默认值逐元素不变，非法 sign 必须硬失败。
+    default_patch = blaze_patch_phase(DEFAULT_PANEL_SHAPE, axis=1)
+    assert np.array_equal(
+        default_patch, blaze_patch_phase(DEFAULT_PANEL_SHAPE, axis=1, sign=1)
+    )
+    try:
+        blaze_patch_phase(DEFAULT_PANEL_SHAPE, axis=1, sign=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("blaze_patch_phase must reject sign other than +/-1")
+
+    # 6b) --patterns 子集保序；未知 id 硬失败。
+    subset = build_attribution_patterns(
+        ["patch_y_minus_p192", "flat_pre", "grating_x_p128"]
+    )
+    assert [p["id"] for p in subset] == [
+        "flat_pre",
+        "grating_x_p128",
+        "patch_y_minus_p192",
+    ]
+    subset_plan = build_plan(
+        argparse.Namespace(
+            out=Path("__selftest__"),
+            plan="attribution",
+            patterns="flat_pre,patch_y_plus_p192",
+        )
+    )
+    assert subset_plan["pattern_ids"] == ["flat_pre", "patch_y_plus_p192"]
+    assert subset_plan["n_frames_expected"] == 8
+    assert subset_plan["role_by_pattern"] == {
+        "flat_pre": "fit",
+        "patch_y_plus_p192": "held_out",
+    }
+    try:
+        build_attribution_patterns(["flat_pre", "no_such_id"])
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("--patterns must reject unknown ids in the attribution plan")
 
     logger.info("issue247 geometry capture self-test: all invariants passed")
     return 0
@@ -1726,13 +1950,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--plan",
-        choices=("frozen", "waveform"),
+        choices=("frozen", "waveform", "attribution"),
         default="frozen",
         help=(
             "pattern plan: 'frozen' = the 15-pattern frozen probe list "
             "(geometry capture; default, unchanged); 'waveform' = the 15-pattern "
             "waveform-discrimination list (binary gratings vs continuous ramps "
-            "vs a local blaze patch on the same panel axis)"
+            "vs a local blaze patch on the same panel axis); 'attribution' = "
+            "the 23-pattern waveform-family attribution list with +/- controls "
+            "at 128 px (fit) and held-out 192 px"
         ),
     )
     parser.add_argument(

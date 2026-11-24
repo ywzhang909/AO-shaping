@@ -531,3 +531,238 @@ def test_waveform_pattern_phases_follow_declared_axis():
             assert row_delta == 0.0 and col_delta > 0.0, pid
         else:
             assert col_delta == 0.0 and row_delta > 0.0, pid
+
+
+# ---------------------------------------------------------------------------
+# 11. 波形族归因计划（--plan attribution）：23 图样 / 92 帧 / fit + held_out
+# ---------------------------------------------------------------------------
+ATTRIBUTION_IDS = (
+    "flat_pre",
+    "grating_x_p128",
+    "tilt_x_plus",
+    "tilt_x_minus",
+    "patch_x_plus_p128",
+    "patch_x_minus_p128",
+    "grating_y_p128",
+    "tilt_y_plus",
+    "tilt_y_minus",
+    "patch_y_plus_p128",
+    "patch_y_minus_p128",
+    "flat_mid",
+    "grating_x_p192",
+    "tilt_x_plus_p192",
+    "tilt_x_minus_p192",
+    "patch_x_plus_p192",
+    "patch_x_minus_p192",
+    "grating_y_p192",
+    "tilt_y_plus_p192",
+    "tilt_y_minus_p192",
+    "patch_y_plus_p192",
+    "patch_y_minus_p192",
+    "flat_post",
+)
+
+
+def test_attribution_plan_ids_order_count_frames_and_roles(tmp_path: Path):
+    result = _run("--plan", "attribution", "--out", str(tmp_path / "attr-plan"))
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "attr-plan").exists(), "plan-only 模式不得创建 --out"
+    plan = json.loads(result.stdout)
+    assert plan["plan_name"] == "attribution"
+    assert tuple(plan["pattern_ids"]) == ATTRIBUTION_IDS
+    assert tuple(SCRIPT.ATTRIBUTION_PATTERN_IDS) == ATTRIBUTION_IDS
+    assert plan["n_patterns"] == 23
+    assert plan["n_frames_expected"] == 92
+    for pid in ATTRIBUTION_IDS:
+        assert plan["frames_per_pattern"][pid] == 4, pid
+    assert plan["blaze2d_designs"] == []
+
+    patterns = plan["patterns"]
+    assert tuple(p["id"] for p in patterns) == ATTRIBUTION_IDS
+    by_id = {p["id"]: p for p in patterns}
+    fit = {pid for pid, role in plan["role_by_pattern"].items() if role == "fit"}
+    held_out = {
+        pid for pid, role in plan["role_by_pattern"].items() if role == "held_out"
+    }
+    assert len(fit) == 12 and len(held_out) == 11
+    assert not (fit & held_out)
+    assert fit | held_out == set(ATTRIBUTION_IDS)
+
+    for pid in ATTRIBUTION_IDS:
+        expected_role = (
+            "held_out" if pid.endswith("_p192") or pid == "flat_post" else "fit"
+        )
+        assert by_id[pid]["role"] == expected_role, pid
+        assert plan["role_by_pattern"][pid] == expected_role, pid
+
+    for pid in ("flat_pre", "flat_mid", "flat_post"):
+        assert by_id[pid]["kind"] == "flat", pid
+        assert "period_px" not in by_id[pid], pid
+        assert "requested_period_px" not in by_id[pid], pid
+    for pid in ATTRIBUTION_IDS:
+        item = by_id[pid]
+        if pid.startswith(("grating_", "tilt_", "patch_")):
+            expected_period = 192 if pid.endswith("_p192") else 128
+            assert float(item["period_px"]) == float(expected_period), pid
+        if pid.startswith("grating_"):
+            assert item["kind"] == "grating", pid
+            assert "sign" not in item, pid
+
+
+def test_attribution_plan_subset_preserves_order_and_rejects_unknown(tmp_path: Path):
+    ok = _run(
+        "--plan",
+        "attribution",
+        "--patterns",
+        "patch_y_minus_p192,flat_pre,grating_x_p128",
+        "--out",
+        str(tmp_path / "attr-subset"),
+    )
+    assert ok.returncode == 0, ok.stderr
+    subset = json.loads(ok.stdout)
+    assert subset["plan_name"] == "attribution"
+    assert subset["pattern_ids"] == [
+        "flat_pre",
+        "grating_x_p128",
+        "patch_y_minus_p192",
+    ]
+    assert subset["n_patterns"] == 3
+    assert subset["n_frames_expected"] == 12
+    assert subset["role_by_pattern"] == {
+        "flat_pre": "fit",
+        "grating_x_p128": "fit",
+        "patch_y_minus_p192": "held_out",
+    }
+
+    bad = _run(
+        "--plan",
+        "attribution",
+        "--patterns",
+        "flat_pre,bogus_id",
+        "--out",
+        str(tmp_path / "attr-bad"),
+    )
+    assert bad.returncode != 0
+    assert "unknown pattern id" in bad.stderr
+    assert not (tmp_path / "attr-bad").exists()
+
+
+def test_blaze_patch_phase_sign_is_elementwise_negation():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    row, col = SCRIPT.LADDER_PATCH_ORIGINS[0]
+    side = SCRIPT.LADDER_PATCH_SIZE_PX
+    inside = np.zeros(shape, dtype=bool)
+    inside[row : row + side, col : col + side] = True
+    for axis in (1, 0):
+        default = SCRIPT.blaze_patch_phase(shape, axis=axis, period_px=128.0)
+        plus = SCRIPT.blaze_patch_phase(shape, axis=axis, period_px=128.0, sign=1)
+        minus = SCRIPT.blaze_patch_phase(shape, axis=axis, period_px=128.0, sign=-1)
+        assert np.array_equal(default, plus), axis
+        assert np.array_equal(minus, -default), axis
+        assert np.all(plus[~inside] == 0.0), axis
+        assert np.all(minus[~inside] == 0.0), axis
+    with pytest.raises(ValueError):
+        SCRIPT.blaze_patch_phase(shape, axis=1, sign=0)
+
+
+def test_pattern_phase_reads_blaze_patch_sign_with_default_unchanged():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    base = {
+        "kind": "blaze_patch",
+        "axis": 1,
+        "period_px": 128.0,
+        "side_px": SCRIPT.LADDER_PATCH_SIZE_PX,
+        "origin": list(SCRIPT.LADDER_PATCH_ORIGINS[0]),
+    }
+    default_phase = SCRIPT.pattern_phase(base, shape)
+    assert np.array_equal(
+        default_phase,
+        SCRIPT.blaze_patch_phase(shape, axis=1, period_px=128.0),
+    ), "缺省 sign 必须仍是 +1"
+    assert np.array_equal(
+        SCRIPT.pattern_phase({**base, "sign": -1}, shape), -default_phase
+    )
+
+    by_id = {p["id"]: p for p in SCRIPT.build_attribution_patterns()}
+    for name in ("x", "y"):
+        assert np.array_equal(
+            SCRIPT.pattern_phase(by_id[f"patch_{name}_plus_p128"], shape),
+            -SCRIPT.pattern_phase(by_id[f"patch_{name}_minus_p128"], shape),
+        )
+
+
+def test_attribution_tilt_y_keeps_exact_period_and_sign_antisymmetry():
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    by_id = {p["id"]: p for p in SCRIPT.build_attribution_patterns()}
+    for pid in (
+        "tilt_y_plus",
+        "tilt_y_minus",
+        "tilt_y_plus_p192",
+        "tilt_y_minus_p192",
+    ):
+        item = by_id[pid]
+        expected_period = 192.0 if pid.endswith("_p192") else 128.0
+        assert int(item["axis"]) == 0, pid
+        assert float(item["period_px"]) == expected_period, pid
+        assert float(item["requested_period_px"]) == expected_period, pid
+        assert float(item["period_px"]) != 120.0, pid  # tilt_geometry 的 y clamp
+
+    for plus_id, minus_id in (
+        ("tilt_x_plus", "tilt_x_minus"),
+        ("tilt_x_plus_p192", "tilt_x_minus_p192"),
+        ("tilt_y_plus", "tilt_y_minus"),
+        ("tilt_y_plus_p192", "tilt_y_minus_p192"),
+    ):
+        assert np.array_equal(
+            SCRIPT.pattern_phase(by_id[plus_id], shape),
+            -SCRIPT.pattern_phase(by_id[minus_id], shape),
+        ), (plus_id, minus_id)
+
+    for pid, period in (("tilt_y_plus", 128.0), ("tilt_y_plus_p192", 192.0)):
+        line = SCRIPT.pattern_phase(by_id[pid], shape)[:, 0]
+        assert np.allclose(np.diff(line), SCRIPT.TWO_PI / period, rtol=0, atol=1e-9), pid
+
+
+def test_frozen_and_waveform_plans_are_unchanged_regression(tmp_path: Path):
+    """新增 attribution 不得改变原 two plans 的 id / 帧数 / phase / schema。"""
+    frozen_run = _run("--out", str(tmp_path / "frozen"))
+    assert frozen_run.returncode == 0, frozen_run.stderr
+    frozen = json.loads(frozen_run.stdout)
+    assert frozen["plan_name"] == "frozen"
+    assert tuple(frozen["pattern_ids"]) == EXPECTED_PATTERN_IDS
+    assert frozen["n_patterns"] == 15
+    assert frozen["n_frames_expected"] == 60
+
+    waveform_run = _run("--plan", "waveform", "--out", str(tmp_path / "wf"))
+    assert waveform_run.returncode == 0, waveform_run.stderr
+    waveform = json.loads(waveform_run.stdout)
+    assert waveform["plan_name"] == "waveform"
+    assert tuple(waveform["pattern_ids"]) == WAVEFORM_IDS
+    assert waveform["n_patterns"] == 15
+    assert waveform["n_frames_expected"] == 60
+
+    # frozen / waveform plan JSON 不引入新键；两种老 plan 的图样也没有 role。
+    for plan in (frozen, waveform):
+        assert "role_by_pattern" not in plan, plan["plan_name"]
+        for key in SCRIPT.PLAN_KEYS:
+            assert key in plan, key
+    for builder in (SCRIPT.build_patterns, SCRIPT.build_waveform_patterns):
+        assert all("role" not in item for item in builder())
+
+    shape = SCRIPT.DEFAULT_PANEL_SHAPE
+    wf_by_id = {p["id"]: p for p in SCRIPT.build_waveform_patterns()}
+    assert np.array_equal(
+        SCRIPT.pattern_phase(wf_by_id["blaze_x_plus"], shape),
+        SCRIPT.pattern_phase(wf_by_id["tilt_x_plus"], shape),
+    )
+    for pid in ("blaze_patch_x", "blaze_patch_y"):
+        item = wf_by_id[pid]
+        assert np.array_equal(
+            SCRIPT.pattern_phase(item, shape),
+            SCRIPT.blaze_patch_phase(
+                shape,
+                axis=int(item["axis"]),
+                period_px=float(item["period_px"]),
+            ),
+        ), pid
+
