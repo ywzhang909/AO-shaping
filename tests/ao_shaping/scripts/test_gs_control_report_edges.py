@@ -17,6 +17,7 @@ from scripts.slm.generate_gs_control_report import (
     _crossing_width,
     _fwhm,
     _num_or_none,
+    defocus_records,
     edge_transition,
     load_frame_with_meta,
     psf_shape,
@@ -26,6 +27,19 @@ from scripts.slm.generate_gs_control_report import (
 # ---------------------------------------------------------------------------
 # 帧 / 参数读取
 # ---------------------------------------------------------------------------
+def test_defocus_records_only_returns_records_with_stored_frames(tmp_path: pathlib.Path) -> None:
+    np.savez_compressed(tmp_path / "present.npz", frames=np.zeros((5, 3, 4)))
+    (tmp_path / "optical_path_probe.json").write_text(json.dumps({
+        "defocus_sweep": [
+            {"tag": "p0rad", "npz": "present.npz"},
+            {"tag": "p1rad", "npz": "missing.npz"},
+        ],
+    }), encoding="utf-8")
+
+    assert [r["tag"] for r in defocus_records(tmp_path)] == ["p0rad"]
+    assert defocus_records(tmp_path / "absent") == []
+
+
 def test_load_frame_with_meta_reads_frame_and_params(tmp_path: pathlib.Path) -> None:
     frame = np.arange(12, dtype=np.uint8).reshape(3, 4)
     path = tmp_path / "c.npz"

@@ -240,6 +240,199 @@
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig5_flat_psf.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig6_diffuse_floor.png",
     "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig7_raw_ccd.png",
-    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig8_exposure_ladder.png"
-  ]
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig8_exposure_ladder.png",
+    "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\gs_control_1000px\\figures\\fig8b_defocus_response.png"
+  ],
+  "defocus_response": {
+    "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\optical_path_probe\\gs_control_1000px\\20261030_031154Z\\optical_path_probe.json",
+    "frames": [
+      {
+        "tag": "m1rad",
+        "npz": "defocus_m1rad.npz",
+        "frame_index": 0,
+        "center_px": [
+          1263,
+          943
+        ],
+        "crop_origin_px": [
+          1203,
+          883
+        ],
+        "crop_shape": [
+          120,
+          120
+        ]
+      },
+      {
+        "tag": "p0rad",
+        "npz": "defocus_p0rad.npz",
+        "frame_index": 0,
+        "center_px": [
+          1269,
+          943
+        ],
+        "crop_origin_px": [
+          1209,
+          883
+        ],
+        "crop_shape": [
+          120,
+          120
+        ]
+      },
+      {
+        "tag": "p0.5rad",
+        "npz": "defocus_p0.5rad.npz",
+        "frame_index": 0,
+        "center_px": [
+          1270,
+          943
+        ],
+        "crop_origin_px": [
+          1210,
+          883
+        ],
+        "crop_shape": [
+          120,
+          120
+        ]
+      },
+      {
+        "tag": "p1rad",
+        "npz": "defocus_p1rad.npz",
+        "frame_index": 0,
+        "center_px": [
+          1273,
+          944
+        ],
+        "crop_origin_px": [
+          1213,
+          884
+        ],
+        "crop_shape": [
+          120,
+          120
+        ]
+      },
+      {
+        "tag": "flat_repeat",
+        "npz": "defocus_flat_repeat.npz",
+        "frame_index": 0,
+        "center_px": [
+          1270,
+          942
+        ],
+        "crop_origin_px": [
+          1210,
+          882
+        ],
+        "crop_shape": [
+          120,
+          120
+        ]
+      }
+    ],
+    "baseline_peak_counts": 193.8,
+    "baseline_fwhm_px": 12.392285144021361,
+    "peak_snr": 18.031222920256944,
+    "width_snr": 41.307617146737876,
+    "per_amp": [
+      {
+        "defocus_rad": 0.0,
+        "peak_raw": 201.4,
+        "peak_std": 1.140175425099138,
+        "fwhm_px": 12.276277733838707,
+        "fwhm_std": 0.16929744845170588,
+        "second_moment_radius_px": 877.301320614133,
+        "centroid_x": 1265.4127751079918,
+        "centroid_y": 943.1655272609275,
+        "hollowness": 0.712039800995025,
+        "delta_peak_counts": 7.599999999999994,
+        "delta_fwhm_px": -0.11600741018265381,
+        "sem_peak_counts": 5.88693468623528,
+        "sem_fwhm_px": 0.16431676725154984,
+        "carries_signal": true,
+        "visible": true,
+        "peak_statistically_significant": null,
+        "fwhm_statistically_significant": null
+      },
+      {
+        "defocus_rad": 0.5,
+        "peak_raw": 147.0,
+        "peak_std": 1.8708286933869707,
+        "fwhm_px": 13.309760345433721,
+        "fwhm_std": 0.16314115614767088,
+        "second_moment_radius_px": 876.6930723511371,
+        "centroid_x": 1267.5610605728843,
+        "centroid_y": 943.5195201414448,
+        "hollowness": 0.7863087248322147,
+        "delta_peak_counts": -46.80000000000001,
+        "delta_fwhm_px": 0.9174752014123602,
+        "sem_peak_counts": 5.88693468623528,
+        "sem_fwhm_px": 0.16431676725154984,
+        "carries_signal": true,
+        "visible": true,
+        "peak_statistically_significant": true,
+        "fwhm_statistically_significant": true
+      },
+      {
+        "defocus_rad": 1.0,
+        "peak_raw": 75.2,
+        "peak_std": 0.8366600265340756,
+        "fwhm_px": 16.018750000000047,
+        "fwhm_std": 0.24962259321470032,
+        "second_moment_radius_px": 875.8462107500796,
+        "centroid_x": 1273.17387986201,
+        "centroid_y": 943.817861904319,
+        "hollowness": 0.936,
+        "delta_peak_counts": -118.60000000000001,
+        "delta_fwhm_px": 3.6264648559786856,
+        "sem_peak_counts": 5.88693468623528,
+        "sem_fwhm_px": 0.16431676725154984,
+        "carries_signal": true,
+        "visible": true,
+        "peak_statistically_significant": true,
+        "fwhm_statistically_significant": true
+      },
+      {
+        "defocus_rad": -1.0,
+        "peak_raw": 133.0,
+        "peak_std": 1.0,
+        "fwhm_px": 12.799353448838781,
+        "fwhm_std": 0.0655080786357095,
+        "second_moment_radius_px": 876.4180120451683,
+        "centroid_x": 1260.1924673006172,
+        "centroid_y": 944.3387360348077,
+        "hollowness": 0.6675757575757576,
+        "delta_peak_counts": -60.80000000000001,
+        "delta_fwhm_px": 0.40706830481741996,
+        "sem_peak_counts": 5.88693468623528,
+        "sem_fwhm_px": 0.16431676725154984,
+        "carries_signal": true,
+        "visible": true,
+        "peak_statistically_significant": true,
+        "fwhm_statistically_significant": false
+      },
+      {
+        "defocus_rad": 0.0,
+        "peak_raw": 186.2,
+        "peak_std": 1.7888543819998317,
+        "fwhm_px": 12.508292554204013,
+        "fwhm_std": 0.04868810503029191,
+        "second_moment_radius_px": 877.1709836147695,
+        "centroid_x": 1265.4226828292858,
+        "centroid_y": 943.3442034148667,
+        "hollowness": 0.7019565217391304,
+        "delta_peak_counts": -7.600000000000023,
+        "delta_fwhm_px": 0.11600741018265204,
+        "sem_peak_counts": 5.88693468623528,
+        "sem_fwhm_px": 0.16431676725154984,
+        "carries_signal": true,
+        "visible": true,
+        "peak_statistically_significant": null,
+        "fwhm_statistically_significant": null
+      }
+    ],
+    "frame_note": "每档 npz 存 5 帧；原始帧取第 1 帧，曲线使用全部 5 帧"
+  }
 }

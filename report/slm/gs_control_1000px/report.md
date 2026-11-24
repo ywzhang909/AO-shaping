@@ -11,8 +11,8 @@
 
 - 运行根目录：`data/debug/hw_gs_square_scans/20261030_gs1000/`
 - 光路探测：`data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/`
-- 图：`report/slm/gs_control_1000px/figures/`（8 张，§6 逐张嵌入）；八张图**内**的数值由
-  同一次生成写进 `figure_numbers.json`（51 个键），正文引用图内数值时给键名。不落在图上的数
+- 图：`report/slm/gs_control_1000px/figures/`（9 张，含补充图 8b，§6 逐张嵌入）；图**内**的数值由
+  生成器写进 `figure_numbers.json`（52 个键），正文引用图内数值时给键名。不落在图上的数
   （光路探测的曝光阶梯、饱和像素计数、GS 迭代耗时等）各自标了来源文件，**不在**该 JSON 里。
 - 日期：2026-10-30（UTC）。设备在 C 变体开始前下线，故该变体留空并标注。
 
@@ -140,12 +140,12 @@ python scripts/slm/hw_gs_square_scans.py --execute --scan summarize
 | `sides/measurements.csv`, `summary.png`, `manifest.json` | 边长扫描汇总 |
 | `blaze/frame_000/001.npz`, `phase_000/001.npy` | P=10 / P=12 的帧与相位 |
 | `blaze/measurements.csv`, `metrics_00X.json`, `run_config.json` | 逐周期指标 + 冻结的方框与预检 |
-| `report/slm/gs_control_1000px/figures/*.png`, `figure_numbers.json` | 8 张图与该图族引用的数 |
+| `report/slm/gs_control_1000px/figures/*.png`, `figure_numbers.json` | 9 张图与该图族引用的数 |
 
 离线分析只读上面这些 `.npz` / `.npy`，不需要设备：
 
 ```powershell
-python scripts/slm/generate_gs_control_report.py            # 8 张图 + figure_numbers.json
+python scripts/slm/generate_gs_control_report.py            # 9 张图 + figure_numbers.json
 ```
 
 ---
@@ -184,7 +184,8 @@ SLM 1 号，memory 模式（`video_mode=0`），1064 nm；相机曝光范围 0.0
 
 基线（0 rad）峰值 **193.8**，FWHM **12.39 px**；±1 rad 离焦时峰值变化 **118.6 counts
 （61.2%）**、宽度变化 **3.63 px（29.3%）**，SNR 分别为 18.0 / 41.3。相位确实在调光，且响应
-足够强，不需要怀疑「相位没下到面板」。
+足够强，不需要怀疑「相位没下到面板」。五组探针的原始帧、逐帧峰值与 FWHM 散布见
+**图 8b**（§6，`defocus_response`）。
 
 ### 4.3 0 级位置
 
@@ -273,9 +274,9 @@ P = 12 为主。
 
 ---
 
-## 6 八张图怎么看
+## 6 九张图怎么看
 
-八张图直接嵌在下面，点开可看原尺寸。每张图都有**自己的色标**，色标上限写在图注里 ——
+九张图直接嵌在下面，点开可看原尺寸。每张图都有**自己的色标**，色标上限写在图注里 ——
 跨栏比亮度会得出错误结论。图 1–6 是派生量（指标、剖面、模型对比），**图 7–8 是原始 CCD
 画面**：不扣本底、不叠指标，只用来看相机上到底拍到了什么。
 
@@ -439,6 +440,19 @@ D-P10 (1967, 902)、D-P12 (1844, 902)。
 - 图 8 的 1 ms 档（213）与图 7 的 A 栏（178）**不是同一帧**：前者来自 §4.1 那次光路探测，
   后者来自平场组，正是 §5.1 注记里「不同 1 ms 帧之间 178–215」的散布。
 
+### 图 8b `fig8b_defocus_response.png` — 离焦响应的原始帧与逐帧散布
+
+![图 8b：五组 1 ms 离焦探针的原始 CCD 裁图，以及全部五帧的峰值与 FWHM 均值和标准差。](figures/fig8b_defocus_response.png)
+
+这是 §4.2 离焦探针的补充数据图，来源仍是同一次 `optical_path_probe/1` 运行，不是重放、模拟或
+补造的数据。上排依次为 −1、0、+0.5、+1 rad 与 0 rad 复测；每栏取该 npz 的**第 1 帧**，
+以该帧自己的 argmax 为中心裁 120×120 px，线性色标 0–255，**不扣本底、不叠加指标**。
+下排才画响应：点为 5 帧均值，误差棒为逐帧标准差；峰值取 raw counts，FWHM 口径与 §4.2 相同。
+
+读法：±1 rad 的峰下降与展宽远大于同档逐帧散布，0 rad 初测/复测也分开画出，因而图直接支撑
+「相位确实在调光」，但不把五帧平均说成单次测量精度。所有帧的曝光都是 1 ms；裁图中心逐档不同，
+保留在 `defocus_response.frames[].center_px`，没有用统一的 0 级坐标去裁。
+
 ---
 
 ## 7 诊断
@@ -525,8 +539,9 @@ panel 列，即 3.854 相机 px/列）仍然可能，但没有证据支持（§8
    判据：若挡光帧与 P=2 帧的全帧均值相同，底来自环境/放大器；若 P=2 明显更高，底来自
    光路。这一项决定 §7.1 里 14.6 个百分点的归属。
 2. **C 变体（先矫正光路像差，再发 GS）**。这是唯一能检验 §5.1「x 肩部来自光路像差」的测量，
-   **不是采一帧就能填的**（§1）。定义与验收口径如下，**尚未实施**；采集脚本待写
-   （`scripts/slm/gs_control_corrected_arm.py`）。
+   **不是采一帧就能填的**（§1）。定义与验收口径如下，**尚未上机**；采集脚本已就绪
+   （`scripts/slm/gs_control_corrected_arm.py`，默认 dry-run，`--execute` 才拿设备锁，
+   验证集相关不足或输入缺失时只写降级 meta，不采 C）。
    - **构造**：`C_panel = B_panel − pupil_phase_to_panel(像差瞳面相位)`。`B_panel` 直接用已存的
      `sides/side_1000/phase_000.npy`，**不重算 GS、不换优化器** —— 否则「光路像差」与「GS
      相位」两个误差源又混在一起，而这正是本变体要拆开的。
@@ -550,7 +565,7 @@ panel 列，即 3.854 相机 px/列）仍然可能，但没有证据支持（§8
    - **产物**：C 存 `.npz` 的 `frame` 键（回退 `frames[0]`），另出 `correction_meta.json`
      （`probe_count` / `heldout_corr` / `rms_before` / `rms_after`）。缺任一输入时生成器
      **退出 0** 且 `psf_peak_comparable = false`、`geometry_ok = null`，图 1 的 C 栏继续留灰色
-     占位。C 到位后生成器会多出图 9（同曝光 B/C 对照），§6 的「八张图」一并改成九张。
+     占位。C 到位后生成器会多出图 9（同曝光 B/C 对照），§6 的「九张图」一并改成十张。
 3. **方斑纵向中心的读数散布**（中位数 964.75 px，10–90 百分位 946.75–985）。它**不是**
    一段干净的偏移（下沿只比 0 级高 2.75 px），但散布明显大于横向。做一次 panel-x 束心扫描
    （改 `BEAM_CENTER_PANEL` 的 x 分量，5–11 列），看方斑 y 中心是否跟着线性移动：跟着动
@@ -570,7 +585,7 @@ $env:PYTHONPATH="src;libs"; $env:PYTHONIOENCODING="utf-8"
 .\.venv\Scripts\python.exe scripts\slm\generate_gs_control_report.py
 ```
 
-`figure_numbers.json` 是**八张图内数值**的来源；图与它由同一次运行生成，改一个数两处同时变。
+`figure_numbers.json` 是**九张图内数值**的来源；图与它由同一生成器产出，改一个数两处同时变。
 正文里不落在图上的数另有来源，逐处已标：光路探测（§4）读
 `data/debug/optical_path_probe/gs_control_1000px/20261030_031154Z/optical_path_probe.json`；
 逐周期指标读 `data/debug/hw_gs_square_scans/20261030_gs1000/blaze/metrics_00X.json` 与

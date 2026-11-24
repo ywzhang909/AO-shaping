@@ -24,9 +24,9 @@ Flat-phase reference frames come from ``probe_optical_path_validity.py``
 光斑的峰值/FWHM (矫正是否真抵消了像差)。缺少 ``--replay-b-frame`` 时图 9 不给锐度
 结论, 只画 C 本身。
 
-图 7/图 8 是**原始 CCD 画面**: 图 7 是四个变体各自的全帧 (log) 与 1:1 裁图 (线性),
-图 8 是平相位曝光阶梯的原始帧。两张图都只读盘面上已有的帧、不扣本底、不叠加指标,
-作用是让读者看到「CCD 上到底拍到什么」——报告里其余图都是派生量。图 7 的裁图中心
+图 7/图 8/图 8b 上排是**原始 CCD 画面**: 图 7 是四个变体各自的全帧 (log) 与 1:1 裁图 (线性),
+图 8 是平相位曝光阶梯的原始帧, 图 8b 是离焦探针帧及单列的响应曲线。原始帧都只读盘面上
+已有的帧、不扣本底、不叠加指标, 作用是让读者看到「CCD 上到底拍到什么」。图 7 的裁图中心
 逐帧取自该帧自己的方框/0 级位置 (闪耀把方斑平移了 595-720 px), 图 8 的曝光档位由
 ``<ladder-dir>/exposure_*ms.npz`` 的盘面内容决定 (缺省目录 = §4.1 那次光路探测的阶梯,
 与 ``--flat-dir`` 那次采集不是同一批帧)。
@@ -1155,6 +1155,99 @@ def ladder_frames(flat_dir: pathlib.Path) -> list[tuple[float, np.ndarray]]:
     return sorted(out, key=lambda item: item[0])
 
 
+def defocus_records(probe_dir: pathlib.Path) -> list[dict]:
+    """读取 §4.2 的离焦探针记录；记录与帧文件必须一一对应。"""
+    path = probe_dir / "optical_path_probe.json"
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8") as f:
+        payload = json.load(f)
+    records = payload.get("defocus_sweep", [])
+    if not isinstance(records, list):
+        return []
+    return [r for r in records
+            if isinstance(r, dict) and (probe_dir / str(r.get("npz", ""))).is_file()]
+
+
+def fig_defocus_response(ctx: dict, out: pathlib.Path) -> pathlib.Path | None:
+    """图 8b：离焦原始帧与逐帧散布；不扣本底，也不在帧上叠指标。"""
+    records = defocus_records(ctx["ladder_dir"])
+    if not records:
+        return None
+    response_path = ctx["ladder_dir"] / "optical_path_probe.json"
+    with response_path.open(encoding="utf-8") as f:
+        response = json.load(f).get("defocus_response", {})
+    per_amp = response.get("per_amp", [])
+    if len(per_amp) != len(records):
+        raise ValueError("defocus_response.per_amp 与 defocus_sweep 数量不一致")
+
+    # 按离焦量排列，平相位复测放在最后；原始采集顺序仍保留在 JSON 中。
+    order = sorted(range(len(records)),
+                   key=lambda i: (records[i]["tag"] == "flat_repeat",
+                                  records[i]["defocus_rad"]))
+    fig = plt.figure(figsize=(15.5, 7.0), layout="constrained")
+    grid = fig.add_gridspec(2, len(records), height_ratios=(1.15, 1.0))
+    raw_stats = []
+    for col, idx in enumerate(order):
+        rec = records[idx]
+        frame = load_frame(ctx["ladder_dir"] / rec["npz"])
+        iy, ix = np.unravel_index(int(np.argmax(frame)), frame.shape)
+        sub, x0, y0 = crop(frame, float(ix), float(iy), 60)
+        ax = fig.add_subplot(grid[0, col])
+        ax.imshow(sub, cmap="inferno", vmin=0, vmax=FULL_SCALE)
+        tag = "0 rad（复测）" if rec["tag"] == "flat_repeat" else f"{rec['defocus_rad']:+g} rad"
+        ax.set_title(tag, fontsize=11)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        raw_stats.append(dict(tag=rec["tag"], npz=rec["npz"],
+                              frame_index=0, center_px=[int(ix), int(iy)],
+                              crop_origin_px=[x0, y0], crop_shape=list(sub.shape)))
+
+    x = np.array([float(r["defocus_rad"]) for r in records])
+    peak = np.array([float(r["peak_raw"]) for r in records])
+    peak_std = np.array([np.std(r["peak_raw_per_frame"], ddof=1) for r in records])
+    width = np.array([float(r["fwhm_px"]) for r in per_amp])
+    width_std = np.array([float(r["fwhm_std"]) for r in per_amp])
+    main = np.array([r["tag"] != "flat_repeat" for r in records])
+    repeat = ~main
+    main_order = np.flatnonzero(main)
+    main_order = main_order[np.argsort(x[main_order])]
+
+    ax_peak = fig.add_subplot(grid[1, :3])
+    ax_peak.errorbar(x[main_order], peak[main_order], yerr=peak_std[main_order], fmt="o-", capsize=4,
+                     color="#1d4e89", label="5 帧均值 ± 标准差")
+    ax_peak.errorbar(x[repeat], peak[repeat], yerr=peak_std[repeat], fmt="D", capsize=4,
+                     color="#c1121f", label="平相位复测")
+    ax_peak.set_xlabel("离焦相位幅度 (rad)")
+    ax_peak.set_ylabel("原始峰值 (counts)")
+    ax_peak.set_title("峰值响应（全部帧均为 1 ms）", fontsize=11)
+    ax_peak.legend(fontsize=9)
+    ax_peak.grid(alpha=0.25)
+
+    ax_width = fig.add_subplot(grid[1, 3:])
+    ax_width.errorbar(x[main_order], width[main_order], yerr=width_std[main_order], fmt="o-", capsize=4,
+                      color="#3d5a80")
+    ax_width.errorbar(x[repeat], width[repeat], yerr=width_std[repeat], fmt="D", capsize=4,
+                      color="#c1121f")
+    ax_width.set_xlabel("离焦相位幅度 (rad)")
+    ax_width.set_ylabel("FWHM (相机 px)")
+    ax_width.set_title("宽度响应（5 帧均值 ± 标准差）", fontsize=11)
+    ax_width.grid(alpha=0.25)
+    fig.suptitle("离焦探针：原始 CCD 帧（120×120 px，以各自 argmax 为中心）与响应", fontsize=14)
+    p = out / "fig8b_defocus_response.png"
+    fig.savefig(p)
+    plt.close(fig)
+    ctx["defocus_response"] = dict(
+        source=str(response_path), frames=raw_stats,
+        baseline_peak_counts=response.get("baseline_peak_counts"),
+        baseline_fwhm_px=response.get("baseline_fwhm_px"),
+        peak_snr=response.get("peak_snr"), width_snr=response.get("width_snr"),
+        per_amp=per_amp,
+        frame_note="每档 npz 存 5 帧；原始帧取第 1 帧，曲线使用全部 5 帧",
+    )
+    return p
+
+
 def fig_exposure_ladder(ctx: dict, out: pathlib.Path) -> pathlib.Path | None:
     """曝光阶梯的原始帧: 0 级核先饱和、再向外扩, 是「8 bit 限制」的直观证据。"""
     frames = ladder_frames(ctx["ladder_dir"])
@@ -1742,7 +1835,7 @@ def main(argv: list[str] | None = None) -> int:
         c_box = measure_box(ctx["corrected_frame"], ctx["box_center_side"], ctx["side_px"])
 
     wanted = args.only or ["four_arms", "overview", "model", "profiles", "psf", "floor",
-                           "raw", "ladder", "corrected"]
+                           "raw", "ladder", "defocus", "corrected"]
     made = []
     if "four_arms" in wanted:
         made.append(fig_four_arms(ctx, args.out))
@@ -1762,6 +1855,10 @@ def main(argv: list[str] | None = None) -> int:
         p = fig_exposure_ladder(ctx, args.out)
         if p is not None:
             made.append(p)
+    if "defocus" in wanted:
+        p = fig_defocus_response(ctx, args.out)
+        if p is not None:
+            made.append(p)
     if "corrected" in wanted:
         p = fig_corrected_compare(ctx, args.out)
         if p is not None:
@@ -1774,6 +1871,7 @@ def main(argv: list[str] | None = None) -> int:
         "ladder_dir": str(ctx["ladder_dir"]),
         "ladder_dir_note": "图 8 曝光阶梯的来源目录 = §4.1 那次光路探测",
         "ladder_frame_note": "每档 npz 存 2 帧, 图取第 1 帧; §4.1 的 peak_raw 是两帧最大值 (1 ms: 213 vs 215)",
+        "defocus_response": ctx.get("defocus_response"),
         "dc_px": ctx["dc"],
         "flat_fwhm_px": [ctx["flat_fwhm_x"], ctx["flat_fwhm_y"]],
         "airy_fwhm_px": ctx["airy_fwhm"],

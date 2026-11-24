@@ -2029,6 +2029,45 @@ python scripts/slm/generate_gs_control_report.py --corrected-frame <frame.npz>  
 python scripts/slm/generate_gs_control_report.py --only fig3 fig4                # redraw a subset
 ```
 
+### gs_control_corrected_arm.py
+
+Acquires the **C arm** of `report/slm/gs_control_1000px/report.md` §8.2 — correct the
+optical-path aberration first, then display the *same* GS phase. It never re-runs GS
+and never swaps the optimizer: `B_panel` is the stored 1000 px phase
+(`sides/side_1000/phase_000.npy`), and the only new quantity is ONE shared aberration
+fitted by the canonical `calibrate_shared_aberration`, so
+`C_panel = B_panel - pupil_phase_to_panel(aberration_pupil_phase)` in B's own frame.
+
+Eight strong random probes (`--probe-spread 4.0`) feed the fit; two held-out probes only
+validate it. Probe exposure is adapted separately (`adapt_exposure`) because B's 200 ms
+plateau exposure saturates a probe frame, and every NPZ records its own
+`exposure_ms`/`exposure_ms_readback`. The four comparison frames (`replay_b`, `c`,
+`flat`, `cflat`) share one exposure and one settling rule through `BenchSession.capture`.
+A held-out correlation below `--heldout-corr-min` (0.99) stops the run **before** C is
+captured: a fit that cannot predict an unseen probe is not an aberration estimate.
+
+**Default is `--dry-run`** — no driver package is imported, no device is touched. With
+`--aberration-coeffs-from` (dry-run only) it rebuilds `c_panel.npy` offline from the stored
+B phase and a previous run's `coefficients`. `--execute` is the only branch that opens hardware,
+and it always fits fresh probes rather than reusing coefficients;
+it holds `DeviceLock` (1800 s timeout) for the whole session. Missing or inconsistent
+inputs still exit 0 and write `psf_peak_comparable=false` / `geometry_ok=null` instead of
+fabricating a frame. `rms_before`/`rms_after` stay `null` on hardware (no ground truth);
+`fitted_aberration_rms_rad` is reported separately and is not a fit residual.
+
+```bash
+python scripts/slm/gs_control_corrected_arm.py --dry-run
+python scripts/slm/gs_control_corrected_arm.py --dry-run --aberration-coeffs-from <out>/correction_meta.json --out-dir <out>/offline_rebuild
+python scripts/slm/gs_control_corrected_arm.py --execute --out-dir data/debug/gs_control_corrected_arm/run1 --cam-type daheng
+```
+
+Outputs land in `--out-dir`: `c.npz`, `replay_b.npz`, `flat.npz`, `cflat.npz` (`frame`
+key, float32, plus JSON `params`), `c_panel.npy`, the probe NPZs, and
+`correction_meta.json` (`probe_count`, `heldout_corr`, `rms_before`, `rms_after`,
+exposure provenance). Feed them to `generate_gs_control_report.py` via
+`--corrected-frame`, `--replay-b-frame`, `--flat-frame`, `--corrected-flat-frame` and
+`--correction-meta`.
+
 ### generate_gs_golden_reference.py
 
 Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference/gs_golden_reference.md`
