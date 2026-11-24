@@ -31,14 +31,14 @@
 |---|---|---|---|
 | #229 | **已证实无效（样本效率主张）** | 深度匹配后主动探针在 n=2–32 与随机族无差异；不否定其作为可归因 Jacobian 探针的用途。 | CLOSED，维持。 |
 | #230 | **证据不足** | 在线回灌代码和测试属于工程有效；块间重拟合的端到端效率/质量收益未做同预算物理配对。 | OPEN；随 #234/#254 验收。 |
-| #232 | **证据不足** | EHGO 迟滞/耦合/温漂估计仅有 sim 方案，尚无对比择优结果。 | OPEN；先 sim 对照冻结矩阵与重标定 oracle。 |
+| #232 | **证据不足** | EHGO 迟滞/耦合/温漂估计仅有 sim 方案，尚无 对比择优。 | OPEN；先 sim 对照冻结矩阵与重标定 oracle。 |
 | #233 | **证据不足** | 单调曝光/CCD 响应有物理动机，独立曝光档标定收益未闭环。 | OPEN；不得由单调性直接推出整形收益。 |
 | #234 | **证据不足** | 结构化探针、`zernike_block`、在线回灌已实施；P0 条件数 17425、可辨识模率 0.0，无双门通过 checkpoint。 | OPEN；`light/none` 仍暂停。 |
 | #235 | **证据不足（含局部有效与根因否定）** | `box centroid` 将历史双瓣定位 SD 0.394 降至 0.297–0.330 px，仅属局部定位有效；换实际相位后方向仍差，否定“输入相位错是根因”。 | OPEN；剩余 LUT、光轴中心和 shift_phase 未验。 |
 | #236 | **证据不足** | 旧消融方向相关 −0.043…+0.070 且无区分度；11-23 起强度门 `not_assessable`、方向门不可归因。 | OPEN；不得再引用“双门有效 fail”，δ=0.20 不放宽。 |
 | #237 | **已证实无效（原批次验收）** | 原配准/PSF/增益场/LUT/复振幅整包验收失败；11-24 新静态 PSF 协议是新局部证据，不把原整包改判成功。 | CLOSED，维持；新 PSF 单列。 |
 | #238 | **证据不足（fold 方法局部有效）** | fold 三周期 g₂π 962.67/952.60/946.89 自洽，但束功率漂移、缺同曝光暗场，仍不可定标；串扰未判定。 | OPEN；不得发布新 g₂π 或宣称串扰有效。 |
-| #239 | **证据不足** | attention 代理指标改善但不稳定，对比择优结论 `inconclusive`；不是“已证实完全无效”。 | CLOSED 不启用，维持；不重开。 |
+| #239 | **证据不足** | attention 代理指标改善但不稳定，对比择优 `inconclusive`；不是“已证实完全无效”。 | CLOSED 不启用，维持；不重开。 |
 | #241 | **已证实有效（CI 工程）** | transfer 方向门 CI 守卫修复有定向测试证据。 | CLOSED。 |
 | #247 | **证据不足（现象局部成立）** | 零级可分离、面板/CCD 轴交换与局部 A 映射有证据；全局轴映射、统一观测校正、跨会话复现和实测校正收益未通过。 | OPEN；见 §7。 |
 | #254 | **证据不足（计划有效）** | 三层 split 与配对计划已成文；没有 T6 2×2 交错物理比较，不能宣称数据复用提效。 | OPEN；按 §8 补数。 |
@@ -75,9 +75,9 @@
 | #124 | **证据不足（仅反向噪声通道成立）** | σ 0.3→0.5 复合分 0.492→0.360，过注入劣化成立；错模型下正向松弛收益未迁移，无正式硬件 A/B。 | OPEN；不据此宣称鲁棒 CGH 有效。 |
 | #125 | **已证实无效（重复条目）** | #124 的重复 POST。 | CLOSED。 |
 | #126 | **证据不足（表达力缺口成立，联合增益未成立）** | Zernike-only 不能表达三角/星形；joint 与 per-pixel 数值相同，低阶被 freeform 吸收，独立验证集和硬件增益未证。 | OPEN。 |
-| #134 | **已证实有效（opt-in 实现与 sim）** | 在线拒绝轮不确定性采样实现和 sim 验收完成；实验验收由 #139 追踪。 | CLOSED。 |
+| #134 | **已证实有效（opt-in 实现与 sim）** | 在线拒绝轮不确定性采样实现和 sim 验收完成；实验由 #139 追踪。 | CLOSED。 |
 | #137 | **证据不足** | 单次 warm/cold 回放 cold 更好：score 0.72721/0.74061、CV 1.11416/1.00495；继续闭环细化的局部 CV 改善不能归因于热启动。 | OPEN；需 N≥3 同连接 cold/hot 配对。 |
-| #139 | **证据不足（默认带限机制已证实无效）** | 默认 σ=1.5 时机制 0/10、p=0.4219；σ=0 时 sim 8/8 改善，但实测进相机能量比仅 0.534，最新硬件对比择优又因几何相关 0.0840<0.5 中止。 | OPEN；先修窗口约束和几何，不直接设 σ=0。 |
+| #139 | **证据不足（默认带限机制已证实无效）** | 默认 σ=1.5 时机制 0/10、p=0.4219；σ=0 时 sim 8/8 改善，但实测进相机能量比仅 0.534，最新硬件 对比择优 又因几何相关 0.0840<0.5 中止。 | OPEN；先修窗口约束和几何，不直接设 σ=0。 |
 | #149 | **已证实有效（sim 伞任务交付）** | 三组定量仿真揭示边界条件，不证明硬件收益。 | CLOSED。 |
 | #156 | **已证实有效（诊断工具），真实归因证据不足** | 七因子、DFT、理论上限及单因子测试已落地；无真实闭环缺口归因、jitter 周期量化或 CLI 采集终验。 | OPEN。 |
 | #165 | **证据不足（2f 局部几何标定有效）** | 平场/GS 同帧相关改善可复核，但模型不是绝对光度预测器；FourierGSNet 未过同帧基线和 ≥3 对交错硬件验收。 | OPEN。 |
@@ -133,18 +133,20 @@ python scripts/slm/issue247_cross_session_check_20261124.py --root <cross-sessio
 
 ## 8. 缺数据采集与分析计划
 
-| 对象 | 必补证据 | 冻结执行口径 / 现有计划 |
-|---|---|---|
-| #247 | 三独立会话 15+5 复现、轴映射冻结、校正前后实测配对 | 每会话独立预检/open/close/release；内部 r1/r2/r3；主门 pinned 15/15、轴差 ≤2°；p192 沿用 35–45 px、`peak-background≥100`、每会话至少 3/4 帧强候选与轴角稳定门。见 `hw_window_20261124_issue247_cross_session_prereg.md`。 |
-| #234/#236/#254 | Mono12 可分辨强度/方向门、三层 split、端到端效率配对 | 同会话同曝光同 bit-depth 暗场；train/selection_validation/final_test 隔离；final_test 只读一次；双门达门后做同起点/同 CCD 预算 2×2 交错，适配耗时计入总墙钟，失败/饱和不得增加。见 `transfer_efficiency_and_closed_loop_data_reuse_plan_20261121/plan.md`。 |
-| #238 | 可发布 g₂π 与串扰独立验收 | Mono12/4095、全幅、≥4 曝光 bracket、同曝光熄灯暗场、`--wait-until-idle`；先冻结拟合和漂移门，再决定是否更新 LUT。 |
-| PSF/refit | 跨会话、跨形状稳健性及实测整形转化 | 保持默认关闭；新鲜验证集不参与选型；按 `closed_loop_refit_abba_plan_20261124.md` 做默认 vs refit 的同曝光 A–B–B–A，只认实测 core CV 主判据。 |
-| #137 | 热启动效果和节省时间 | 同一连接 cold/hot 各 N≥3 交错，固定 0.05 ms、同几何同种子；探针预算 4→3→2；报告验证集相关/误差及采集+拟合总时间。 |
-| #139 | 窗口约束后的不确定性探针收益 | 先修 U(p) 与相机窗口脱节并通过几何门，再同种子 N≥3 A/B；比较探针数、进窗能量、held-out correlation/CV/EE，不能直接关带限上线。 |
-| #124/#126 | 正向增量而非仅机制/反向验证 | 先 sim：错模型独立 freeform 验证集、同探针/步数预算、≥3 种子；#124 保留过噪声劣化反向验证，#126 必须优于 per-pixel-only 才进入硬件配对。 |
-| #119/#121/#165 | 多次独立运行的模型准入 | freeform 验证集相关 ≥0.8 且 NRMSE 优于 Zernike，同时满足峰位/FWHM；#165 另需不劣于物理基线和 ≥3 对交错硬件收益。 |
-| #213 L-BFGS | 离线加速能否迁移为物理效率 | K=1 Adam 基线 vs L-BFGS 早停，同问题/同质量门/同预算；报告总墙钟、CV、energy、失败率，达离线门后才做硬件 ABBA。 |
-| #156 | 七因子真实归因 | 补 phase-stepping 帧栈、jitter 周期量化和闭环内去相关因子；报告各因子对实测增强缺口的置信区间，不把默认值 1.0 当测量。 |
+**可执行入口**：各行的采集/离线脚本 CLI 契约与安全语义统一登记于 `docs/dev/hw_capture_script_inventory_20261124.md`（下表"入口"列给最短指针）。注意：#247 与 PSF/refit 行原引用的两份计划文档当前被并发车道删除且未入 HEAD（悬空引用，见清单 §11）；#137/#213/#156 三行尚无完整契约执行器，只有可复用组件。
+
+| 对象 | 必补证据 | 冻结执行口径 / 现有计划 | 入口（详见清单） |
+|---|---|---|---|
+| #247 | 三独立会话 15+5 复现、轴映射冻结、校正前后实测配对 | 每会话独立预检/open/close/release；内部 r1/r2/r3；主门 pinned 15/15、轴差 ≤2°；p192 沿用 35–45 px、`peak-background≥100`、每会话至少 3/4 帧强候选与轴角稳定门。见 `hw_window_20261124_issue247_cross_session_prereg.md`（现悬空）。 | `issue247_cross_session_capture_20261124.py`（无 `--execute`，演练必须 `--dry-run`）+ `issue247_geometry_capture_20261120.py`；离线 `issue247_reproducibility_check_20261124.py`、`issue247_core_blind_audit_20261124.py`、`scripts/slm/issue247_cross_session_check_20261124.py`（HEAD 可恢复）。 |
+| #234/#236/#254 | Mono12 可分辨强度/方向门、三层 split、端到端效率配对 | 同会话同曝光同 bit-depth 暗场；train/selection_validation/final_test 隔离；final_test 只读一次；双门达门后做同起点/同 CCD 预算 2×2 交错，适配耗时计入总墙钟，失败/饱和不得增加。见 `transfer_efficiency_and_closed_loop_data_reuse_plan_20261121/plan.md`。 | 诊断：`efficiency_match_capture/analyze_20261123.py`、`content_axis_2x2_capture_20261124.py`；终验外壳：`validate_transfer_shapes_hardware.py`（演练 `--plan-only`）、`replay_transfer_shapes_hardware.py`。 |
+| #238 | 可发布 g₂π 与串扰独立验收 | Mono12/4095、全幅、≥4 曝光 bracket、同曝光熄灯暗场、`--wait-until-idle`；先冻结拟合和漂移门，再决定是否更新 LUT。 | `issue238_gray_phase_probes.py`（≥4 档 bracket；**无熄灯 hook，暗场须独立采集**）、`issue238_binary_fit.py`、`calib_slm_lut_checkerboard.py`；`capture_slm_lut_probes.py` 不满足硬门。 |
+| PSF/refit | 跨会话、跨形状稳健性及实测整形转化 | 保持默认关闭；新鲜验证集不参与选型；按 `closed_loop_refit_abba_plan_20261124.md`（现悬空）做默认 vs refit 的同曝光 A–B–B–A，只认实测 core CV 主判据。 | `refit_transfer_forward.py`、`evaluate_transfer_on_new_session.py`；ABBA replay 脚本已真丢失，需重建。 |
+| #137 | 热启动效果和节省时间 | 同一连接 cold/hot 各 N≥3 交错，固定 0.05 ms、同几何同种子；探针预算 4→3→2；报告验证集相关/误差及采集+拟合总时间。 | **无完整执行器**；组件：`bootstrap_transfer_checkpoint.py`、`generate_cold_start_report.py`、validator `--initial-phase/--seed-run`。 |
+| #139 | 窗口约束后的不确定性探针收益 | 先修 U(p) 与相机窗口脱节并通过几何门，再同种子 N≥3 A/B；比较探针数、进窗能量、held-out correlation/CV/EE，不能直接关带限上线。 | `transfer_uncertainty_experiment.py`（`--execute`/`--render-only`）；sim 对照 `report/sim_tue_methods/t4_uncertainty_sampling.py`。 |
+| #124/#126 | 正向增量而非仅机制/反向验证 | 先 sim：错模型独立 freeform 验证集、同探针/步数预算、≥3 种子；#124 保留过噪声劣化反向验证，#126 必须优于 per-pixel-only 才进入硬件配对。 | sim 固定入口：`report/sim_tue_methods/t1_noise_relaxation.py`、`t2_mixed_fitting.py`；未达门不设硬件入口。 |
+| #119/#121/#165 | 多次独立运行的模型准入 | freeform 验证集相关 ≥0.8 且 NRMSE 优于 Zernike，同时满足峰位/FWHM；#165 另需不劣于物理基线和 ≥3 对交错硬件收益。 | `hw_forward_model_fidelity_ladder.py`（默认 dry-run）、`analyze_model_hw_fidelity.py`、`scripts/ml/freeform_vs_zernike.py`。 |
+| #213 L-BFGS | 离线加速能否迁移为物理效率 | K=1 Adam 基线 vs L-BFGS 早停，同问题/同质量门/同预算；报告总墙钟、CV、energy、失败率，达离线门后才做硬件 ABBA。 | 离线筛选 `sweep_kaxis_frozen_20261123.py`（**无 `--optimizer` 开关**）；硬件侧仅组件 `hw_differentiable_phase_opt.py` + validator/replay。 |
+| #156 | 七因子真实归因 | 补 phase-stepping 帧栈、jitter 周期量化和闭环内去相关因子；报告各因子对实测增强缺口的置信区间，不把默认值 1.0 当测量。 | **无专用 CLI**；组件：保真阶梯 + `analyze_model_hw_fidelity.py`、`analyze_session_time_budget.py`；实现模块 `src/ao_shaping/utils/slm/fidelity_diag.py`。 |
 
 ## 9. 可复现入口（本轮未重跑 sim/硬件）
 
