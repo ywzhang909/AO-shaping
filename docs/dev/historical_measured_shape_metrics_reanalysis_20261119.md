@@ -109,3 +109,12 @@
 - 结果 JSON：`hist_focus.json`、`hist_traj.json`（同目录）。
 - 关键只读数据：`data/debug/slm_transfer/live_no_gs_cv_anchored_20261024/`、`live_no_gs_cv_20261024/`、`multishape_scale_20261028/s1200/common_replay/`、`transfer_tri_star_20261027/anchored/`。
 - 硬件占用：无。所有操作为离线文件读取与 NumPy 计算。
+
+## 7. 2026-11-24 追记：s1200 配对计数统一复算（修正摘要与正文口径冲突）
+
+**本节只记结果，§1–§6 逐字不改。** §1 结论 2 摘要写「非饱和的 9 对里有 8 对 `rel_l2` 下降」，§3.2 正文写「非饱和 11 对中 `rel_l2` 全部下降」，两处不一致。用独立重算裁定：脚本 `C:/Users/zhangh/AppData/Local/Temp/opencode/hist_pair_recount_20261124.py`（不读取 `hist_traj.json`，直接对 48 份 `.npz` 重打分，冻结生产函数 `target_intensity_rmse` + `image_metrics`），结果存同目录 `hist_pair_recount_20261124.json`。
+
+- **配对规则（先声明后运行）**：48 条 = 3 档曝光 × 16 标签；每档每形状的 `<shape>_seed` 与 3 个 final 变体（`transport_cv` / `mono12_cv` / `mono12_continue`）配对，共 36 对。
+- **排除规则（先声明后运行）**：seed 或 final 的 mean frame 任一像素 ≥ 250/255 满量程即整对剔除（与 §2 判据一致）。
+- **结果**：36 对中剔除 3 对（均为 triangle 最高档，seed 671 饱和像素；transport final 同档 259），剩 33 对：`rel_l2` 下降 **33/33**，变化量全部超过同相位重复帧极差（噪声地板）；`energy_fraction` 上升 29/33（4 例例外，含 §3.2 已注明的 circle 最高档）。仅看 transport 变体：11 对、`rel_l2` 下降 **11/11**——§3.2 正文口径正确，§1 摘要「9 对里 8 对」系草稿残留，以本节为准。
+- **判定不变**：该复算只强化「相对 seed 的实测改善」证据（33/33 超噪声地板），绝对保真度与预注册验收缺口同 §1 结论 3，五个 issue 状态同 §5，均不升级。
