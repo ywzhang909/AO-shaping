@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -54,11 +55,15 @@ from ao_shaping.utils.slm.phase_uniformity import (
 )
 from loguru import logger
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 #: 被测相位来源: 最新 transfer 整形终稿 / 已保存的 GS 精修相位。
 PHASE_SOURCE_TRANSFER = "transfer"
 PHASE_SOURCE_GS = "gs"
 
-#: ``geometry_source`` 取值。transfer 产物没有面板几何，只能用台架常量；
+#: ``geometry_source`` 取值。transfer 产物没有面板几何，只能用实验系统常量；
 #: GS 的几何来自它自己的 run config。
 GEOMETRY_SOURCE_BENCH = "bench_constants:BEAM_CENTER_PANEL,BEAM_RADIUS_PANEL"
 GEOMETRY_SOURCE_GS_CONFIG = "gs_refine_config"
@@ -134,7 +139,7 @@ def _require_panel_shape(panel: np.ndarray, path: Path) -> np.ndarray:
 
 
 def _resolve_transfer_source(transfer_phase: Path | None) -> SourcePhase:
-    """transfer 终稿 → 面板弧度；几何取台架常量（产物里没有面板几何）。"""
+    """transfer 终稿 → 面板弧度；几何取实验系统常量（产物里没有面板几何）。"""
     # 懒加载：scripts/slm 既可以当包导入，也可以直接执行脚本。
     try:
         from scripts.slm._transfer_phase import load_transfer_phase

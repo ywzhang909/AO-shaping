@@ -5,7 +5,7 @@
 > **复现命令**: `python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --variants gs_refine --out-root data/turb_matrix_m5a --report-root report/turbulence_shaping/matrix_20261121_m5a`
 > **数据/关联脚本**: [`scripts/slm/generate_turbulence_shaping_report.py`](../../../scripts/slm/generate_turbulence_shaping_report.py)
 > **运行环境**: 离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）
-> **说明**: M5a/M5b 汇总: GS-refine freeform (12x12 全频网格) 湍流矩阵三档 (gs_refine 臂自带孪生湍流通道, 测量走 SimPibCCD 真光路); 高 σ 末值不降反为三档最高, Zernike square 的高 σ 退化在 freeform 下消失
+> **说明**: M5a/M5b 汇总: GS-refine freeform (12x12 全频网格) 湍流矩阵三档 (gs_refine 变体自带孪生湍流通道, 测量走 SimPibCCD 真光路); 高 σ 末值不降反为三档最高, Zernike square 的高 σ 退化在 freeform 下消失
 <!-- provenance:end -->
 
 | 变体 | cn2 | 实测 σ_total [rad] | 光学求值 | 单元报告 |
@@ -18,5 +18,7 @@
 
 - dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;
 - 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,
-  MIL / GS-refine 因 sim 孪生无湍流通道暂不入列 (#253 注记);
+  本矩阵即 GS-refine 变体 (其 sim 孪生自带湍流通道, 见 `runners/slm/`
+  `patch_sim_*_shaping` 路径); MIL 因解析孪生 (`_SimBench` 钉死 cn2=0) 无湍流
+  通道暂不入列 (#253 注记, 后续批);
 - 种子: dist_seed = 20261121 + 冻结网格序号 (``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。

@@ -189,7 +189,7 @@ from scripts._common.group_manifest import (
 from scripts.slm._transfer_phase import load_transfer_phase
 
 #: 被测相位的来源: ``transfer`` = 最新 transfer 整形终稿 (默认), ``gs`` = 原
-#: Stage A GS-refine 自由相位。来源只决定「Stage A 怎么产相位」, ``--stage-a-in``
+#: Stage A GS-refine 全频随机相位。来源只决定「Stage A 怎么产相位」, ``--stage-a-in``
 #: 的交接文件永远优先。
 PHASE_SOURCES = ("transfer", "gs")
 
@@ -983,7 +983,7 @@ def stage_a_from_transfer(
     )
     logger.warning(
         "[phase] transfer 模型相位可能含载波: 直接做低阶 Zernike 截断的物理含义"
-        "与 GS-refine 自由相位不同 —— 截断只描述面板中央方窗内的低阶成分, 且截断窗"
+        "与 GS-refine 全频随机相位不同 —— 截断只描述面板中央方窗内的低阶成分, 且截断窗"
         f"与模型中心不重合, 两种来源的拟合系数不可直接比较; {geometry}"
     )
     return StageAResult(
@@ -1461,7 +1461,7 @@ def _record_stage_a_only(
     if stage_a.flat_frame is None or stage_a.best_frame is None:
         # transfer 来源没有基线帧: 明说, 而不是留下让人误读的空值。
         summary["baselines_note"] = (
-            "phase_source=transfer: Stage A GS 优化被跳过, 平场/自由相位基线帧"
+            "phase_source=transfer: Stage A GS 优化被跳过, 平场/全频随机相位基线帧"
             "未采集 (stage_a.npz 里也没有这两个键), baseline 指标记 null, 未伪造"
         )
     (out_dir / "summary.json").write_text(
@@ -1834,7 +1834,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         # 在 summary 里明确标注, 不拿空数组 / 伪帧去凑 _crop_to_shape。
         baselines = {"flat": None, "gs_freeform": None}
         baselines_note = (
-            "phase_source=transfer: Stage A GS 优化被跳过, 平场/自由相位基线帧"
+            "phase_source=transfer: Stage A GS 优化被跳过, 平场/全频随机相位基线帧"
             "未采集, baseline 指标记 null (未伪造); 各阶的 before/after 仍由 "
             "Stage C 自己的帧给出, 可比性不受影响"
         )

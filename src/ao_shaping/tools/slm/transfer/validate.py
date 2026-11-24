@@ -986,6 +986,7 @@ def _run_validate_session(
                     try:
                         session.exposure_ms = float(get_camera_exposure_ms(cam))
                     except Exception as exc:
+                        # policy: 尽力而为回写, 取不到保留会话原值; 驱动异常无分类表不收窄 (#145/#45)
                         logger.warning("shared session exposure write-back failed: {}", exc)
                     session.bit_depth = bit_depth
 

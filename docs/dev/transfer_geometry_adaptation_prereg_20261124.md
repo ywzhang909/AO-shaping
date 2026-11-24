@@ -1,4 +1,4 @@
-# Transfer 正向模型几何残差适配预注册 · 2026-11-24
+# Transfer 物理预测模型几何残差适配预注册 · 2026-11-24
 
 > **状态**：在本轮新增采集和拟合开始前冻结。采后不得改模型边界、split、门槛或主要指标；若实现限制迫使变更，须先记为偏离并把结果标为探索性。
 >
@@ -26,7 +26,7 @@
 - 独立 held-out 会话 `20261124_transfer_geometry_period192_holdout_v1` 有 `.capture_done`、12 行（6 calibration、6 普通 probe），唯一 192 px x/y ± ramp 均存在，曝光 0.063 ms、`Mono8` / 8 bit，`light_check.json` 为 `ok`；设备锁约 11:25:41 取得，11:27:17 采集结束并释放，SLM #1 与 Daheng cam 0 在脚本退出时正常关闭。结束后再次确认设备锁未持有。
 - 前置探测的 12-bit 回读与两个 capture 会话的 Mono8/8-bit 采集设置不同；其绝对亮度不作跨会话对比。拟合与 held-out 门使用各自会话内 ramp 位移与预测值，不以亮度作为几何结论。
 - 首次 held-out CLI 尝试 `--count 0` 被参数校验拒绝（要求 `count >= 6`），未创建输出目录或打开设备；锁立即释放。正式运行改用 `--count 6`，输出目录此前仍不存在。此为 CLI 限制，未改变 held-out ramp 判据。
-- 最终对照产物目录为 `arm_A/` 与 `arm_B/`。初次 `fit_baseline/` / `fit_geometry/` 运行后，聚焦回归发现 capture 内存 manifest 尚无 `split` 键时被 calibration-only 过滤误拒；仅补充“未声明 split 时按历史 calibration 行为处理”的兼容分支后，以同一数据、checkpoint、预算和命令重跑两臂。`arm_A` / `arm_B` 的 iteration、loss、逐 phase metrics 和 parameters 与初次两臂逐项一致，非重新挑选结果；`evaluate_geometry.py` 只读取 `arm_A` / `arm_B`。
+- 最终对照产物目录为 `arm_A/` 与 `arm_B/`。初次 `fit_baseline/` / `fit_geometry/` 运行后，聚焦回归发现 capture 内存 manifest 尚无 `split` 键时被 calibration-only 过滤误拒；仅补充“未声明 split 时按历史 calibration 行为处理”的兼容分支后，以同一数据、checkpoint、预算和命令重跑两个变体。`arm_A` / `arm_B` 的 iteration、loss、逐 phase metrics 和 parameters 与初次两个变体逐项一致，非重新挑选结果；`evaluate_geometry.py` 只读取 `arm_A` / `arm_B`。
 
 ## 3. 模型对照与防泄漏
 
@@ -34,7 +34,7 @@
 - 对照 B：`learn_geometry=True`，只增加零初始化、逐元素有界的 2×2 小残差校正；预注册最大偏离为 5%（实现应使每个矩阵元素的校正受该上界限制）。不释放其他额外自由度，不改变 checkpoint schema。
 - 基础矩阵只由 train 会话中 `split="calibration"` 的 signed ramps 决定；几何独立探针会话与所有非 calibration 行严禁参与矩阵估计。train phase 只用于拟合；validation phase 可用于模型选择，但不得用来报告最终独立结论。若工具实现无法把选择数据与最终独立评分数据分开，须明确报告限制，不得称为最终泛化验证。
 - 记录采集器、拟合器、分析器脚本 SHA256，manifest/checkpoint SHA256、split 数、有效行数、设备位深/曝光、完整 ramp_samples、基础/校正/有效矩阵以及原始逐 phase 指标。
-- 采集结束后、开始拟合前追加并冻结的两臂命令（同一 checkpoint `D:/Projects/TIFO/AO-shaping/data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`、dataset `20261124_transfer_geometry_v1`）：`python -m ao_shaping.tools.slm.transfer.fit --dataset <dataset> --checkpoint <checkpoint> --out <arm> --span 160 --iterations 100 --adaptation full --radiometry exposure --device cpu`，B 臂额外加 `--learn-geometry`。选出迭代仍沿用工具的 train-loss 规则；不得用 validation 损失调参或回退到另一 iteration。脚本、manifest 和 checkpoint 哈希在两臂 provenance 中归档。
+- 采集结束后、开始拟合前追加并冻结的两个变体命令（同一 checkpoint `D:/Projects/TIFO/AO-shaping/data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`、dataset `20261124_transfer_geometry_v1`）：`python -m ao_shaping.tools.slm.transfer.fit --dataset <dataset> --checkpoint <checkpoint> --out <arm> --span 160 --iterations 100 --adaptation full --radiometry exposure --device cpu`，变体 B 额外加 `--learn-geometry`。选出迭代仍沿用工具的 train-loss 规则；不得用 validation 损失调参或回退到另一 iteration。脚本、manifest 和 checkpoint 哈希在两个变体 provenance 中归档。
 
 ## 4. 冻结判据
 

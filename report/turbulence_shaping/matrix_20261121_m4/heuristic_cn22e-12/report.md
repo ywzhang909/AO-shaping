@@ -1,10 +1,10 @@
-# 湍流仿真整形实验报告 — 20261122_145952
+# 湍流仿真整形实验报告 — 20261124_154906
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/run_turb_shaping_matrix.py`](../../../../scripts/slm/run_turb_shaping_matrix.py)
-> **复现命令**: `python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 --variants spgd,heuristic --out-root data/turb_matrix_m4 --report-root report/turbulence_shaping/matrix_20261121_m4`
+> **复现命令**: `python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 --variants spgd,heuristic --out-root data/turb_matrix_m4b --report-root report/turbulence_shaping/matrix_20261121_m4`
 > **运行环境**: 离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）
-> **说明**: M4 单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.906 rad, n_max=11/120ep); 提维劣化第三档复现; 相位/光斑双 GIF + metrics.png
+> **说明**: M4 单元 heuristic (PSO) x cn2=2e-12 (实测 σ≈0.894 rad, n_max=11/120ep); 提维劣化第三档复现; 相位/光斑双 GIF + metrics.png
 <!-- provenance:end -->
 
 | 项 | 值 |
@@ -12,10 +12,10 @@
 | 变体 | heuristic |
 | 湍流机制 | dynamic |
 | cn2 (生成器旋钮) | 2e-12 |
-| 实测 σ_total | 0.9058 rad (0.1442 waves) |
+| 实测 σ_total | 0.8939 rad (0.1423 waves) |
 | 光学求值次数 | 1456 |
 | epochs | 120 |
-| quality 首/末/最优 | -1.3557994349039022 / -1.0009771173541684 / -0.8582366148607468 |
+| quality 首/末/最优 | -1.3574656828072158 / -0.9836458666509764 / -0.8397644899827046 |
 
 ## 动态演化
 

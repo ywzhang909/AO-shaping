@@ -61,7 +61,7 @@ def _analyze(scene: str, thresholds: dict[str, float] | None = None):
 def _write_capture(target: Path, capture: SCRIPT.Capture) -> None:
     """按采集脚本的命名把合成帧与 plan.json 写到磁盘。
 
-    ``summary.json`` 按真机 schema 写满量程（采集脚本会写 ``full_scale``），
+    ``summary.json`` 按实验系统 schema 写满量程（采集脚本会写 ``full_scale``），
     这样默认路径与真采集一致；需要测推断分支时由用例自行删掉它。
     """
     frames_dir = target / "frames"
@@ -384,6 +384,8 @@ def test_role_parsing_default_legal_and_invalid():
 def test_old_15_pattern_json_keeps_gates_and_verdict():
     """旧窗口没有 role 字段；新增产物不得改动旧 gates/verdict 的口径。"""
     old_dir = ROOT / "data" / "debug" / "hw_window_20261123_issue247_waveform_probe"
+    if not (old_dir / SCRIPT.ANALYSIS_JSON_NAME).exists():
+        pytest.skip(f"旧窗口产物不在本机 (硬件调试数据未入库): {old_dir}")
     payload = json.loads(
         (old_dir / SCRIPT.ANALYSIS_JSON_NAME).read_text(encoding="utf-8")
     )

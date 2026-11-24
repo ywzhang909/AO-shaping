@@ -2267,7 +2267,13 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: ratchet below still reads 0. Included in the pending PR:
 #: ``report/shape_trials/target_lock_hold_20261123.md``. Measurement record only; the TODO.md 8.9
 #: route is skipped for the same reason as the 21st (another lane holds uncommitted edits there).
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 468
+#:
+#: 2026-11-25: re-pinned 468 -> 469 to the guard's own walk on the merged transfer-shapes lane.
+#: The +1 is the shared-session exposure write-back handler at ``tools/slm/transfer/validate.py``
+#: (段尾尽力而为回写, 驱动异常无分类表, #145/#45 不收窄); it carries the inline ``# policy:``
+#: rationale, so the unmarked ratchet below still reads 0. Recorded here and in TODO.md 第 184 批.
+#: Measurement record only.
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 469
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

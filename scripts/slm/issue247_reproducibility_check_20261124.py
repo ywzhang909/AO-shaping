@@ -68,6 +68,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts._common import fmt_general
 from scripts._common.provenance import provenance_block_for
 
 ANALYZER_PATH = Path(__file__).resolve().parent / "issue247_waveform_probe_solve_20261122.py"
@@ -1965,28 +1966,22 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _fmt(value: Any, digits: int = 3) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return "pass" if value else "fail"
-    if isinstance(value, (int, float)):
-        return f"{float(value):.{digits}f}"
-    return str(value)
+def _fmt_cell(value: Any, digits: int = 3) -> str:
+    return fmt_general(value, f".{digits}f", missing_none="—", bool_labels=("pass", "fail"))
 
 
 def _gate_cell(gate: dict[str, Any]) -> str:
-    status = _fmt(gate.get("pass"))
+    status = _fmt_cell(gate.get("pass"))
     details: list[str] = []
     if "measured_spread_deg" in gate:
-        details.append(f"spread={_fmt(gate.get('measured_spread_deg'), 2)}°")
+        details.append(f"spread={_fmt_cell(gate.get('measured_spread_deg'), 2)}°")
     axes = gate.get("axes")
     if isinstance(axes, dict):
         for axis in ("x", "y"):
             item = axes.get(axis) or {}
             if "measured_spread_deg" in item:
                 details.append(
-                    f"{axis}: {_fmt(item.get('measured_spread_deg'), 2)}°"
+                    f"{axis}: {_fmt_cell(item.get('measured_spread_deg'), 2)}°"
                 )
     if "anomalous_family" in gate:
         details.append(f"anomalous={gate.get('anomalous_family') or 'none'}")
@@ -1995,7 +1990,7 @@ def _gate_cell(gate: dict[str, Any]) -> str:
         for name, item in families.items():
             if isinstance(item, dict) and "measured_separation_deg" in item:
                 details.append(
-                    f"{name}: {_fmt(item.get('measured_separation_deg'), 2)}°"
+                    f"{name}: {_fmt_cell(item.get('measured_separation_deg'), 2)}°"
                 )
     if gate.get("axis_routing_failed_families"):
         details.append(
@@ -2053,7 +2048,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         gate_bits.append(
             f"{round_row['round']}: "
             + ", ".join(
-                f"{key.split('_')[0]}={_fmt(gates[key].get('pass'))}"
+                f"{key.split('_')[0]}={_fmt_cell(gates[key].get('pass'))}"
                 for key in GATE_KEYS
             )
         )
@@ -2073,21 +2068,21 @@ def render_markdown(payload: dict[str, Any]) -> str:
     lines.append(f"| 每轮图样数 | {inv['patterns_per_round']} |")
     lines.append(f"| 唯一 pattern ID | {inv['unique_pattern_ids']} |")
     lines.append(f"| 实际帧数 | {inv['total_frames']} |")
-    lines.append(f"| 曝光 | {_fmt(inv['fixed_parameters']['exposure_ms'], 3)} ms |")
-    lines.append(f"| settle | {_fmt(inv['fixed_parameters']['settle_s'], 3)} s |")
+    lines.append(f"| 曝光 | {_fmt_cell(inv['fixed_parameters']['exposure_ms'], 3)} ms |")
+    lines.append(f"| settle | {_fmt_cell(inv['fixed_parameters']['settle_s'], 3)} s |")
     lines.append(
         f"| 每图样帧数 | {inv['fixed_parameters']['frames_per_pattern']} |"
     )
-    lines.append(f"| full scale | {_fmt(inv['full_scale'], 1)} |")
+    lines.append(f"| full scale | {_fmt_cell(inv['full_scale'], 1)} |")
     shape = inv.get("frame_shape") or {}
     lines.append(
         f"| 帧 shape | {shape.get('rows', '—')} × {shape.get('cols', '—')} px |"
     )
     lines.append(
-        f"| 饱和门 | {_fmt(inv['saturation_threshold_counts'], 1)} counts |"
+        f"| 饱和门 | {_fmt_cell(inv['saturation_threshold_counts'], 1)} counts |"
     )
     lines.append(
-        f"| flat 跨轮最大漂移 | {_fmt(inv['flat_global_drift']['max_drift_px'])} px "
+        f"| flat 跨轮最大漂移 | {_fmt_cell(inv['flat_global_drift']['max_drift_px'])} px "
         f"(≤ {DRIFT_MAX_PX}) |"
     )
     lines.append(
@@ -2104,8 +2099,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
         + " |"
     )
     lines.append(
-        f"| 设备释放 | status={_fmt(inv['release']['status'])}，"
-        f"closed_normally={_fmt(inv['release']['closed_normally'])} |"
+        f"| 设备释放 | status={_fmt_cell(inv['release']['status'])}，"
+        f"closed_normally={_fmt_cell(inv['release']['closed_normally'])} |"
     )
     supp = inv["supplemental_optical_record"]
     lines.append(
@@ -2118,8 +2113,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
     )
     lines.append(
         "| 预检可用曝光窗口 | "
-        + ", ".join(_fmt(value, 3) for value in probe["usable_exposure_window_ms"])
-        + f" ms（冻结 {_fmt(probe['capture_exposure_ms'], 3)} ms 在内） |"
+        + ", ".join(_fmt_cell(value, 3) for value in probe["usable_exposure_window_ms"])
+        + f" ms（冻结 {_fmt_cell(probe['capture_exposure_ms'], 3)} ms 在内） |"
     )
     lines.append("")
     lines.append("**证据来源**")
@@ -2149,7 +2144,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         lines.append(
             f"| {round_row['round']} | {analysis.get('verdict')} | "
             f"{', '.join(analysis.get('failed_gates') or []) or '—'} | "
-            f"{_fmt(held.get('axis_accuracy'), 3)} |"
+            f"{_fmt_cell(held.get('axis_accuracy'), 3)} |"
         )
     lines.append("")
 
@@ -2171,7 +2166,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
     for item in rep["patterns"]:
         angles = {
             row["round"]: (
-                _fmt(row["axis_angle_deg"])
+                _fmt_cell(row["axis_angle_deg"])
                 + (
                     "†"
                     if row.get("edge_clipped") is not None
@@ -2192,11 +2187,11 @@ def render_markdown(payload: dict[str, Any]) -> str:
         role_cell = f" {item.get('role') or 'null'} |" if show_role else ""
         lines.append(
             f"| {item['base_id']} | {item['family']} |{role_cell} "
-            f"{_fmt(angles.get('r1'))} | {_fmt(angles.get('r2'))} | "
-            f"{_fmt(angles.get('r3'))} | "
-            f"{_fmt(spreads.get('r1'), 2)} / {_fmt(spreads.get('r2'), 2)} / "
-            f"{_fmt(spreads.get('r3'), 2)} | "
-            f"{_fmt(item['round_max_diff_deg'], 2)}° | {item['status']} | "
+            f"{_fmt_cell(angles.get('r1'))} | {_fmt_cell(angles.get('r2'))} | "
+            f"{_fmt_cell(angles.get('r3'))} | "
+            f"{_fmt_cell(spreads.get('r1'), 2)} / {_fmt_cell(spreads.get('r2'), 2)} / "
+            f"{_fmt_cell(spreads.get('r3'), 2)} | "
+            f"{_fmt_cell(item['round_max_diff_deg'], 2)}° | {item['status']} | "
             f"{missing or '—'} |"
         )
     lines.append("")
@@ -2233,12 +2228,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
                     continue
                 lines.append(
                     f"  - `{item['base_id']}` {row['round']}："
-                    f"principal peak={_fmt(edge.get('peak_counts'), 1)} counts / "
-                    f"background={_fmt(edge.get('background_counts'), 1)} counts，"
+                    f"principal peak={_fmt_cell(edge.get('peak_counts'), 1)} counts / "
+                    f"background={_fmt_cell(edge.get('background_counts'), 1)} counts，"
                     f"峰心 row={edge['row']:.1f}, col={edge['col']:.1f}"
                     f"（距最近边界 {edge['distance_to_edge_px']:.1f} px），"
                     f"原始 axis_angle_deg="
-                    f"{_fmt(row['axis_angle_deg'], 2)}° 已排除。"
+                    f"{_fmt_cell(row['axis_angle_deg'], 2)}° 已排除。"
                 )
         facts = (payload.get("baseline") or {}).get("principal_facts") or {}
         if (payload.get("baseline") or {}).get("supplied") and facts:
@@ -2265,18 +2260,18 @@ def render_markdown(payload: dict[str, Any]) -> str:
                     if _is_number(core_exclude) and magnitude < float(core_exclude):
                         lines.append(
                             f"  - `{base_id}`：基线 principal "
-                            f"magnitude={_fmt(magnitude, 1)} px、"
-                            f"peak={_fmt(peak, 1)} counts，"
+                            f"magnitude={_fmt_cell(magnitude, 1)} px、"
+                            f"peak={_fmt_cell(peak, 1)} counts，"
                             f"即真实波瓣位于 0 级约 {magnitude:.0f} px 处；"
                             f"本次逐轮记录 core_exclude_px="
-                            f"{_fmt(float(core_exclude), 1)} px，大于该距离，"
+                            f"{_fmt_cell(float(core_exclude), 1)} px，大于该距离，"
                             "因此本次口径下该波瓣被 0 级核心排除。"
                         )
                     else:
                         lines.append(
                             f"  - `{base_id}`：基线 principal "
-                            f"magnitude={_fmt(magnitude, 1)} px、"
-                            f"peak={_fmt(peak, 1)} counts。"
+                            f"magnitude={_fmt_cell(magnitude, 1)} px、"
+                            f"peak={_fmt_cell(peak, 1)} counts。"
                         )
         gate_states = [
             round_row["analysis"]["attribution_gates"][key].get("pass")

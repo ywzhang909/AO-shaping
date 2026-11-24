@@ -73,12 +73,23 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts._common import fmt_general
 from scripts._common.provenance import provenance_block_for
-from scripts.slm import (
-    issue247_core_blind_audit_20261124 as core_audit,
-    issue247_cross_session_capture_20261124 as capture_manifest,
-    issue247_reproducibility_check_20261124 as repeatability_check,
-)
+from scripts.slm import issue247_reproducibility_check_20261124 as repeatability_check
+
+# core_blind_audit / cross_session_capture 仅在硬件机工作区, 尚未入库 (任何 git ref 均无):
+# 缺依赖时降级为可导入的跳过态, 硬件机上 import 成功、行为与原版逐字节一致。
+try:
+    from scripts.slm import (
+        issue247_core_blind_audit_20261124 as core_audit,
+        issue247_cross_session_capture_20261124 as capture_manifest,
+    )
+
+    DEPS_MISSING: str | None = None
+except ImportError as exc:
+    DEPS_MISSING = str(exc)
+    core_audit = None
+    capture_manifest = None
 
 ANALYZER_PATH = (
     Path(__file__).resolve().parent / "issue247_waveform_probe_solve_20261122.py"
@@ -90,9 +101,11 @@ DEFAULT_MD_NAME = "issue247_cross_session_check_20261124.md"
 REPORT_KEY = "issue247_cross_session_check_20261124"
 
 CHECK_SCHEMA = "issue247-cross-session-check/v1"
-MANIFEST_NAME = capture_manifest.MANIFEST_NAME
-MANIFEST_SCHEMA = capture_manifest.MANIFEST_SCHEMA
-SESSION_IDS: tuple[str, ...] = tuple(capture_manifest.SESSIONS)
+MANIFEST_NAME = capture_manifest.MANIFEST_NAME if capture_manifest else ""
+MANIFEST_SCHEMA = capture_manifest.MANIFEST_SCHEMA if capture_manifest else ""
+SESSION_IDS: tuple[str, ...] = (
+    tuple(capture_manifest.SESSIONS) if capture_manifest else ()
+)
 
 #: 预注册冻结采集参数。
 FROZEN_EXPOSURE_MS = 0.04
@@ -163,8 +176,10 @@ def _assert_pinned_scope_matches_registry() -> None:
 #: 预注册 §3.2 冻结的是“所有 ``_p192`` 图样”，不是一个 5 项子集：11-24 窗口里
 #: 恰好有 5 个 p192 缺测，那是**结果**，不能反向写成冻结清单。补审因此覆盖全部
 #: p192 图样；主判据中实际缺测的那部分另行列在 ``main.p192_not_assessable``。
-SUPPLEMENTAL_BASE_IDS: tuple[str, ...] = tuple(
-    base for base in EVALUABLE_BASE_IDS if core_audit.P192_TOKEN in base
+SUPPLEMENTAL_BASE_IDS: tuple[str, ...] = (
+    tuple(base for base in EVALUABLE_BASE_IDS if core_audit.P192_TOKEN in base)
+    if core_audit
+    else ()
 )
 
 VERDICT_REPRODUCED = "reproduced"
@@ -218,8 +233,14 @@ class OutputRefusedError(ValueError):
 _RUN_CHECK: Callable[[Path, Path | None, Path], dict[str, Any]] = (
     repeatability_check.check_capture
 )
+def _audit_unavailable(_path: Path) -> dict[str, Any]:
+    raise RuntimeError(f"blind audit 依赖模块未入库, 不可运行: {DEPS_MISSING}")
+
+
 #: 注入点：测试可替换为纯合成实现，签名与 ``audit_capture`` 一致。
-_RUN_AUDIT: Callable[[Path], dict[str, Any]] = core_audit.audit_capture
+_RUN_AUDIT: Callable[[Path], dict[str, Any]] = (
+    core_audit.audit_capture if core_audit else _audit_unavailable
+)
 
 
 def _analyzer() -> Any:
@@ -972,18 +993,12 @@ def build_payload(
     return _json_safe(payload)
 
 
-def _fmt(value: object, digits: int = 2) -> str:
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return "是" if value else "否"
-    if isinstance(value, (int, float)):
-        return f"{float(value):.{digits}f}"
-    return str(value)
+def _fmt_cell(value: object, digits: int = 2) -> str:
+    return fmt_general(value, f".{digits}f", missing_none="—", bool_labels=("是", "否"))
 
 
 def _cell(session: dict[str, Any]) -> str:
-    mean = _fmt(session.get("axial_mean_deg"))
+    mean = _fmt_cell(session.get("axial_mean_deg"))
     rounds = session.get("n_assessable_rounds")
     return f"{mean}° ({rounds} 轮)"
 
@@ -1106,7 +1121,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 s1=_cell(sessions["s1"]),
                 s2=_cell(sessions["s2"]),
                 s3=_cell(sessions["s3"]),
-                diff=_fmt(item["max_pairwise_diff_deg"], 3),
+                diff=_fmt_cell(item["max_pairwise_diff_deg"], 3),
                 verdict=item["verdict"],
                 pinned=(
                     "是" if item["base_id"] in PINNED_MAIN_BASE_IDS else "否（仅记录）"
@@ -1129,7 +1144,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                     base=item["base_id"],
                     sid=session_id,
                     n=session["n_strong_frames_within_core"],
-                    mean=_fmt(session["axial_mean_deg"]),
+                    mean=_fmt_cell(session["axial_mean_deg"]),
                     status=session["status"],
                 )
             )
@@ -1152,7 +1167,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 sid=session["session_id"],
                 path=session["capture_dir"],
                 digest=session["plan_digest"],
-                flag=_fmt(session["repeatability_overall_pass"]),
+                flag=_fmt_cell(session["repeatability_overall_pass"]),
             )
         )
     lines.append("")
@@ -1247,6 +1262,9 @@ def _check_out_dir(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if DEPS_MISSING:
+        print(f"!! 依赖模块未入库 (仅存在于硬件机), 无法运行：{DEPS_MISSING}", file=sys.stderr)
+        return 3
     args = _parse_args(argv)
     try:
         _assert_pinned_scope_matches_registry()

@@ -3,7 +3,7 @@
 覆盖：
 * transfer ``.npy`` / ``.npz`` 来源解析（形状校验、模型/面板两种网格）；
 * 旧 GS 契约校验（``best_phase.npy`` + 同目录 ``slm_gs_refine_*.json``）；
-* 面板几何与相机侧目标边长的来源标签（台架常量 / GS config / 实测）；
+* 面板几何与相机侧目标边长的来源标签（实验系统常量 / GS config / 实测）；
 * ``config.json``、``flat_reference.npz``、``summary.json`` 的来源块，以及
   用假相机/假 SLM 端到端跑一遍 ``collect``（设备已在 monkeypatch 中替换）。
 """

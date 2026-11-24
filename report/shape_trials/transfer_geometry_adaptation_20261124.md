@@ -1,13 +1,9 @@
-# Transfer 正向模型几何残差适配验证报告
+# Transfer 物理预测模型几何残差适配验证报告
 
 <!-- provenance:start -->
-> **生成方式**: 人工撰写；数值由冻结评估脚本计算，图由同一评估 JSON 直接绘制
-> **评估脚本**: `data/debug/slm_transfer/20261124_transfer_geometry_v1/evaluate_geometry.py`，SHA256 `2cd9696b4bfd36360cca36d608042454a9185ee480dd7c2bcdf0bff7c0468d95`
-> **绘图脚本**: `data/debug/slm_transfer/20261124_transfer_geometry_v1/make_geometry_figures.py`
-> **复现命令**: `python data/debug/slm_transfer/20261124_transfer_geometry_v1/evaluate_geometry.py`
-> **运行环境**: 硬件采集 + 离线 CPU 拟合/评估；拟合和评估阶段不打开 SLM、CCD 或激光控制器
-> **预注册**: [`docs/dev/transfer_geometry_adaptation_prereg_20261124.md`](../../docs/dev/transfer_geometry_adaptation_prereg_20261124.md)
-> **说明**: 本轮检验小幅全局 2×2 几何残差是否改善 transfer 正向预测。validation 与独立 192 px held-out 两道门均未全部通过，故**不支持启用几何适配，保留默认关闭**。
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件采集 + 离线 CPU 拟合/评估（拟合与评估阶段不打开 SLM、CCD 或激光控制器）
+> **说明**: 数值由冻结评估脚本计算，图由同一评估 JSON 直接绘制。评估脚本 `data/debug/slm_transfer/20261124_transfer_geometry_v1/evaluate_geometry.py`，SHA256 `2cd9696b4bfd36360cca36d608042454a9185ee480dd7c2bcdf0bff7c0468d95`；绘图脚本 `data/debug/slm_transfer/20261124_transfer_geometry_v1/make_geometry_figures.py`；复现命令 `python data/debug/slm_transfer/20261124_transfer_geometry_v1/evaluate_geometry.py`。预注册 `docs/dev/transfer_geometry_adaptation_prereg_20261124.md`。本轮检验小幅全局 2×2 几何残差是否改善 transfer 正向预测；validation 与独立 192 px held-out 两道门均未全部通过，故**不支持启用几何适配，保留默认关闭**。人工撰写。
 <!-- provenance:end -->
 
 > 类型：实测、离线拟合与独立 held-out 验证报告  
@@ -75,7 +71,7 @@ G = I + 0.05\tanh(raw),\qquad M_{camera\rightarrow panel}=M^{-1}G.
 
 ### 3.2 A/B 一致性
 
-两臂共用：
+两个变体共用：
 
 - checkpoint：`data/debug/slm_transfer/defocus_forward_20261107_focus_r2_fit/checkpoints/M3_illumination/frozen_parameters.json`；
 - checkpoint SHA256：`fa7579c99fc6cd9d5f1051b2dbf0e7eca2585369f48bc07c61897db03e28d703`；
@@ -83,7 +79,7 @@ G = I + 0.05\tanh(raw),\qquad M_{camera\rightarrow panel}=M^{-1}G.
 - fitter SHA256：`7a9acb1bf2ab8f18030be4662a388b44a648140c9507e6e42e7a89da2b5f7631`；
 - `--span 160 --iterations 100 --adaptation full --radiometry exposure --device cpu`。
 
-唯一有意差异为 B 增加 `--learn-geometry`。最终读取 `arm_A/` 与 `arm_B/`。初次 `fit_baseline/` / `fit_geometry/` 之后，为解决无 `split` 内存 manifest 的兼容性回归而重跑两臂；最终与初次结果的 iteration、loss、逐 phase metrics 和 parameters 逐项一致，不构成结果挑选。
+唯一有意差异为 B 增加 `--learn-geometry`。最终读取 `arm_A/` 与 `arm_B/`。初次 `fit_baseline/` / `fit_geometry/` 之后，为解决无 `split` 内存 manifest 的兼容性回归而重跑两个变体；最终与初次结果的 iteration、loss、逐 phase metrics 和 parameters 逐项一致，不构成结果挑选。
 
 | 参数 | A：baseline | B：geometry |
 |---|---:|---:|
@@ -179,7 +175,7 @@ Bootstrap 使用固定 seed `20261124`，以 phase 为重采样单位，不把�
 
 | 命令 | 退出码 | 结果 |
 |---|---:|---|
-| 两臂 `python -m ao_shaping.tools.slm.transfer.fit ...` | 0 | A 选中 67，B 选中 72；最终重跑与初次结果一致 |
+| 两个变体 `python -m ao_shaping.tools.slm.transfer.fit ...` | 0 | A 选中 67，B 选中 72；最终重跑与初次结果一致 |
 | `python .../evaluate_geometry.py` | 0 | 写入冻结评估 JSON，两个总门均为 `false` |
 | `uv run --no-sync pytest -q tests/ao_shaping/tools/slm/transfer tests/ao_shaping/algorithm/test_physical_forward_phase_order.py -p no:cacheprovider` | 0 | **517 passed, 4 skipped in 80.48s** |
 | `uvx ruff check <3 个源码文件> <新增测试文件>` | 0 | `All checks passed!` |

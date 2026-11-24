@@ -29,7 +29,7 @@ WORKTREE = HERE.parent.parent
 PROBE_OUT = WORKTREE / "data" / "debug" / "target_lock_probe_20261123"
 RUN_B = WORKTREE / "data" / "debug" / "target_lock_20261123b"
 RUN_B_CAL = RUN_B / "calibration"
-FROZEN_DIR = Path(r"D:\Projects\TIFO\AO-shaping\data\debug\slm_transfer\20261104_192122\fit")
+FROZEN_DIR = WORKTREE / "data" / "debug" / "slm_transfer" / "20261104_192122" / "fit"
 
 REPORT: dict[str, Any] = {"probe": "target_lock_probe_20261123", "items": {}}
 

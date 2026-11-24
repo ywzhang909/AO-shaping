@@ -291,7 +291,7 @@ def exposure_provenance(
 
 
 def make_optimizer(args: argparse.Namespace) -> ZernikeCoefficientOptimizer:
-    """构造与共用拟合**同一个**前向模型 (基/尺度/oversampling 都不许漂移)。
+    """构造与共用拟合**同一个**物理预测模型 (基/尺度/oversampling 都不许漂移)。
 
     只用于验证集预测与系数 -> 瞳面相位的基展开, 不在上面跑任何优化; 固定 CPU
     让离线重建与硬件运行给出逐位相同的相位。
