@@ -655,16 +655,24 @@ def _focus_config_from_args(args: argparse.Namespace | None = None) -> object:
         focus_frames=int(args.focus_frames),
         focus_floor_ms=args.focus_floor_ms,
         focus_ceiling_ms=args.focus_ceiling_ms,
+        focus_exposure_mode=str(
+            getattr(args, "focus_exposure_mode", "adapt")
+        ),
+        focus_fixed_exposure_ms=getattr(args, "focus_fixed_exposure_ms", None),
         focus_centre_px=args.focus_centre_px,
         focus_radius_px=args.focus_radius_px,
     )
 
 
-def _focus_point(diopter: float = -0.42, peak_per_ms: float = 600.0) -> FocusPoint:
+def _focus_point(
+    diopter: float = -0.42,
+    peak_per_ms: float = 600.0,
+    exposure_ms: float = 2.0,
+) -> FocusPoint:
     return FocusPoint(
         diopter_m1=diopter,
         focal_mm=1000.0 / diopter,
-        exposure_ms=2.0,
+        exposure_ms=exposure_ms,
         peak=1200.0,
         peak_fraction=1200.0 / 4095.0,
         peak_per_ms=peak_per_ms,
@@ -680,13 +688,38 @@ def _focus_result(
     linearity: float | None = 1.02,
     range_m1: tuple[float, float] = (-1.5, 1.5),
     path_blocked: bool = False,
+    exposure_mode: str = "adapt",
+    repeat_ratio: float | None = None,
+    exposure_ms: float = 2.0,
+    profile: list[tuple[float, float]] | None = None,
 ) -> FocusProbeResult:
-    point = _focus_point(diopter)
+    """造一个 ``FocusProbeResult`` 夹具。
+
+    默认剖面是**过 D2 的五点单峰**: 最优点在 ``diopter`` (``peak_per_ms``=600),
+    左右各 2 点逐点递减 100 —— 判定要读最优点两侧的邻居, 单点结果会被
+    :func:`_evaluate_focus_result` 判 ``ambiguous``。``profile`` 给
+    ``(diopter_m1, peak_per_ms)`` 序列时逐点使用 (最优点按 ``peak_per_ms`` 取),
+    供 D2 的反例 / 边界用例。
+    """
+    if profile is None:
+        step = 0.0833
+        profile = [
+            (diopter - 2.0 * step, 400.0),
+            (diopter - step, 500.0),
+            (diopter, 600.0),
+            (diopter + step, 500.0),
+            (diopter + 2.0 * step, 400.0),
+        ]
+    points = [
+        _focus_point(d, peak_per_ms=ppm, exposure_ms=exposure_ms)
+        for d, ppm in profile
+    ]
+    best = max(points, key=lambda p: p.peak_per_ms)
     return FocusProbeResult(
-        points=(point,),
-        best=point,
-        best_focal_mm=point.focal_mm,
-        best_diopter_m1=diopter,
+        points=tuple(points),
+        best=best,
+        best_focal_mm=best.focal_mm,
+        best_diopter_m1=best.diopter_m1,
         gain_vs_flat=3.0,
         linearity_ratio=linearity,
         range_m1=range_m1,
@@ -694,6 +727,9 @@ def _focus_result(
         notes=(),
         path_blocked=path_blocked,
         blockage_reason="" if not path_blocked else "no local structure",
+        exposure_mode=exposure_mode,
+        fixed_exposure_ms=(exposure_ms if exposure_mode == "fixed" else None),
+        repeat_ratio=repeat_ratio,
     )
 
 
@@ -797,8 +833,9 @@ def test_focus_calibration_ok_writes_measured_d_and_evidence(
     assert captured["max_extends"] == 1
     assert captured["centre_px"] == (960.0, 600.0)
     assert captured["radius_px"] == 450.0
-    assert len(evidence["points"]) == 1
-    assert evidence["points"][0]["peak_per_ms"] == 600.0
+    # D2 判定要读最优点两侧的邻居, 证据必须逐点留档 (默认五点剖面全部落盘)。
+    assert len(evidence["points"]) == 5
+    assert evidence["points"][2]["peak_per_ms"] == 600.0
 
     saved = json.loads(
         (tmp_path / "focus_calibration.json").read_text(encoding="utf-8")
@@ -1164,3 +1201,147 @@ def test_plot_draws_the_saturation_line_at_the_measured_full_scale(
     probe.plt.close(closed[0])
 
 
+# ---------------------------------------------------------------------------
+# 单曝光模式的判定契约 (fixed 用同曝光复测替代 D3 的跨曝光线性度)
+# ---------------------------------------------------------------------------
+
+
+def test_fixed_mode_with_a_repeat_ratio_in_band_passes() -> None:
+    result = _focus_result(exposure_mode="fixed", repeat_ratio=1.00, linearity=None)
+    assert probe._evaluate_focus_result(result) == ("ok", None)
+
+
+def test_fixed_mode_reports_a_non_repeatable_peak() -> None:
+    result = _focus_result(exposure_mode="fixed", repeat_ratio=1.40, linearity=None)
+    status, reason = probe._evaluate_focus_result(result)
+    assert status == "repeatability_failed"
+    assert reason is not None and "同曝光复测比" in reason
+
+
+def test_fixed_mode_without_a_repeat_point_is_inconclusive() -> None:
+    result = _focus_result(exposure_mode="fixed", repeat_ratio=None, linearity=None)
+    status, reason = probe._evaluate_focus_result(result)
+    assert status == "repeatability_unavailable"
+    assert reason is not None and "同曝光复测点" in reason
+
+
+def test_adapt_mode_still_gates_on_exposure_linearity() -> None:
+    """adapt 的判定一个字都不能变: 线性度越界仍然判 linearity_failed。"""
+    result = _focus_result(linearity=1.45)
+    assert probe._evaluate_focus_result(result)[0] == "linearity_failed"
+
+
+# ---------------------------------------------------------------------------
+# D2 单峰: 最优点两侧 peak/ms 必须各单调下降 2 点 (预注册 §10.4 第 405 行)
+# ---------------------------------------------------------------------------
+
+
+def test_d2_rejects_a_single_fixed_peak() -> None:
+    """真实 R4 (20261124_102701Z) 的原样反例: 左侧第二点反而抬高。
+
+    那次 ``focus_calibration.json`` 报了 ``status=ok, accepted=true``, D 写成了
+    -0.5833, 而两侧 peak/ms 并不各单调下降 —— 峰形有两个候选, 不许写 D。
+    """
+    result = _focus_result(
+        diopter=-0.5833,
+        profile=[
+            (-0.75, 23476.7),
+            (-0.6667, 23226.7),
+            (-0.5833, 24326.7),
+            (-0.5, 24093.3),
+            (-0.4167, 24210.0),
+        ],
+    )
+    status, reason = probe._evaluate_focus_result(result)
+    assert status == "ambiguous"
+    assert reason is not None
+    assert "未各单调下降" in reason and "峰形不唯一" in reason
+    # 理由里要能看出是哪三点点坏了单调性。
+    assert "左: -0.750→23477, -0.667→23227, 最优→24327" in reason
+
+
+def test_d2_passes_a_clean_single_peak_and_falls_through_to_the_mode_gate() -> None:
+    """单峰成立时 D2 放行, 判定继续走 D3 的模式分支 (两种模式都一样)。"""
+    single_peak = [
+        (-0.75, 23800.0),
+        (-0.5833, 24000.0),
+        (-0.42, 24326.7),
+        (-0.25, 24100.0),
+        (-0.0833, 23900.0),
+    ]
+    adapt = _focus_result(diopter=-0.42, profile=single_peak)
+    assert probe._evaluate_focus_result(adapt) == ("ok", None)
+
+    fixed = _focus_result(
+        diopter=-0.42,
+        profile=single_peak,
+        exposure_mode="fixed",
+        repeat_ratio=1.00,
+        linearity=None,
+    )
+    assert probe._evaluate_focus_result(fixed) == ("ok", None)
+
+
+def test_d2_rejects_a_profile_with_too_few_neighbours() -> None:
+    """最优点的某一侧不足 2 个可用点 ⇒ 单峰无从确认, 仍是 ``ambiguous``。"""
+    result = _focus_result(
+        diopter=-0.5,
+        profile=[
+            (-0.5833, 24000.0),
+            (-0.5, 24326.7),
+            (-0.4167, 24210.0),
+        ],
+    )
+    status, reason = probe._evaluate_focus_result(result)
+    assert status == "ambiguous"
+    assert reason is not None and "采样点不足 2 个" in reason
+
+
+def test_a_preregistered_fixed_exposure_overrides_the_ladder_recommendation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_sweep(**kwargs: object) -> FocusProbeResult:
+        captured.update(kwargs)
+        return _focus_result(
+            exposure_mode="fixed",
+            repeat_ratio=1.0,
+            linearity=None,
+            exposure_ms=float(kwargs["start_exposure_ms"]),
+        )
+
+    monkeypatch.setattr(probe, "sweep_focus", fake_sweep)
+    config = _focus_config_from_args(
+        probe.build_parser().parse_args(
+            [
+                "--focus-calibration",
+                "--focus-exposure-mode",
+                "fixed",
+                "--focus-fixed-exposure-ms",
+                "0.1",
+            ]
+        )
+    )
+    evidence = probe._maybe_run_focus_calibration(
+        slm=_FakeFocusSlm(),
+        camera=_FakeFocusCamera(),
+        config=config,
+        start_exposure_ms=1.0,
+        out_dir=tmp_path,
+        run_id="fixed_override",
+        self_check={
+            "grayscale": 0.0,
+            "memory_slot": None,
+            "displayed_phase_source": "none",
+        },
+    )
+    assert evidence is not None
+    assert evidence["status"] == "ok"
+    assert evidence["requested"]["fixed_exposure_ms_requested"] == 0.1
+    assert evidence["requested"]["exposure_mode"] == "fixed"
+    # start_exposure_ms 记录的是实际用的曝光 (预注册值覆盖了阶梯推荐值 1.0)。
+    assert evidence["requested"]["start_exposure_ms"] == 0.1
+    assert captured["start_exposure_ms"] == 0.1
+    assert captured["exposure_mode"] == "fixed"
+    assert {p["exposure_ms"] for p in evidence["points"]} == {0.1}

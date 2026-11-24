@@ -565,15 +565,135 @@ linearity = (k + B/0.025)/(k + B/0.05) = (k+40B)/(k+20B)
 要在 ×0.5 复核下过 D3（`linearity≤1.25`）需 `k/B ≥ 60`（当前 24.2），只能靠**提升信背比**或
 **软件扣除背景**实现。
 
-### 12.5 R4 处置方向（待用户定夺，判据不降级）
+### 12.5 R4 处置方向（用户已定夺 2026-11-24）：单曝光扫频 + 修订 D3
 
-两条不改 D3 判据（`0.8–1.25` 不动）、只针对失败根因的合法路径：
+候选方案与用户裁决：
 
-1. **软件背景扣除（推荐）**：在 `sweep_focus`/`_fp_exposure_alt` 的峰值计算中减去逐帧稳健背景
-   （如帧中位数，焦斑局域、背景近似均匀），使 `peak/ms` 恢复曝光不变性 ⇒ 线性度→1。
-   改动落在 `focus_probe.py` 峰值路径（`robust_peak` 全局被 adapt_exposure/S0 复用，改动须限定在 D 路径），
-   需同步修订本节 + 补测试；属**测量修正而非判据放宽**。
-2. **现场物理提升信背比**：遮挡环境/杂散光、优化光路把 `B` 压低约 ≥2.5×，或提升激光功率抬 `k`，
-   使 `k/B≥60`。需现场操作，软件侧无法代为完成。
+| 方案 | 说明 | 裁决 |
+|---|---|---|
+| A | 软件逐帧背景扣除，使 `peak/ms` 恢复曝光不变性 ⇒ 线性度→1 | 未采纳（改动 `robust_peak` 影响 S0/`adapt_exposure` 全局路径） |
+| B | 现场物理提升信背比（压 `B` 或抬 `k`，使 `k/B≥60`） | 未采纳（需现场动光路，本窗口不可控） |
+| **C** | **单曝光扫频**：全部点固定同一曝光、按原始峰值排序；D3 由「跨曝光线性度」改为「同曝光重复性」 | **采纳（推荐项）** |
 
-在 R4 方向未定前，`fresnel_compensation_m_inv` 保持 `null`，**S1 继续封锁**。
+采纳 C 的依据（R3 证据，非推测）：18 点中 `0.05 ms` 粗扫的 `diopter→peak` 曲线干净、两侧单调、
+无削顶（`-1.5→1355.7`、`-0.75→1591.3`、`-0.25→1672.7`、`0.0→1669.3`、`+0.25→1522.0`、`+1.25→1127.7`，
+满量程 4095）；污染只来自 7 个细化点被暖启动带到 `0.0935 ms`（含端点 `+1.5→1673.3`，其 `peak/ms`
+高于所有粗扫点）。**混档才是排序失效的原因，跨曝光归一化则是错误的中间层。**
+
+C 的语义边界（**判据不放松**，只换等价守卫）：
+
+- D0 光路未受阻、D1 `best` 存在、D2 两侧各降 2 点单调、D4 范围 `±1.5 m⁻¹`/`max_extends=1`、
+  D5 证据可复算 —— 全部不动。
+- D3 在单曝光下**不可能**做「×0.5 曝光复核」（`B` 是加性常数，任何跨曝光比值都天然偏 1），
+  故 D3 改为**同曝光重复性**：重显最优点相位、用同一曝光重测 `frames` 帧，
+  `repeat_ratio = alt_peak / best_peak` 必须落在 `[0.90, 1.111]`；越界 ⇒ `repeatability_failed`，
+  缺失 ⇒ `repeatability_unavailable`。单曝光下 `peak_per_ms` 与原始 `peak` 单调等价（分母为常数）。
+- 削顶保护：任一 pass 出现 `fraction > ACCEPT_HIGH=0.80` 时整段收缩曝光
+  （`exp *= TARGET_FRACTION/max_fraction`，夹到 `[floor, ceiling]`）后**全网格重测**（≤3 pass），
+  保证排序始终在**同一个未削顶曝光**下成立。
+
+已知残余不确定性（必须与 D 一起写进回写，勿当精确值）：
+`0.05 ms` 下 `-0.25` 仅比 `0` 高 3.4 counts（噪声 ~12），峰顶平坦 ⇒ 顶点本身有 `±0.25 m⁻¹` 量级不确定性，
+故 R4 把预注册曝光抬到 `0.1 ms`（信号翻倍、`B` 不变，best 峰值约 `0.63` 满量程，仍在 `0.80` 门限内）。
+
+### 12.6 R4 预注册（执行前锁定的参数与命令）
+
+代码侧（已落地）：`focus_probe.py` 增 `EXPOSURE_MODE_ADAPT/FIXED`、`FIXED_EXPOSURE_RETRIES=2`、
+`FIXED_REPEAT_MIN=0.90`/`FIXED_REPEAT_MAX=1.111`、`_fp_same_exposure_repeat`、`_fp_fill_coarse_grid`；
+`FocusProbeResult` 增 `exposure_mode`/`fixed_exposure_ms`/`repeat_ratio`；
+`probe_optical_path_validity.py` 增 `--focus-exposure-mode {adapt,fixed}`、`--focus-fixed-exposure-ms`，
+`_evaluate_focus_result` 按模式分支。adapt 路径逐位不变（既有 81 项测试全绿）。
+
+| 参数 | 值 | 说明 |
+|---|---|---|
+| `--focus-exposure-mode` | `fixed` | 单曝光扫频 |
+| `--focus-fixed-exposure-ms` | `0.1` | 预注册唯一曝光（覆盖 S0 推荐 `0.05`；越界按 floor/ceiling 夹取） |
+| `--focus-coarse-points` / `--focus-diopter-range` | `13` / `1.5` | 与 R1–R3 一致 |
+| `--focus-refine-points` / `--focus-frames` | `7` / `3` | 与 R1–R3 一致 |
+| `--focus-floor-ms` / `--focus-ceiling-ms` | `0.02` / `2` | 与 R2–R3 一致 |
+| 焦面中心 / 半径 | `960,600` / `450`（panel px） | 冻结值，与 S0 一致 |
+| 判据 | D0–D5 同 §10.4；D3 → `repeat_ratio ∈ [0.90,1.111]` | 不新增、不放宽任何判据 |
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/probe_optical_path_validity.py `
+  --bit-depth 12 --wait-until-idle 600 --exposures 0.05 `
+  --session s0r4_dcal_20261124 `
+  --out-root data/experiments/attribution_20261123/s0 `
+  --focus-calibration --focus-exposure-mode fixed --focus-fixed-exposure-ms 0.1 `
+  --focus-centre-px 960,600 --focus-radius-px 450 `
+  --focus-coarse-points 13 --focus-diopter-range 1.5 `
+  --focus-refine-points 7 --focus-frames 3 `
+  --focus-floor-ms 0.02 --focus-ceiling-ms 2
+```
+
+回滚/失败处置：R4 若仍 `repeatability_failed`/`repeatability_unavailable`/`path_blocked`/`out_of_range`
+⇒ D 保持 `null`、S1 继续封锁，转为现场物理路径（方案 B）；**不得**改用新的曝光阶梯、不得放宽
+`[0.90,1.111]`、不得引用历史 D 值。
+
+### 12.7 R4 实测回写（2026-11-24）：单曝光模式跑通、D2 单峰失败 ⇒ D 撤回
+
+| 项 | 实测 |
+|---|---|
+| 执行 | `2026-11-24 18:27:01`–`18:29:40`（本地；UTC `10:27:01`–`10:29:40`）；SLM #1 + Daheng CCD，一次 open/close，脚本不操作激光；SLM 控制器在开跑前由用户重新上电/插拔（脚本内 `power_cycled_this_session=false`） |
+| 证据目录 | `data/experiments/attribution_20261123/s0/s0r4_dcal_20261124/20261124_102701Z/` |
+| 释放 | `occupancy.closed_normally=true`、`released_at=2026-11-24T10:29:40+00:00`、Mono12/4095 |
+| 代码版本 | `64318de3`（R4 代码未提交，工作树改动见 §12.6） |
+| sha256(前 8) | `focus_calibration.json=f1ce35cf`、`optical_path_record.json=ee3ed2df`、`optical_path_probe.json=2e1e8d0b` |
+
+- **R4 的曝光/重复性设计生效**：18 点全部 `exposure_ms=0.1000`（无混档、无削顶 `peak_fraction=0.36–0.59`），全部 `status=ok`，`repeat_ratio=0.949`（在 `[0.90,1.111]` 内），`linearity_ratio=null`（fixed 模式按设计不再做跨曝光线性度）。S0 `verdict.state=ok`、`exit_code=0`，离焦宽度变化 `3.27 px (21.0%)`、峰值变化 `263.9 counts (17.9%)`。
+- **D2（单峰）失败，D 撤回**：`best_diopter_m1=-0.5833` 的左侧 `peak/ms` 为
+  `-0.750→23477, -0.667→23227, 最优→24327`，右侧 `-0.500→24093, -0.417→24210`，
+  两侧都没有「各单调下降 2 点」。峰顶 `[−0.75,−0.25]` 起伏仅约 `4%`（与 3 帧复测噪声
+  `σ_peak≈121.5 counts` 同量级），而 `450 px / ±1.5 m⁻¹` 的探头只折算约 `0.7` 波前，峰顶天生平坦。
+- **evaluator 缺陷已修**：`_evaluate_focus_result` 原来漏掉 D2，导致 R4 当次把 `-0.5833` 写进了
+  `optical_path_record.json`。现已补 D2 单峰门禁（`ambiguous` ⇒ 不写 D），并把真实 R4 证据只读重放，
+  得到 `("ambiguous", "最优点 -0.583 m⁻¹ 两侧 peak/ms 未各单调下降 2 点 …")`。
+  **该记录里的 `-0.5833` 作废，任何下游不得引用**（含 sha256 `ee3ed2df` 那份）。
+- **D5 一致性缺陷已修**：原 `notes` 只记抛物线阶段「四点复测后取 −0.500」，精扫换赢家后未补记；
+  现在追加「精扫后最优点改为 −0.583 m⁻¹」，证据自洽。
+- 门禁：两个测试文件 `85 passed`、`ruff 0`、无 BOM；实测证据目录未被改写（`data/` 无新提交改动）。
+
+### 12.8 R4b 预注册（上机前锁定；只提信噪比，不改判据/网格）
+
+R4 证明扫描控制和单曝光重复性没问题，剩下唯一的失败点是 D2 处的峰顶起伏与噪声同量级。
+R4b 只把每点统计帧数 `3→12`（独立帧平均，`σ` 理论降 `√4=2` 倍），**其余所有参数与判据保持
+§12.6 冻结值**（含粗扫 13 点、范围 `±1.5`、细化 7 点、固定曝光 `0.1 ms`、`max_extends=1`、
+`repeat_ratio∈[0.90,1.111]`、D0–D5 全部不动、D2 严格单调不动）。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/probe_optical_path_validity.py `
+  --bit-depth 12 --wait-until-idle 600 --exposures 0.05 `
+  --session s0r4b_dcal_20261124 `
+  --out-root data/experiments/attribution_20261123/s0 `
+  --focus-calibration --focus-exposure-mode fixed --focus-fixed-exposure-ms 0.1 `
+  --focus-centre-px 960,600 --focus-radius-px 450 `
+  --focus-coarse-points 13 --focus-diopter-range 1.5 `
+  --focus-refine-points 7 --focus-frames 12 `
+  --focus-floor-ms 0.02 --focus-ceiling-ms 2
+```
+
+- 帧预算：`≤18 点 × 12 帧 + 复测`，约 220 帧；仍为独立点，总计 ≤250 帧（相对 R4 的 3 帧 ×4）。
+- 成功 ⇒ D 按 §10.5 写入 S0 标准记录并解锁 S1；失败（含再次 `ambiguous`）⇒ D 继续 `null`、
+  S1 继续封锁，**不得**放宽 D2 或改判据；此时必须把「峰顶在 450 px/±1.5 m⁻¹ 下物理平坦」作为
+  结论交用户定夺是否另起探头几何/度量修订的 R5（用户签字前不做）。
+
+### 12.9 R4b 实测回写（2026-11-24）：帧数 ×4 仍 `ambiguous`，D 保持 `null`
+
+| 项 | 实测 |
+|---|---|
+| 执行 | `2026-11-24 18:48:52`–`18:51:28`（本地；UTC `10:48:52`–`10:51:28`）；SLM #1 + Daheng CCD，一次 open/close，脚本不操作激光 |
+| 证据目录 | `data/experiments/attribution_20261123/s0/s0r4b_dcal_20261124/20261124_104852Z/` |
+| 释放 | `closed_normally=true`、`released_at=2026-11-24T10:51:28+00:00` |
+| sha256(前 8) | `focus_calibration.json=773358c0`、`optical_path_record.json=655bec41` |
+| 参数核对 | 18 点全为 `exposure_ms=0.1`、`frames=12`，`repeat_ratio=0.977`（优于 R4 的 0.949），无削顶，S0 `verdict.state=ok` |
+
+- 结果：`status=ambiguous`、`accepted=false`、`best_diopter_m1=-0.500`，
+  原因「最优点 -0.500 m⁻¹ 两侧 peak/ms 未各单调下降 2 点 (左: -0.667→19912, -0.583→19748, 最优→20605)」。
+  `optical_path.fresnel_compensation_m_inv=null` —— D2 门禁正确拦下，未写 D。
+- 峰顶 `peak/ms`：`-0.583→19748, -0.500→20605, -0.417→20084, -0.250→20596, 0→20398`。
+  **帧数 ×4 后仍不是单峰**，`-0.50` 与 `-0.25` 基本等高（差 9 counts/ms ≈ 0.04%），
+  而 `-0.583` 反而低了 857 counts/ms（4.2%）。说明这不是单纯的随机帧噪声：
+  在 `450 px / ±1.5 m⁻¹` 的探头几何下，峰顶本身平坦且多点局部极大，D2「严格单调 2 点」
+  对该物理曲线不可满足。**继续堆帧数/重扫同一配置没有意义。**
+- 按 §12.8 的预先承诺：D 保持 `null`、S1 继续封锁；D2 与全部判据不放宽，
+  是否改探头几何/度量（R5）交用户定夺。

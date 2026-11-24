@@ -40,9 +40,14 @@ class FakeBench:
     """A camera + panel whose brightness is a Lorentzian in dioptric power.
 
     ``intensity(D)`` peaks at ``true_diopter`` and falls off with ``width``;
-    the frame peak is ``min(full_scale, intensity * counts_per_ms * exposure)``,
-    i.e. linear in exposure until it clips -- exactly the situation the probe is
+    the frame peak is ``min(full_scale, pedestal + intensity * counts_per_ms *
+    exposure)``, i.e. linear in exposure until it clips, plus an optional
+    exposure-independent additive pedestal -- exactly the situation the probe is
     built to survive.
+
+    ``pedestal_counts`` models the measured bench's additive background (the
+    reason ``peak/ms`` is invalid across *different* exposures): it is the same
+    at every exposure, so it inflates a short-exposure reading's ratio.
     """
 
     def __init__(
@@ -56,6 +61,7 @@ class FakeBench:
         sigma: float = 4.0,
         extra_peak_at: float | None = None,
         extra_peak_intensity: float = 0.0,
+        pedestal_counts: float = 0.0,
     ) -> None:
         self.true_diopter = float(true_diopter)
         self.width = float(width)
@@ -65,6 +71,7 @@ class FakeBench:
         self.sigma = float(sigma)
         self.extra_peak_at = extra_peak_at
         self.extra_peak_intensity = float(extra_peak_intensity)
+        self.pedestal_counts = float(pedestal_counts)
         self.diopter = 0.0
         self.exposure_ms = 0.1
         self.phases: list[float] = []
@@ -84,7 +91,10 @@ class FakeBench:
 
     def read(self) -> np.ndarray:
         intensity = self.intensity_at(self.diopter)
-        peak = min(FULL_SCALE, intensity * self.counts_per_ms * self.exposure_ms)
+        peak = min(
+            FULL_SCALE,
+            self.pedestal_counts + intensity * self.counts_per_ms * self.exposure_ms,
+        )
         cy, cx = self.shape[0] // 2, self.shape[1] // 2
         g = np.exp(
             -((self._xx - cx) ** 2 + (self._yy - cy) ** 2) / (2.0 * self.sigma**2)
@@ -377,6 +387,27 @@ class TestSweep:
         assert result.linearity_ratio is not None
         assert result.linearity_ratio == pytest.approx(1.0, abs=0.2)
 
+    def test_the_fine_sweep_winner_change_is_reported_in_the_notes(self) -> None:
+        """精扫把赢家换掉时 notes 必须改口 —— 抛物线那条记的是精扫**之前**的赢家。
+
+        真实 R4 的 note 说 -0.500 m⁻¹, 返回值却是 -0.583 m⁻¹: 两条信息互相矛盾,
+        D5 的「可复算」就无从谈起。这里在精扫网格的 +2 格放一个窄峰 (粗扫不经过
+        那里), 逼精扫换赢家。
+        """
+        fine_step = 0.5 / 3.0  # 默认精扫: 最优点 ±0.5 m⁻¹ 上 7 点 ⇒ 相邻间隔
+        bench = FakeBench(
+            true_diopter=0.0,
+            width=1.2,
+            extra_peak_at=2.0 * fine_step,
+            extra_peak_intensity=0.1,
+        )
+        result = _run(bench)
+        assert any("抛物线顶点" in note for note in result.notes)
+        changed = [note for note in result.notes if "精扫后最优点改为" in note]
+        assert changed, result.notes
+        assert f"{result.best_diopter_m1:+.3f}" in changed[0]
+        assert result.best_diopter_m1 == pytest.approx(2.0 * fine_step, abs=0.02)
+
     def test_a_nonlinear_camera_is_flagged(self) -> None:
         """Auto-gain would break peak/ms, so the probe must say so."""
 
@@ -510,3 +541,77 @@ class TestParabolicVertex:
 
     def test_it_declines_on_an_uneven_grid(self) -> None:
         assert fp._parabolic_vertex([0.0, 1.0, 3.0], [1.0, 2.0, 1.0]) is None
+
+
+class TestFixedExposureSweep:
+    """单曝光扫描 (``exposure_mode="fixed"``) 的契约。
+
+    为什么要有这个模式: 实测峰值是 ``peak(ms) = k*ms + B`` (B 是与曝光无关的
+    加性本底), 跨曝光的 ``peak/ms`` 归一化因此不成立 —— R3 的实测曲线只在
+    **同一**曝光下干净单调。这些测试把那条实测教训钉在合成台架上。
+    """
+
+    def test_it_measures_every_point_at_one_exposure(self) -> None:
+        bench = FakeBench(true_diopter=-1.7, width=1.2)
+        result = _run(bench, exposure_mode="fixed", start_exposure_ms=0.05)
+        # 逐点自适应会留下多个不同曝光; 单曝光扫描必须只留一个。
+        assert [e for e in bench.exposures] == pytest.approx(
+            [0.05] * len(bench.exposures)
+        )
+        assert result.exposure_mode == "fixed"
+        assert result.fixed_exposure_ms == pytest.approx(0.05)
+        for point in result.points:
+            assert point.exposure_ms == pytest.approx(0.05)
+        assert result.best_diopter_m1 == pytest.approx(-1.7, abs=0.35)
+
+    def test_the_pedestal_breaks_adapt_but_not_fixed(self) -> None:
+        """R3 的回归测试: 加性本底毁掉跨曝光线性度, 单曝光扫描不受影响。"""
+        bench = FakeBench(true_diopter=-1.7, width=1.2, pedestal_counts=60.0)
+        adapt = _run(bench, start_exposure_ms=0.05)
+        assert adapt.linearity_ratio is not None
+        assert not (0.8 <= adapt.linearity_ratio <= 1.25), (
+            "本底会让跨曝光比值偏离 1; 这正是 adapt 模式判不过的原因, "
+            f"saw {adapt.linearity_ratio}"
+        )
+        fixed = _run(
+            bench, exposure_mode="fixed", start_exposure_ms=0.05
+        )
+        assert fixed.best_diopter_m1 == pytest.approx(-1.7, abs=0.35)
+        assert fixed.repeat_ratio == pytest.approx(1.0, abs=0.05)
+        assert fixed.linearity_ratio is None
+        assert fixed.exposure_mode == "fixed"
+
+    def test_a_clipping_pass_shrinks_the_global_exposure(self) -> None:
+        # 0.05 ms 下焦点峰值 300 counts (满量程 255) ⇒ 第一个 pass 整段过曝。
+        bench = FakeBench(true_diopter=-1.7, width=1.2, counts_per_ms=6000.0)
+        result = _run(bench, exposure_mode="fixed", start_exposure_ms=0.05)
+        assert result.exposure_mode == "fixed"
+        assert result.fixed_exposure_ms is not None
+        assert result.fixed_exposure_ms < 0.05
+        assert not any(p.status == "clipped" for p in result.points)
+        assert result.best_diopter_m1 == pytest.approx(-1.7, abs=0.35)
+
+    def test_dim_points_stay_rankable_in_fixed_mode(self) -> None:
+        """离焦点落到 ACCEPT_LOW 以下也不算不可用 —— 单曝光下它们仍可排序。"""
+        bench = FakeBench(
+            true_diopter=0.0, width=0.15, counts_per_ms=2550.0, floor_intensity=0.004
+        )
+        result = _run(
+            bench,
+            exposure_mode="fixed",
+            start_exposure_ms=0.05,
+            coarse_points=9,
+            diopter_range=6.0,
+        )
+        dim = [p for p in result.points if p.peak_fraction < fp.ACCEPT_LOW]
+        assert dim, "窄焦点 + 大范围必须留下低于 ACCEPT_LOW 的点"
+        assert all(p.status == "ok" for p in dim), (
+            "单曝光模式没有 dim 状态: 暗点仍要参与排序"
+        )
+        assert result.best_diopter_m1 == pytest.approx(0.0, abs=0.15)
+
+    def test_an_unknown_exposure_mode_is_rejected(self) -> None:
+        bench = FakeBench(true_diopter=-1.7, width=1.2)
+        with pytest.raises(ValueError, match="exposure_mode"):
+            _run(bench, exposure_mode="auto")
+

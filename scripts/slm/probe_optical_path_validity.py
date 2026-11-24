@@ -109,6 +109,10 @@ from ao_shaping.utils.slm.phase_display import (
 )
 from ao_shaping.tools.slm.panel.display_state import slm_self_check
 from ao_shaping.tools.slm.panel.focus_probe import (
+    EXPOSURE_MODE_ADAPT as FOCUS_EXPOSURE_MODE_ADAPT,
+    EXPOSURE_MODE_FIXED as FOCUS_EXPOSURE_MODE_FIXED,
+    FIXED_REPEAT_MAX as FOCUS_REPEAT_MAX,
+    FIXED_REPEAT_MIN as FOCUS_REPEAT_MIN,
     FLOOR_MS as FOCUS_FLOOR_MS,
     sweep_focus,
 )
@@ -1194,6 +1198,12 @@ class ProbeConfig:
     focus_frames: int = FOCUS_FRAMES
     focus_floor_ms: float | None = None
     focus_ceiling_ms: float | None = None
+    #: 曝光策略: ``adapt`` = 逐点自适应 (老行为); ``fixed`` = 整段扫描单曝光,
+    #: 排序与守门见 ``focus_probe.sweep_focus``。
+    focus_exposure_mode: str = FOCUS_EXPOSURE_MODE_ADAPT
+    #: 单曝光模式下预注册的唯一曝光 (ms); 覆盖 S0 推荐曝光, 越界仍按
+    #: ``focus_floor_ms`` / ``focus_ceiling_ms`` 夹取。``None`` = 用推荐曝光起步。
+    focus_fixed_exposure_ms: float | None = None
     #: sweep_focus 的 centre_px = Fresnel 透镜的 SLM 面板光瞳中心 (panel px);
     #: 缺省 = 本探针自己的 pupil_center, 与前面段的离焦相位同一口径。
     focus_centre_px: tuple[float, float] | None = None
@@ -1293,6 +1303,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=FOCUS_FRAMES,
         help="Fresnel D 标定每个扫描点平均的帧数 (默认 %(default)s)",
+    )
+    parser.add_argument(
+        "--focus-exposure-mode",
+        choices=("adapt", "fixed"),
+        default="adapt",
+        help="Fresnel D 标定的曝光策略: adapt = 逐点自适应曝光 (老行为); "
+        "fixed = 整段扫描用同一个曝光 (峰值含加性本底, 跨曝光 peak/ms 归一化"
+        "不可用, 单曝光下改判同曝光复测)",
+    )
+    parser.add_argument(
+        "--focus-fixed-exposure-ms",
+        type=float,
+        default=None,
+        help="单曝光模式 (--focus-exposure-mode fixed) 的唯一曝光 (ms); "
+        "覆盖 S0 推荐曝光, 越界按 --focus-floor-ms/--focus-ceiling-ms 夹取",
     )
     parser.add_argument(
         "--focus-floor-ms",
@@ -1645,6 +1670,21 @@ def _evaluate_focus_result(result: Any) -> tuple[str, str | None]:
 
     status = ``ok`` 时 ``reject_reason`` 为 ``None``; 否则 ``ok`` 之外的每个值都要
     带一句人能读懂的失败原因, 它会被写进 S0 记录的 ``reasons``。
+
+    强制判据 (与 ``docs/dev/hw_window_20261123_attribution_prereg.md`` §10.4 对应):
+
+    - **D1 内点**: 最优点必须落在扫描窗口内部, 压端点 ⇒ ``out_of_range``;
+    - **D2 单峰**: 最优点两侧各至少 2 个可用采样点的 ``peak_per_ms`` 严格单调
+      下降 (越往外越低), 否则 ``ambiguous``;
+    - **D3 (按模式)**: ``adapt`` 走跨曝光线性度; ``fixed`` 模式 (单曝光扫描) 把
+      它换成 **同曝光复测** —— ``peak_per_ms`` 被加性本底 ``peak(ms)=k*ms+B``
+      破坏, 跨曝光比值不再能校验, 只剩「同一点、同曝光重测两次峰值一致」这一条
+      守门。
+
+    D2 两种模式都用 ``peak_per_ms`` 而不是 raw ``peak``: 单曝光扫描只是把每个
+    peak 除以**同一个**固定曝光, 只差一个常数因子, 单调性完全不变, 所以一条
+    代码路径同时服务 ``adapt`` 与 ``fixed``。D4 (饱和) / D5 (可复算) 在采集与
+    落盘侧判定, 不在本函数里。
     """
     if bool(getattr(result, "path_blocked", False)):
         reason = str(getattr(result, "blockage_reason", "") or "画面里没有局域光斑")
@@ -1672,6 +1712,71 @@ def _evaluate_focus_result(result: Any) -> tuple[str, str | None]:
                 f"[{lower:+.3f}, {upper:+.3f}] (最多外扩 {FOCUS_MAX_EXTENDS} 次), "
                 "真实 D 可能在窗口外",
             )
+    # D2: 最优点必须是单峰 —— 两侧各至少 2 个可用采样点的 peak_per_ms 严格
+    # 单调下降 (越往外越低)。真实 R4 (20261124_102701Z) 的左侧第二点反而抬高,
+    # 峰值有两个候选 ⇒ 那个 -0.5833 不许当 D 写进记录。
+    ordered = sorted(usable, key=lambda p: float(p.diopter_m1))
+    winner = next(
+        (
+            p
+            for p in ordered
+            if math.isclose(
+                float(p.diopter_m1), float(best_diopter), rel_tol=1e-9, abs_tol=1e-9
+            )
+        ),
+        None,
+    )
+    if winner is None:
+        winner = max(ordered, key=lambda p: float(p.peak_per_ms))
+    index = ordered.index(winner)
+    diopters = [float(p.diopter_m1) for p in ordered]
+    peaks = [float(p.peak_per_ms) for p in ordered]
+    if index < 2 or index > len(ordered) - 3:
+        return (
+            "ambiguous",
+            f"最优点 {diopters[index]:+.3f} m⁻¹ 内点两侧采样点不足 2 个 "
+            f"(左 {index} 点, 右 {len(ordered) - index - 1} 点), 峰形不唯一",
+        )
+    left_ok = peaks[index - 2] < peaks[index - 1] < peaks[index]
+    right_ok = peaks[index] > peaks[index + 1] > peaks[index + 2]
+    if not (left_ok and right_ok):
+        broken: list[str] = []
+        if not left_ok:
+            broken.append(
+                f"左: {diopters[index - 2]:+.3f}→{peaks[index - 2]:.0f}, "
+                f"{diopters[index - 1]:+.3f}→{peaks[index - 1]:.0f}, "
+                f"最优→{peaks[index]:.0f}"
+            )
+        if not right_ok:
+            broken.append(
+                f"右: 最优→{peaks[index]:.0f}, "
+                f"{diopters[index + 1]:+.3f}→{peaks[index + 1]:.0f}, "
+                f"{diopters[index + 2]:+.3f}→{peaks[index + 2]:.0f}"
+            )
+        return (
+            "ambiguous",
+            f"最优点 {diopters[index]:+.3f} m⁻¹ 两侧 peak/ms 未各单调下降 2 点 "
+            f"({'; '.join(broken)}), 峰形不唯一",
+        )
+    if getattr(result, "exposure_mode", FOCUS_EXPOSURE_MODE_ADAPT) == (
+        FOCUS_EXPOSURE_MODE_FIXED
+    ):
+        # 单曝光模式: peak_per_ms 被加性本底弄坏了 (peak(ms)=k*ms+B, 跨曝光
+        # 比值天然偏 1), 所以 D3 从「跨曝光线性度」换成「同曝光复测」。
+        repeat = getattr(result, "repeat_ratio", None)
+        if repeat is None:
+            return (
+                "repeatability_unavailable",
+                "单曝光模式缺少同曝光复测点, 峰值排序不可信",
+            )
+        if not (FOCUS_REPEAT_MIN <= float(repeat) <= FOCUS_REPEAT_MAX):
+            return (
+                "repeatability_failed",
+                f"同曝光复测比 {float(repeat):.3f} 偏离 1 ({FOCUS_REPEAT_MIN:g}-"
+                f"{FOCUS_REPEAT_MAX:g}, 单曝光扫描无跨曝光归一化, 只能靠重复性"
+                "守门), 峰值排序不可信",
+            )
+        return "ok", None
     ratio = getattr(result, "linearity_ratio", None)
     if ratio is None:
         return (
@@ -1740,6 +1845,12 @@ def _focus_evidence(
             "max_extends": FOCUS_MAX_EXTENDS,
             "floor_ms": float(floor_ms),
             "ceiling_ms": float(ceiling_ms),
+            "exposure_mode": str(
+                getattr(config, "focus_exposure_mode", FOCUS_EXPOSURE_MODE_ADAPT)
+            ),
+            "fixed_exposure_ms_requested": getattr(
+                config, "focus_fixed_exposure_ms", None
+            ),
             "start_exposure_ms": float(start_exposure_ms),
             "wavelength_nm": int(config.slm_wavelength_nm),
         },
@@ -1793,8 +1904,30 @@ def _run_focus_calibration(
         centre_px / centre_source: :func:`_resolve_focus_centre` 的产物。
         self_check: :func:`_run_slm_self_check_for_focus` 的产物; 是字符串即失败。
     """
+    # 单曝光模式: 预注册的曝光优先于 S0 阶梯的推荐值 —— 整段扫描的唯一曝光
+    # 必须在运行命令里就写死 (R3 的教训: 混两种曝光会毁掉排序)。越界仍由
+    # sweep_focus 夹到 [floor_ms, ceiling_ms]。
+    focus_mode = str(
+        getattr(config, "focus_exposure_mode", FOCUS_EXPOSURE_MODE_ADAPT)
+    )
+    override_ms = getattr(config, "focus_fixed_exposure_ms", None)
+    if focus_mode == FOCUS_EXPOSURE_MODE_FIXED:
+        if override_ms is not None:
+            logger.info(
+                f"单曝光模式: 使用预注册曝光 {float(override_ms):g} ms "
+                f"(覆盖 S0 推荐 {float(start_exposure_ms):g} ms, 越界按 "
+                f"{float(floor_ms):g}-{float(ceiling_ms):g} ms 夹取)"
+            )
+            start_exposure_ms = float(override_ms)
+    elif override_ms is not None:
+        logger.info(
+            f"--focus-fixed-exposure-ms={float(override_ms):g} 只在 "
+            "--focus-exposure-mode fixed 下生效, 当前 adapt 模式已忽略"
+        )
+
     logger.info(
-        f"Fresnel 标定: coarse_points={int(config.focus_coarse_points)} "
+        f"Fresnel 标定: mode={focus_mode} "
+        f"coarse_points={int(config.focus_coarse_points)} "
         f"diopter_range={float(config.focus_diopter_range)} "
         f"refine={int(config.focus_refine_points)} frames={int(config.focus_frames)} "
         f"centre=({centre_px[0]:g}, {centre_px[1]:g}) [{centre_source}], "
@@ -1888,6 +2021,7 @@ def _run_focus_calibration(
             full_scale=full_scale,
             wavelength_nm=float(config.slm_wavelength_nm),
             pixel_um=pixel_um,
+            exposure_mode=focus_mode,
         )
         measured = dict(result.as_evidence())
         status, reject_reason = _evaluate_focus_result(result)
@@ -2184,6 +2318,14 @@ def run_probe(args: argparse.Namespace) -> int:
         ),
         focus_ceiling_ms=(
             float(args.focus_ceiling_ms) if args.focus_ceiling_ms is not None else None
+        ),
+        focus_exposure_mode=str(
+            getattr(args, "focus_exposure_mode", FOCUS_EXPOSURE_MODE_ADAPT)
+        ),
+        focus_fixed_exposure_ms=(
+            float(args.focus_fixed_exposure_ms)
+            if getattr(args, "focus_fixed_exposure_ms", None) is not None
+            else None
         ),
         focus_centre_px=args.focus_centre_px,
         focus_radius_px=(

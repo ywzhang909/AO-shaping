@@ -106,6 +106,25 @@ FLOOR_MS = 0.02
 DEFAULT_DIOPTER_RANGE = 6.0
 DEFAULT_COARSE_POINTS = 25
 
+#: 曝光策略: ``adapt`` = 逐点自适应曝光 (老行为); ``fixed`` = 整段扫描用同一个曝光。
+#:
+#: 为什么需要 ``fixed``: 实测峰值不是 ``k*ms``, 而是 ``peak(ms) = k*ms + B`` ——
+#: 帧里有一个与曝光无关的加性本底 (实机实测 B≈757 counts, k/B≈24)。所以
+#: ``peak/ms`` 只在**同一曝光**下可比, 跨曝光归一化会把本底放大成假信号
+#: (R3 证据: 0.05 ms 粗扫曲线干净单调, 混进 0.0935 ms 的细化点后比值必然
+#: 偏离 1)。固定曝光扫描下排序用原始峰值, 等价于用常数分母的 ``peak/ms``。
+EXPOSURE_MODE_ADAPT = "adapt"
+EXPOSURE_MODE_FIXED = "fixed"
+
+#: 固定曝光模式下, 一次 pass 里有点饱和 (clipped) 时最多重测的次数
+#: (=> 最多 3 个 pass: 首测 + 2 次收缩曝光后的重测)。
+FIXED_EXPOSURE_RETRIES = 2
+
+#: 同曝光复测的守门带: 重显最优点并用**同一曝光**再测一次, 峰值比须落在
+#: ``[0.90, 1.111]`` (即 1/0.90)。越界说明单曝光峰值本身不可重复, 排序不可信。
+FIXED_REPEAT_MIN = 0.90
+FIXED_REPEAT_MAX = 1.111
+
 #: 仿真后端 (``--cam-type sim``) 的默认种子与远场 FFT 补零因子。
 #:
 #: 补零 4 = 仿真孪生的库默认值 (:data:`slm_pib_sim.FAR_FIELD_PADDING`): 远场
@@ -164,6 +183,13 @@ class FocusProbeResult:
     path_blocked: bool = False
     #: One Chinese sentence naming the fault (operator-facing).
     blockage_reason: str = ""
+    #: 本次扫描的曝光策略 (``adapt`` / ``fixed``)。默认 ``adapt``, 老调用点无需改。
+    exposure_mode: str = EXPOSURE_MODE_ADAPT
+    #: 固定曝光模式下整段扫描用的那一个曝光 (ms); ``adapt`` 时为 ``None``。
+    fixed_exposure_ms: float | None = None
+    #: 固定曝光模式下的同曝光复测比 (alt_peak / best.peak); ``adapt`` 时为 ``None``。
+    #: 固定模式下它就是守门值 —— ``linearity_ratio`` 在那里必须为 ``None``。
+    repeat_ratio: float | None = None
 
     def as_evidence(self) -> dict[str, Any]:
         """JSON-able form, for the probe evidence file."""
@@ -177,6 +203,9 @@ class FocusProbeResult:
             "notes": list(self.notes),
             "path_blocked": self.path_blocked,
             "blockage_reason": self.blockage_reason,
+            "exposure_mode": self.exposure_mode,
+            "fixed_exposure_ms": self.fixed_exposure_ms,
+            "repeat_ratio": self.repeat_ratio,
             "points": [
                 {
                     "diopter_m1": p.diopter_m1,
@@ -306,8 +335,14 @@ def _measure_point(
     panel_shape: tuple[int, int],
     wavelength_nm: float,
     pixel_um: float,
+    fixed_exposure_ms: float | None = None,
 ) -> FocusPoint:
-    """Display one Fresnel focal length and measure it at its own exposure."""
+    """Display one Fresnel focal length and measure it at its own exposure.
+
+    给了 ``fixed_exposure_ms`` 就**只**用那一个曝光: 不跑 :func:`adapt_exposure`,
+    也不做平均帧回退 —— 两者都会改变曝光, 而固定曝光扫描的全部意义就是所有点
+    同曝光 (见 :data:`EXPOSURE_MODE_FIXED` 上方的本底说明)。
+    """
     focal_mm = float("inf") if abs(diopter) < 1e-12 else 1000.0 / float(diopter)
     phase = fresnel_panel(
         focal_mm,
@@ -319,36 +354,50 @@ def _measure_point(
     )
     apply_phase(phase)
 
-    # A warm start from the previous point is deliberate: adjacent dioptres are
-    # physically similar, so one correction step usually suffices. It is only a
-    # start -- every point is re-armed, never carried over blindly.
-    setting = adapt_exposure(
-        set_exposure_ms,
-        read_frame,
-        start_ms=start_exposure_ms,
-        floor_ms=floor_ms,
-        ceiling_ms=ceiling_ms,
-        full_scale=full_scale,
-        discard=discard,
-    )
-
-    # Re-check with the averaged frame: averaging lowers noise, so the peak can
-    # rise past the band the single-frame adaptation accepted. Backing off once
-    # is cheaper than ranking a slightly clipped point as the winner.
-    frame = _measure_frame(read_frame, frames)
-    peak = robust_peak(frame)
-    fraction = peak / full_scale if full_scale else 0.0
-    exposure = setting.exposure_ms
-    status = setting.status
-    if fraction > ACCEPT_HIGH and exposure > floor_ms:
-        exposure = max(floor_ms, exposure * TARGET_FRACTION / max(fraction, 1e-9))
+    if fixed_exposure_ms is not None:
+        # 固定曝光: 整段扫描的唯一曝光。没有自适应, 也没有平均帧回退 ——
+        # 两者都会改曝光, 而固定曝光扫描的全部意义就是所有点同曝光。
+        exposure = float(fixed_exposure_ms)
         set_exposure_ms(exposure)
         for _ in range(int(discard)):
             read_frame()
         frame = _measure_frame(read_frame, frames)
         peak = robust_peak(frame)
         fraction = peak / full_scale if full_scale else 0.0
-        status = "ok" if ACCEPT_LOW <= fraction <= ACCEPT_HIGH else "clipped"
+        # 只把饱和当不可用: 单曝光扫描里离焦点本来就暗, 但暗点仍然可排序;
+        # 饱和会把峰值压平, 那才真正毁掉排序。所以这里**没有** "dim" 状态。
+        status = "clipped" if fraction > ACCEPT_HIGH else "ok"
+    else:
+        # A warm start from the previous point is deliberate: adjacent dioptres are
+        # physically similar, so one correction step usually suffices. It is only a
+        # start -- every point is re-armed, never carried over blindly.
+        setting = adapt_exposure(
+            set_exposure_ms,
+            read_frame,
+            start_ms=start_exposure_ms,
+            floor_ms=floor_ms,
+            ceiling_ms=ceiling_ms,
+            full_scale=full_scale,
+            discard=discard,
+        )
+
+        # Re-check with the averaged frame: averaging lowers noise, so the peak can
+        # rise past the band the single-frame adaptation accepted. Backing off once
+        # is cheaper than ranking a slightly clipped point as the winner.
+        frame = _measure_frame(read_frame, frames)
+        peak = robust_peak(frame)
+        fraction = peak / full_scale if full_scale else 0.0
+        exposure = setting.exposure_ms
+        status = setting.status
+        if fraction > ACCEPT_HIGH and exposure > floor_ms:
+            exposure = max(floor_ms, exposure * TARGET_FRACTION / max(fraction, 1e-9))
+            set_exposure_ms(exposure)
+            for _ in range(int(discard)):
+                read_frame()
+            frame = _measure_frame(read_frame, frames)
+            peak = robust_peak(frame)
+            fraction = peak / full_scale if full_scale else 0.0
+            status = "ok" if ACCEPT_LOW <= fraction <= ACCEPT_HIGH else "clipped"
 
     # 一次测量出**结构**判定: 光斑够不够亮、够不够集中、够不够窄。光路被挡住时
     # 这一步就已经能看出来 —— 那时每个点都只有读出噪声, 帧里没有任何局域结构。
@@ -465,6 +514,122 @@ def _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms
 
 
 
+def _fp_same_exposure_repeat(
+    apply_phase,
+    best,
+    exp_ms,
+    centre_px,
+    discard,
+    frames,
+    notes,
+    panel_shape,
+    pixel_um,
+    radius_px,
+    read_frame,
+    set_exposure_ms,
+    wavelength_nm,
+) -> float | None:
+    """单曝光模式的守门: 重显最优点, 用**同一曝光**再测一次。
+
+    为什么不是跨曝光线性度: 实测峰值含加性本底 (``peak(ms) = k*ms + B``),
+    跨曝光比值天然偏离 1, 判不出好坏。单曝光下唯一能守的是「同一点、同曝光
+    重测两次峰值差不差」; 差太多就说明排序不可信, 结论要人工复核。
+
+    Returns:
+        ``alt_peak / best.peak``; ``best`` 为 ``None`` 或峰值非正时返回 ``None``。
+    """
+    if best is None or best.peak <= 0:
+        return None
+    ratio: float | None = None
+    try:
+        apply_phase(
+            fresnel_panel(
+                best.focal_mm,
+                radius=int(round(radius_px)),
+                pupil_center=(
+                    int(round(centre_px[0])),
+                    int(round(centre_px[1])),
+                ),
+                panel_shape=panel_shape,
+                wavelength_nm=wavelength_nm,
+                pixel_um=pixel_um,
+            )
+        )
+        set_exposure_ms(float(exp_ms))
+        for _ in range(int(discard)):
+            read_frame()
+        alt_frame = _measure_frame(read_frame, frames)
+        alt_peak = robust_peak(alt_frame)
+        if alt_peak > 0:
+            ratio = float(alt_peak / best.peak)
+            if not (FIXED_REPEAT_MIN <= ratio <= FIXED_REPEAT_MAX):
+                notes.append(
+                    f"同曝光复测比 {ratio:.3f} 偏离 1（{FIXED_REPEAT_MIN:g}–"
+                    f"{FIXED_REPEAT_MAX:g}）: 单曝光峰值本身不可重复, "
+                    "整段扫描的排序不可信, 结论需人工复核"
+                )
+    except (RuntimeError, ValueError) as exc:  # pragma: no cover - device
+        notes.append(f"同曝光复测失败：{exc}")
+    return ratio
+
+
+
+def _fp_fill_coarse_grid(
+    measure,
+    measured,
+    notes,
+    *,
+    coarse_points: int,
+    diopter_range: float,
+    diopters: Sequence[float] | None,
+    max_extends: int,
+) -> tuple[list[float], float, int]:
+    """填粗扫网格, 并按需向外扩展; 两种曝光模式共用同一份逻辑。
+
+    Returns:
+        ``(grid, step, half)`` —— 供调用方判断边界与重试。
+    """
+    if diopters is not None:
+        grid = [float(d) for d in diopters]
+        measured.update({round(d, 9): measure(d) for d in grid})
+        return grid, 0.0, 0
+
+    half = int(coarse_points) // 2
+    step = float(diopter_range) / max(half, 1)
+    grid = [step * k for k in range(-half, half + 1)]
+    for d in grid:
+        measure(d)
+
+    # Extend outward while the best point is the last one on either side:
+    # that means the optimum is outside the scanned range, not inside it.
+    for _ in range(int(max_extends)):
+        usable = [p for p in measured.values() if p.status == "ok"] or list(
+            measured.values()
+        )
+        best = max(usable, key=lambda p: p.peak_per_ms)
+        edge_lo, edge_hi = min(grid), max(grid)
+        if best.diopter_m1 >= edge_hi - 1e-9:
+            new = [edge_hi + step * k for k in range(1, half + 1)]
+            notes.append(
+                f"最优点在扫描右边界 {edge_hi:+.2f} m⁻¹，向右扩展到 "
+                f"{new[-1]:+.2f} m⁻¹"
+            )
+        elif best.diopter_m1 <= edge_lo + 1e-9:
+            new = [edge_lo - step * k for k in range(1, half + 1)]
+            notes.append(
+                f"最优点在扫描左边界 {edge_lo:+.2f} m⁻¹，向左扩展到 "
+                f"{new[-1]:+.2f} m⁻¹"
+            )
+        else:
+            break
+        grid = new
+        for d in new:
+            if round(d, 9) not in measured:
+                measure(d)
+    return grid, step, half
+
+
+
 
 def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable):
 # Best-diopter selection + parabolic refine lifted verbatim
@@ -496,6 +661,7 @@ def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, not
         # A fine sweep around the winner, so "the best of 7 refined points" is
         # really the best and not just the middle of a coarse bracket.
         if int(refine_points) > 2 and best_diopter is not None:
+            winner_before_fine = best_diopter
             coarse_step = float(diopter_range) / max(int(coarse_points) // 2, 1)
             span = (
                 float(diopter_range) / 10.0
@@ -514,6 +680,14 @@ def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, not
                 fine_best = max(fine_usable, key=lambda p: p.peak_per_ms)
                 if fine_best.peak_per_ms > best.peak_per_ms:
                     best, best_diopter = fine_best, fine_best.diopter_m1
+            # 上面的抛物线 note 记的是**精扫之前**的赢家; 精扫把赢家换掉时它就
+            # 与返回的 best_diopter 对不上 (真实 R4: note 说 -0.500, 结果是
+            # -0.583), 这里补一条, 让 notes 永远不跟返回值矛盾 (D5 可复算)。
+            if abs(float(best_diopter) - float(winner_before_fine)) > 1e-9:
+                notes.append(
+                    f"精扫后最优点改为 {best_diopter:+.3f} m⁻¹ "
+                    f"(精扫 {int(refine_points)} 点内最高 peak/ms)"
+                )
     return best, best_diopter
 
 
@@ -539,6 +713,7 @@ def sweep_focus(
     wavelength_nm: float = 1064.0,
     pixel_um: float = 8.0,
     max_extends: int = 2,
+    exposure_mode: str = EXPOSURE_MODE_ADAPT,
 ) -> FocusProbeResult:
     """Sweep Fresnel focal lengths and return the one that focuses the spot.
 
@@ -556,8 +731,22 @@ def sweep_focus(
         discard: Frames dropped after every exposure change.
         max_extends: How many times to extend the range when the winner sits on
             its edge (meaning the answer is outside).
+        exposure_mode: ``adapt`` (默认) 逐点自适应曝光; ``fixed`` 整段扫描用
+            同一个曝光, 有饱和的 pass 收缩曝光后整段重扫 (最多
+            ``FIXED_EXPOSURE_RETRIES`` 次)。
+
+    Fixed mode (``EXPOSURE_MODE_FIXED``)
+    ------------------------------------
+    实测峰值是 ``peak(ms) = k*ms + B`` (B 是与曝光无关的加性本底), 所以跨曝光的
+    ``peak/ms`` 归一化不能用来排序 —— 固定模式因此让所有点同曝光, 排序退化为
+    原始峰值 (等价于常数分母的 ``peak/ms``), 并把 D3 的跨曝光线性度换成
+    **同曝光复测** (:func:`_fp_same_exposure_repeat`)。固定模式下
+    ``linearity_ratio`` **必须为 None** —— 调用方只能读 ``repeat_ratio``, 不要
+    拿 ``linearity_ratio`` 做判断。
     """
     notes: list[str] = []
+    if exposure_mode not in (EXPOSURE_MODE_ADAPT, EXPOSURE_MODE_FIXED):
+        raise ValueError(f"未知 exposure_mode: {exposure_mode!r}")
     measured: dict[float, FocusPoint] = {}
     exposure_guess = min(max(float(start_exposure_ms), floor_ms), ceiling_ms)
     # One frame fixes the scale before anything is ranked. Integer frames carry
@@ -565,6 +754,11 @@ def sweep_focus(
     if full_scale is None:
         full_scale = frame_full_scale(read_frame())
     scale = float(full_scale)
+
+    # 固定模式: 整段扫描共用这一个曝光; adapt 模式下 None = 逐点自适应。
+    fixed_ms: float | None = (
+        exposure_guess if exposure_mode == EXPOSURE_MODE_FIXED else None
+    )
 
     def measure(d: float) -> FocusPoint:
         nonlocal exposure_guess
@@ -584,47 +778,61 @@ def sweep_focus(
             panel_shape=panel_shape,
             wavelength_nm=wavelength_nm,
             pixel_um=pixel_um,
+            fixed_exposure_ms=fixed_ms,
         )
-        exposure_guess = point.exposure_ms
+        if fixed_ms is None:
+            exposure_guess = point.exposure_ms
         measured[round(float(d), 9)] = point
         return point
 
-    if diopters is not None:
-        grid = [float(d) for d in diopters]
-        measured.update({round(d, 9): measure(d) for d in grid})
+    if fixed_ms is None:
+        _fp_fill_coarse_grid(
+            measure,
+            measured,
+            notes,
+            coarse_points=coarse_points,
+            diopter_range=diopter_range,
+            diopters=diopters,
+            max_extends=max_extends,
+        )
     else:
-        half = int(coarse_points) // 2
-        step = float(diopter_range) / max(half, 1)
-        grid = [step * k for k in range(-half, half + 1)]
-        for d in grid:
-            measure(d)
-
-        # Extend outward while the best point is the last one on either side:
-        # that means the optimum is outside the scanned range, not inside it.
-        for _ in range(int(max_extends)):
-            usable = [p for p in measured.values() if p.status == "ok"] or list(
-                measured.values()
+        # 固定曝光: 一个 pass = 整张粗扫网格 + 外扩, 全部在同一个曝光下测。
+        # 有点饱和就收缩整段曝光后重扫 (最多 FIXED_EXPOSURE_RETRIES 次) ——
+        # 只重测饱和点是不够的: 换曝光就得整段重排, 否则又是跨曝光归一化。
+        for attempt in range(FIXED_EXPOSURE_RETRIES + 1):
+            measured.clear()
+            _fp_fill_coarse_grid(
+                measure,
+                measured,
+                notes,
+                coarse_points=coarse_points,
+                diopter_range=diopter_range,
+                diopters=diopters,
+                max_extends=max_extends,
             )
-            best = max(usable, key=lambda p: p.peak_per_ms)
-            edge_lo, edge_hi = min(grid), max(grid)
-            if best.diopter_m1 >= edge_hi - 1e-9:
-                new = [edge_hi + step * k for k in range(1, half + 1)]
-                notes.append(
-                    f"最优点在扫描右边界 {edge_hi:+.2f} m⁻¹，向右扩展到 "
-                    f"{new[-1]:+.2f} m⁻¹"
-                )
-            elif best.diopter_m1 <= edge_lo + 1e-9:
-                new = [edge_lo - step * k for k in range(1, half + 1)]
-                notes.append(
-                    f"最优点在扫描左边界 {edge_lo:+.2f} m⁻¹，向左扩展到 "
-                    f"{new[-1]:+.2f} m⁻¹"
-                )
-            else:
+            max_fraction = max(
+                (p.peak_fraction for p in measured.values()), default=0.0
+            )
+            n_clipped = sum(p.status == "clipped" for p in measured.values())
+            if max_fraction <= ACCEPT_HIGH:
                 break
-            grid = new
-            for d in new:
-                if round(d, 9) not in measured:
-                    measure(d)
+            new_ms = min(
+                max(fixed_ms * TARGET_FRACTION / max(max_fraction, 1e-9), floor_ms),
+                ceiling_ms,
+            )
+            if new_ms >= fixed_ms:
+                notes.append(
+                    f"固定曝光 {fixed_ms:g} ms 仍有过曝 ({n_clipped} 点, "
+                    f"最大占满量程 {max_fraction:.2f}), 但已到曝光窗口边界, "
+                    "无法再收缩, 后续结论需人工复核"
+                )
+                break
+            notes.append(
+                f"固定曝光扫描 {n_clipped} 个点饱和 (最大占满量程 "
+                f"{max_fraction:.2f}), 整段曝光 {fixed_ms:g}→{new_ms:g} ms "
+                f"后重扫 (第 {attempt + 1} 次重试)"
+            )
+            fixed_ms = new_ms
 
     usable = [p for p in measured.values() if p.status == "ok"]
     skipped = [p for p in measured.values() if p.status != "ok"]
@@ -637,14 +845,35 @@ def sweep_focus(
 
     best, best_diopter = _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable)
 
-    # Linearity check at the winner. The whole ranking is peak-per-ms, which is
-    # only valid if the sensor is linear in exposure. One extra reading at a
-    # different exposure either confirms it or tells the operator to distrust the
-    # pick. Halving is preferred; when the winner already sits near the floor
-    # (bright bench) there is no room below, so it doubles instead.
-    linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
-
     gain = _fp_flat_gain(best, measured)
+
+    if exposure_mode == EXPOSURE_MODE_FIXED:
+        # D3 换成同曝光复测: 加性本底让跨曝光线性度失去意义 (见 sweep_focus
+        # docstring)。固定模式下 linearity_ratio 必须保持 None。
+        repeat_ratio: float | None = _fp_same_exposure_repeat(
+            apply_phase,
+            best,
+            float(fixed_ms),
+            centre_px,
+            discard,
+            frames,
+            notes,
+            panel_shape,
+            pixel_um,
+            radius_px,
+            read_frame,
+            set_exposure_ms,
+            wavelength_nm,
+        )
+        linearity: float | None = None
+    else:
+        # Linearity check at the winner. The whole ranking is peak-per-ms, which is
+        # only valid if the sensor is linear in exposure. One extra reading at a
+        # different exposure either confirms it or tells the operator to distrust
+        # the pick. Halving is preferred; when the winner already sits near the
+        # floor (bright bench) there is no room below, so it doubles instead.
+        linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
+        repeat_ratio = None
 
     # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
     #
@@ -670,6 +899,9 @@ def sweep_focus(
         notes=tuple(notes),
         path_blocked=path_blocked,
         blockage_reason=blocked_reason,
+        exposure_mode=exposure_mode,
+        fixed_exposure_ms=fixed_ms,
+        repeat_ratio=repeat_ratio,
     )
 
 
