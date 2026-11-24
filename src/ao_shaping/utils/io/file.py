@@ -1604,7 +1604,7 @@ def save_recorder_debug_artifacts(
     for rec in res.history:
         item: dict[str, Any] = {}
         for k in tuple(scalar_keys) + tuple(objective_keys):
-            if k in rec:
+            if k in rec and rec[k] is not None:
                 item[k] = float(rec[k])
         for k in text_keys:
             if rec.get(k) is not None:

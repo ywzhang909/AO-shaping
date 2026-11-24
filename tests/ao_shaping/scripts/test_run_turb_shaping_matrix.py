@@ -35,8 +35,16 @@ def matrix():
 
 
 def test_matrix_axes_are_the_frozen_grid(matrix) -> None:
-    assert matrix.VARIANTS == ("spgd", "square", "heuristic")
+    assert matrix.VARIANTS == ("spgd", "square", "heuristic", "gs_refine")
     assert matrix.CN2_GRID == (1e-14, 2e-13, 2e-12)
+
+
+def test_slot_bases_reproduce_historical_pairing(matrix) -> None:
+    # 基址 {0,3,6} 必须逐位复现已提交 m3/m4b/m5c 的 enumerate 布局; gs_refine 新基址
+    assert matrix.slot_of("spgd", 2e-12) == 6
+    assert matrix.slot_of("square", 2e-13) == 4
+    assert matrix.slot_of("heuristic", 2e-12) == 8
+    assert matrix.slot_of("gs_refine", 1e-14) == 12
 
 
 def test_cell_plans_construct_params_and_are_unique(matrix, tmp_path: Path) -> None:
@@ -47,9 +55,9 @@ def test_cell_plans_construct_params_and_are_unique(matrix, tmp_path: Path) -> N
             (c, v) for c in matrix.CN2_GRID for v in matrix.VARIANTS
         )
     ]
-    assert len(plans) == 9
+    assert len(plans) == 12
     dirs = {Path(p["out_dir"]).name for p in plans}
-    assert len(dirs) == 9, "单元目录互撞会让 artifact 发现挑错目录"
+    assert len(dirs) == 12, "单元目录互撞会让 artifact 发现挑错目录"
     for plan in plans:
         params = TurbShapingParams(**plan)
         assert params.turb_mode == "dynamic" and params.report is False
@@ -73,5 +81,5 @@ def test_dry_run_prints_plan_and_writes_nothing(matrix, tmp_path: Path, capsys, 
     monkeypatch.setattr(sys, "argv", argv)
     assert matrix.main() == 0
     payload = json.loads(capsys.readouterr().out)
-    assert len(payload["cells"]) == 9
+    assert len(payload["cells"]) == 12
     assert not (tmp_path / "nope").exists()

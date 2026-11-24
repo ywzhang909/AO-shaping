@@ -30,7 +30,9 @@ sys.path.insert(0, str(ROOT))
 #: cn2 与 distance_m(=500, runner 默认) 是退化的生成器旋钮, 档位按**实测 σ_turb**
 #: 标定 (~0.09 / ~0.40 / ~1.8 rad); 第一版网格 (distance=1) 实测 σ 仅 0.006-0.03
 #: rad, 湍流近乎名义值, 无实验区分度, 已作废重跑 (台账第 179 批)。
-VARIANTS = ("spgd", "square", "heuristic")
+#: 追加变体只增尾不插位 (slot_of 基线索引不变, 老单元种子配对永久稳定);
+#: gs_refine = M5a freeform + M5b 孪生湍流通道 (MIL 的解析孪生注入是后续批)。
+VARIANTS = ("spgd", "square", "heuristic", "gs_refine")
 CN2_GRID = (1e-14, 2e-13, 2e-12)
 BASE_DIST_SEED = 20261121
 
@@ -41,6 +43,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--cam-size", type=int, default=256)
     ap.add_argument("--n-max", type=int, default=4)
     ap.add_argument("--target-side", type=float, default=120.0)
+    ap.add_argument("--pop-size", type=int, default=12,
+                    help="heuristic 变体种群规模 (M5c: 种群须随维度配平)")
     ap.add_argument("--out-root", type=Path, default=Path("data/turb_matrix"))
     ap.add_argument(
         "--report-root", type=Path, default=None,
@@ -60,10 +64,20 @@ def axes(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[float, ...]]:
     return variants, cn2_grid
 
 
+#: dist_seed 槽位: 老变体复现历史 cn2-major enumerate (stride=3, m2b..m5c 全部批次:
+#: spgd@2e-12=6, square@2e-13=4, heuristic@2e-12=8), gs_refine 用独立基址段 12+
+#: (最大老槽 8, 无碰撞)。**历史槽位与 gs_refine 基址都是冻结契约** —— 改动任何
+#: 一个都会让已提交报告不可配对。MIL 解析孪生注入是后续批。
+VARIANTS = ("spgd", "square", "heuristic", "gs_refine")
+_HISTORICAL_SLOT_STRIDE = 3
+GS_REFINE_SEED_BASE = 12
+
+
 def slot_of(variant: str, cn2: float) -> int:
-    """dist_seed 槽位 = 单元在**冻结网格**中的序号, 与子扫掠 (--variants/--cn2-grid)
-    的枚举顺序无关 —— 任何缩窄扫掠都与基线矩阵逐单元配对 (ci 复核修正, 台账 183)。"""
-    return CN2_GRID.index(cn2) * len(VARIANTS) + VARIANTS.index(variant)
+    """dist_seed 槽位 (冻结契约见 ``_HISTORICAL_SLOT_STRIDE``); 与子扫掠枚举顺序无关。"""
+    if variant == "gs_refine":
+        return GS_REFINE_SEED_BASE + CN2_GRID.index(cn2)
+    return CN2_GRID.index(cn2) * _HISTORICAL_SLOT_STRIDE + VARIANTS.index(variant)
 
 
 def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> dict:
@@ -71,7 +85,7 @@ def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> 
     return {
         "algorithm": variant,
         "search_algorithm": "pso" if variant == "heuristic" else "ga",
-        "pop_size": 12,
+        "pop_size": args.pop_size,
         "turb_mode": "dynamic",
         "cn2": cn2,
         "dist_seed": BASE_DIST_SEED + slot,
@@ -126,7 +140,7 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
 
     lines = [
         f"# 湍流整形对比择优矩阵 (epochs={args.epochs}, cam={args.cam_size}, "
-        f"n_max={args.n_max}, side={args.target_side:g})",
+        f"n_max={args.n_max}, side={args.target_side:g}, pop={args.pop_size})",
         "",
         "| 变体 | cn2 | 实测 σ_total [rad] | 光学求值 | 单元报告 |",
         "|---|---|---|---|---|",

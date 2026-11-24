@@ -369,11 +369,13 @@ python src/ao_shaping/main.py slm-transfer-shapes \
 
 ## 23. slm-turb-shaping
 
-湍流仿真光束整形实验（#253）：在 2f-Fourier 数字孪生上给 `slm-pib` 的 `spgd` /
-`square` 两个变体挂 `SimDisturbance` 时变波前扰动跑闭环，落 recorder pkl +
-`disturbance.json/npz` + `run.json`，并以 `--report`（默认开）调用离线生成器
+湍流仿真光束整形实验（#253）：在 2f-Fourier 数字孪生上给整形闭环挂 `SimDisturbance`
+时变波前扰动跑闭环，落 recorder pkl + `disturbance.json/npz` + `run.json`，并以
+`--report`（默认开）调用离线生成器
 `scripts/slm/generate_turbulence_shaping_report.py` 产出**相位与目标光斑的动态
-演化 GIF** + 指标曲线报告。全程 sim-only，不触碰任何硬件。
+演化 GIF** + 指标曲线报告。四个变体：`spgd` / `square` / `heuristic`（经 `slm-pib`
+子命令）与 `gs_refine`（GS 预矫正 + 粗网格 **freeform** 全频 SPGD，经 `slm-gs-refine`，
+M5a/M5b；相位帧直接取逐轮下发面板灰度 `_phase`）。全程 sim-only，不触碰任何硬件。
 
 ```bash
 python src/ao_shaping/main.py slm-turb-shaping \
@@ -384,7 +386,9 @@ python src/ao_shaping/main.py slm-turb-shaping \
 
 | 关键 flag | 默认 | 说明 |
 |---|---|---|
-| `--algorithm` | `square` | `spgd`（Zernike PIB shape 目标）/ `square`（方形综合质量分） |
+| `--algorithm` | `square` | `spgd` / `square` / `heuristic`（黑盒搜索，经 `--search-algorithm`）/ `gs_refine`（GS+freeform SPGD） |
+| `--search-algorithm` | `pso` | 仅 `heuristic`：`ga/pso/sa/hc/rs/cem/de`（`--pop-size` 配种群） |
+| `--phase-grid` | `12` | 仅 `gs_refine`：coarse freeform 相位网格边长（DOF=网格²） |
 | `--turb-mode` | `dynamic` | `none` / `static`（冻结屏）/ `dynamic`（逐求值独立屏，时间白极限） |
 | `--cn2` | `2e-13` | 生成器旋钮（与 `--distance-m` 退化，幅度以实测 `stats()` 为准） |
 | `--dist-seed` | `5` | 干扰主种子；square 变体同时透传给优化器 `--seed` 保证可复现 |
