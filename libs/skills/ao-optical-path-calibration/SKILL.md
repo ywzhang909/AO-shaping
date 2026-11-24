@@ -95,12 +95,30 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 - 写入明显的图样（如半幅 ramp 或棋盘），由相机确认图样变化。若相机帧无变化，判定为"面板未调制"，**不得继续**（对应静默回落故障）。
 - 灰度指令需覆盖 0 与 2π 附近，确认 `two_pi_grayscale` 与当前波长一致。
 
+> 若启用复用门，先按 Step 3a 判一致性；不满足或复用失败再执行本 Step 的完整扫描。
+
 ### Step 3 — 光路有效
 - 使用 `scripts/slm/probe_optical_path_validity.py` 扫描曝光梯度与离焦量。
   - 默认曝光梯度：`0.05, 0.2, 1, 2, 5, 10, 20, 50` ms；离焦幅度 `0, 0.5, 1.0, −1.0`。
   - 判定状态：`ok` / `low_snr` / `weak_path` / `no_response`。退出码 0 表示 ok，非 0 表示其余状态。
   - 输出：每步 npz、`optical_path_probe.json`、`.png`，位于 `data/debug/optical_path_probe/`。
 - 只有 `ok` 才继续。`low_snr` 时调大曝光，但要回看饱和（Step 4）。
+
+### Step 3a — 光路复用门（可选启用，仅省全阶梯）
+- 目的：同一会话内已有一次 `verdict=ok` 的探针记录时，先判「当前光路是否仍与记录一致」；一致则跳过 Step 3 的 8 档曝光 + 4 档离焦全阶梯。
+- 判据：沿用 `ao_shaping.tools.slm.transfer.optical_probe` 的 `same_path()` / `compare_flat_frames()`——零点 ±5 px 或平场形状相似度 NCC ≥ 0.90（实测：同光路 0.94–0.99、换光路 0.70–0.83）+ 二阶矩三轴、零点漂移 ≤ 40 px、曝光区间 ±1.5×、相机格式+位深。驱动板 ID 不在 `assess_reuse()` 里，单独按第 3 条核对。
+- 启用前提（全部满足）：
+  1. 有最近一次 `verdict=ok` 的 `optical_path_record.json` + `optical_path_probe.json` + 对应平场参照帧；
+  2. **本次会话仍开设备拍一帧当前平场**（不能拿存储平场跟自己比，否则判据无意义）；
+  3. `Santec.require_drive_board()` 读到与记录一致的驱动板 ID（防选板 ID 静默回落）。
+- 判一致 → 复用通过，跳过全阶梯；**但仍保留**：
+  - `require_drive_board()`（第 3 条已做）；
+  - **单曝光饱和校验**：用记录候选曝光拍 1 帧，峰值 ≤ 0.7×满量程且 0 像素饱和（红线 #2 的现场口径降级，不是抄旧数字）；
+  - 当天 fresnel 补偿 / 2π 灰度记录（焦面与灰度每天不同，仍须现场取）。
+  - 记录 `reuse_gate=passed` + 参照记录路径。
+- 判不一致 / 缺记录 / 任一步失败 → 走完整 Step 3–4，行为不变。
+- 执行入口：`python scripts/slm/optical_path_reuse_gate.py --out-root data/debug/optical_path_probe --run-dir <本次会话目录> --wait-until-idle <秒>`；结果写 `<run-dir>/optical_path_reuse_gate.json`（schema `optical_path_reuse_gate/1`）：`reuse_gate=passed` 退出码 0，`reuse_gate=failed` 退出码 3（调用方必须改跑完整 Step 3–4）。缺记录 / 参照非当天 / 驱动板 ID 不符 / 饱和校验失败 / 任一异常一律 fail-closed；结果里的 `fresnel_manual_required=true` 表示当天 D 仍须按标准记录手工补录。
+- 边界：复用门**只省检查阶梯**，不省「设备在线 / SLM 调制 / 焦面」确认；不得把「旧诊断数据有效」当作「本次光路有效」。
 
 ### Step 4 — 曝光不超量程
 - 以**峰值计数**为准，不以曝光时间为准。
@@ -216,7 +234,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 ## 5. 红线
 
 1. 驱动板必须应答，不得在选板 ID 回落下继续实验。
-2. 曝光必须按峰值判据现场确定；不得沿用历史曝光值；且必须在"峰值 ≤ 0.7 满量程"的档里取最亮，不得贴饱和线（Step 4）。
+2. 曝光必须按峰值判据现场确定；不得沿用历史曝光值；且必须在"峰值 ≤ 0.7 满量程"的档里取最亮，不得贴饱和线（Step 4）。Step 3a 复用门通过时，现场判据降级为「单曝光饱和校验」（用记录候选曝光拍 1 帧，峰值 ≤ 0.7×满量程且 0 饱和像素），**不得跳过该校验直接沿用旧值**。
 3. 零级未被抑制时，不得把光阑关闭下的结果当作零级已抑制。
 4. DVI 模式不得用于打开 SLM；死机只能断电。
 5. 所有数值必须来自当天的记录或源码，不得凭记忆填写。
