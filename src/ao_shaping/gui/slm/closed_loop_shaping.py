@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -59,10 +60,12 @@ __all__ = [
     "compare_to_target",
     "describe_gate",
     "grid_spacing_px",
+    "load_slm_diffraction_efficiency",
     "promotion_decision",
     "refine_phase",
     "sample_on_grid",
     "score_from_metrics",
+    "shaping_efficiency_report",
     "target_field",
     "window_fraction",
 ]
@@ -344,6 +347,81 @@ def window_fraction(frame: np.ndarray, xy: np.ndarray) -> float | None:
     if not np.isfinite(total) or total <= 0:
         return None
     return float(sample_on_grid(data, xy).sum() / total)
+
+
+
+def load_slm_diffraction_efficiency(path: str | Path) -> dict[str, Any]:
+    """从衍射效率探针的 ``summary.json`` 读 SLM 一级衍射效率。
+
+    探针（``tools/slm/calibration/diffraction_efficiency probe``，诊断页同款）
+    用一维闪耀光栅把能量分到 0 / ±1 级，``lobe.ratios`` 是各级能量占 CCD
+    总能量之比；闪耀方向（``lobe.orders.blaze_order``）那一级就是 SLM 把光
+    送进"可用衍射级"的效率上限。整形的能量利用率与该值同量纲（都是对到达
+    CCD 的总光能的占比），因此可以直接对比。
+
+    返回 ``efficiency``（0–1）、``blaze_order``、``gray_depth``、
+    ``timestamp_utc``；缺键或效率非正直接报错，不静默给个 0。
+    """
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    lobe = payload["lobe"]
+    blaze_order = lobe["orders"]["blaze_order"]
+    efficiency = float(lobe["ratios"][blaze_order])
+    if not np.isfinite(efficiency) or efficiency <= 0:
+        raise ValueError(f"SLM 衍射效率非正或无效 ({efficiency}): {source}")
+    return {
+        "efficiency": efficiency,
+        "blaze_order": str(blaze_order),
+        "gray_depth": payload.get("config", {}).get("gray_depth"),
+        "timestamp_utc": payload.get("timestamp_utc"),
+    }
+
+
+def shaping_efficiency_report(
+    summary: LoopSummary,
+    *,
+    slm_diffraction_efficiency: float | None = None,
+) -> dict[str, Any]:
+    """整形完成后的能量利用率报告：当前（最优）结果 vs SLM 衍射效率。
+
+    * **能量利用率** = 最优轮 ``window_fraction``：目标窗口能量 / CCD 全帧
+      能量。直接复用该轮已落账的诊断量，**不重新采集**，不在完成态再动设备。
+    * **SLM 衍射效率** = 探针实测的一级衍射效率（可选参照）；给了就算
+      ``relative_to_slm = 利用率 / 衍射效率``，即"目标窗口拿到了一级可用光
+      的几成"。该值可以超过 1（例如目标压在零级、或窗口外漏光比闪耀光栅
+      还少），因此只报数值、不设硬判定。
+
+    最优轮按 ``summary.best_score`` 匹配（它对应 best_phase）；缺 best_score
+    时退化为实测分数最低且带 window_fraction 的轮次；没有任何有效轮次时
+    ``round_index`` / ``window_fraction`` 为 ``None``。
+    """
+    best: RoundRecord | None = None
+    if summary.best_score is not None:
+        best = next(
+            (r for r in summary.rounds
+             if r.measured_score is not None
+             and abs(r.measured_score - summary.best_score) < 1e-12
+             and r.window_fraction is not None),
+            None,
+        )
+    if best is None:
+        candidates = [r for r in summary.rounds
+                      if r.measured_score is not None and r.window_fraction is not None]
+        if candidates:
+            best = min(candidates, key=lambda r: r.measured_score)
+    utilization = best.window_fraction if best is not None else None
+    relative = None
+    if utilization is not None and slm_diffraction_efficiency is not None:
+        efficiency = float(slm_diffraction_efficiency)
+        if not np.isfinite(efficiency) or efficiency <= 0:
+            raise ValueError("slm_diffraction_efficiency 必须为正的有限数")
+        relative = utilization / efficiency
+    return {
+        "round_index": best.round_index if best is not None else None,
+        "window_fraction": utilization,
+        "slm_diffraction_efficiency": slm_diffraction_efficiency,
+        "relative_to_slm": relative,
+    }
 
 
 
