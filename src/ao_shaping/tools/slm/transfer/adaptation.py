@@ -3,6 +3,15 @@ from __future__ import annotations
 
 import numpy as np
 
+#: Three-tier split (#254 T2): ``train`` = fitting rows; ``validation`` (role
+#: ``selection_validation``) = the ONLY tier promotion and checkpoint selection
+#: may read; ``test`` / ``final_test`` = sealed -- never fitted, never scored by
+#: selection quality, evaluated once by :func:`final_test_quality` after the
+#: candidate set is frozen. Older datasets legitimately lack these rows, so all
+#: readers must go through the split value, never the row count.
+SELECTION_SPLIT = "validation"
+SEALED_SPLITS = frozenset({"test", "final_test"})
+
 
 def configure_adaptation(model, mode):
     """Reuse measured geometry; release only parameters justified by the stage."""
@@ -17,17 +26,39 @@ def configure_adaptation(model, mode):
 
 
 def validation_quality(entry, rows):
-    """Use disjoint phases for model selection, never repeated training frames."""
+    """Use disjoint phases for model selection, never repeated training frames.
+
+    Only ``SELECTION_SPLIT`` rows may feed promotion (#254 T2): the old
+    ``!= "train"`` filter let sealed ``test`` / ``final_test`` metrics leak into
+    model selection.
+    """
     selected = [m for row, m in zip(rows, entry["metrics"], strict=True)
-                if row["split"] != "train"]
+                if row["split"] == SELECTION_SPLIT]
     if not selected:
         raise ValueError("validation phases required for automatic adaptation")
+    return _aggregate_quality(selected, "validation")
+
+
+def final_test_quality(entry, rows):
+    """One-shot scoring of the sealed tier after candidates are frozen (#254).
+
+    Must run exactly once per candidate, after promotion; the value never
+    feeds back into selection, adaptation escalation, or checkpoint choice.
+    """
+    selected = [m for row, m in zip(rows, entry["metrics"], strict=True)
+                if row["split"] == "final_test"]
+    if not selected:
+        raise ValueError("final_test phases required for sealed evaluation")
+    return _aggregate_quality(selected, "final_test")
+
+
+def _aggregate_quality(selected, tier: str):
     correlation = float(np.mean([m["correlation"] for m in selected]))
     relative_l2 = float(np.mean([m["relative_l2"] for m in selected]))
     cv_error = float(np.mean([m["cv_abs_error"] for m in selected]))
     score = 1 - correlation + relative_l2
     if not np.isfinite([correlation, relative_l2, cv_error, score]).all():
-        raise ValueError("nonfinite validation quality")
+        raise ValueError(f"nonfinite {tier} quality")
     return dict(correlation=correlation, relative_l2=relative_l2,
                 cv_abs_error=cv_error, score=score)
 

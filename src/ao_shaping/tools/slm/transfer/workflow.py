@@ -15,6 +15,7 @@ import numpy as np
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
 
+from .adaptation import SELECTION_SPLIT
 from .capture import clock
 from .device import DEVICE_CHOICES, resolve_device
 from .light_guard import OpticalPathInvalid
@@ -435,7 +436,8 @@ def _fit_quality(session_dir, fit_dir=None):
         if len(metrics_list) != len(rows):
             return None
         selected = [
-            m for row, m in zip(rows, metrics_list) if row.get("split") != "train"
+            m for row, m in zip(rows, metrics_list)
+            if row.get("split") == SELECTION_SPLIT
         ]
         if not selected:
             return None
