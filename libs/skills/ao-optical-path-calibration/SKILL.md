@@ -106,7 +106,7 @@ description: "Optical-path probing and device calibration for AO-shaping hardwar
 
 ### Step 3a — 光路复用门（可选启用，仅省全阶梯）
 - 目的：同一会话内已有一次 `verdict=ok` 的探针记录时，先判「当前光路是否仍与记录一致」；一致则跳过 Step 3 的 8 档曝光 + 4 档离焦全阶梯。
-- 判据：沿用 `ao_shaping.tools.slm.transfer.optical_probe` 的 `same_path()` / `compare_flat_frames()`——零点 ±5 px 或平场形状相似度 NCC ≥ 0.90（实测：同光路 0.94–0.99、换光路 0.70–0.83）+ 二阶矩三轴、零点漂移 ≤ 40 px、曝光区间 ±1.5×、相机格式+位深。驱动板 ID 不在 `assess_reuse()` 里，单独按第 3 条核对。
+- 判据：沿用 `ao_shaping.tools.slm.transfer.optical_probe` 的 `same_path()` / `compare_flat_frames()`——零点 ±5 px 或平场形状相似度 NCC ≥ 0.90（实测：同光路 0.94–0.99、换光路 0.70–0.83）+ 二阶矩三轴、零点漂移 ≤ 40 px、曝光区间 ±1.5×、相机格式+位深。受支持的单色格式（MONO8 / MONO12 / MONO16）允许跨位深比较：两帧先按各自**有效满量程**（255 / 4095 / 65535，12 bit 装在 uint16 容器里仍取 4095）归一到 0–1 后再比形状；格式与位深必须自洽，未知格式、缺位深、格式位深矛盾一律 fail-closed 并回退完整阶梯。相对参照改变位深必须在结果里记录双方格式、位深、满量程和归一化方式，不得只看原始 counts。驱动板 ID 不在 `assess_reuse()` 里，单独按第 3 条核对。
 - 启用前提（全部满足）：
   1. 有最近一次 `verdict=ok` 的 `optical_path_record.json` + `optical_path_probe.json` + 对应平场参照帧；
   2. **本次会话仍开设备拍一帧当前平场**（不能拿存储平场跟自己比，否则判据无意义）；

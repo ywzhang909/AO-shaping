@@ -54,6 +54,7 @@ from ao_shaping.tools.slm.transfer.optical_probe import (
     OpticalProbe,
     assess_reuse,
     locate_zero,
+    mono_bit_depth_of_probe,
     read_bit_depth,
     read_camera_format,
     save_flat_frame,
@@ -343,6 +344,7 @@ def run_reuse_gate(args: argparse.Namespace) -> dict[str, Any]:
         "reasons": [],
         "reference": None,
         "criteria": {},
+        "flat_frame_comparison": {},
         "exposure_check": {},
         "on_site": {},
         "devices": {},
@@ -488,6 +490,35 @@ def run_reuse_gate(args: argparse.Namespace) -> dict[str, Any]:
                         ),
                         flat_frame=saved_name,
                     )
+                    current_compare_bits = mono_bit_depth_of_probe(current)
+                    reference_compare_bits = mono_bit_depth_of_probe(reference.probe)
+                    result["flat_frame_comparison"] = {
+                        "policy": (
+                            "effective_full_scale"
+                            if current_compare_bits is not None
+                            and reference_compare_bits is not None
+                            else "unavailable"
+                        ),
+                        "current_camera_format": current.camera_format,
+                        "reference_camera_format": reference.probe.camera_format,
+                        "current_bit_depth": current.bit_depth,
+                        "reference_bit_depth": reference.probe.bit_depth,
+                        "current_full_scale": (
+                            (1 << current_compare_bits) - 1
+                            if current_compare_bits is not None
+                            else None
+                        ),
+                        "reference_full_scale": (
+                            (1 << reference_compare_bits) - 1
+                            if reference_compare_bits is not None
+                            else None
+                        ),
+                        "cross_bit_depth": bool(
+                            current_compare_bits is not None
+                            and reference_compare_bits is not None
+                            and current_compare_bits != reference_compare_bits
+                        ),
+                    }
                     decision = assess_reuse(
                         current,
                         reference.probe,

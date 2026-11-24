@@ -187,16 +187,34 @@ def test_same_path_exposure_factor_boundary(cur_hi, expected):
     assert probe.same_path(cur, P()) is expected
 
 
-def test_same_path_requires_exact_format():
+def test_same_path_requires_known_compatible_format():
     assert probe.same_path(P(camera_format="MONO8"), P(camera_format="MONO8")) is True
+    # 受支持的单色格式可跨位深比较；元数据必须自洽（MONO12 ↔ 12 bit）。
+    assert (
+        probe.same_path(
+            P(camera_format="MONO12", bit_depth=12),
+            P(camera_format="MONO8", bit_depth=8),
+        )
+        is True
+    )
+    # 格式与位深矛盾 / 未知格式 / 缺字段仍不可比。
     assert probe.same_path(P(camera_format="MONO12"), P(camera_format="MONO8")) is False
+    assert probe.same_path(P(camera_format="BOGUS", bit_depth=8), P()) is False
     assert probe.same_path(P(camera_format=None), P(camera_format="MONO8")) is False
     assert probe.same_path(P(camera_format="MONO8"), P(camera_format=None)) is False
 
 
-def test_same_path_requires_exact_bit_depth():
+def test_same_path_requires_known_compatible_bit_depth():
     assert probe.same_path(P(bit_depth=8), P(bit_depth=8)) is True
-    assert probe.same_path(P(bit_depth=12), P(bit_depth=8)) is False
+    assert (
+        probe.same_path(
+            P(camera_format="MONO12", bit_depth=12),
+            P(camera_format="MONO8", bit_depth=8),
+        )
+        is True
+    )
+    assert probe.same_path(P(bit_depth=12), P(bit_depth=8)) is False  # MONO8 + 12 bit 矛盾
+    assert probe.same_path(P(camera_format="MONO12", bit_depth=8), P()) is False
     assert probe.same_path(P(bit_depth=None), P(bit_depth=8)) is False
 
 
@@ -487,6 +505,49 @@ def test_assess_reuse_needs_ncc_zero_and_shape_all_together():
     assert decision.same is True
     assert "尺寸比" in decision.criteria["shape"]
     assert "(通过)" in decision.criteria["shape"]
+
+
+def test_assess_reuse_allows_supported_cross_bit_depth_after_normalization():
+    ref = _spot()
+    current = np.clip(np.rint(ref * (4095.0 / 255.0)), 0, 4095).astype(
+        np.uint16
+    )  # MONO12 in uint16 container
+    decision = probe.assess_reuse(
+        P(camera_format="MONO12", bit_depth=12),
+        P(camera_format="MONO8", bit_depth=8),
+        current_frame=current,
+        reference_frame=ref,
+    )
+    assert decision.same is True
+    assert "归一化后比较" in decision.criteria["camera_format"]
+    assert "满量程 4095/255" in decision.criteria["bit_depth"]
+
+
+def test_assess_reuse_cross_bit_depth_does_not_rescue_different_path():
+    ref = _spot()
+    # 换光路（峰心大幅漂移 + 形状拉伸），跨位深归一化不得把它救回。
+    other = _spot(centre=(260.0, 250.0), sigma=(11.4 * 1.2, 11.7 * 0.83), seed=11)
+    current = np.clip(np.rint(other * (4095.0 / 255.0)), 0, 4095).astype(np.uint16)
+    decision = probe.assess_reuse(
+        P(camera_format="MONO12", bit_depth=12),
+        P(camera_format="MONO8", bit_depth=8),
+        current_frame=current,
+        reference_frame=ref,
+    )
+    assert decision.same is False
+    assert decision.criteria["flat"].startswith("平场斑相似度")
+
+
+def test_assess_reuse_rejects_inconsistent_cross_bit_depth_metadata():
+    ref = _spot()
+    decision = probe.assess_reuse(
+        P(camera_format="MONO12", bit_depth=8),  # 格式与位深矛盾
+        P(),
+        current_frame=ref,
+        reference_frame=ref,
+    )
+    assert decision.same is False
+    assert "元数据不可比" in decision.criteria["bit_depth"]
 
 
 def test_assess_reuse_criteria_keys_survive():

@@ -63,6 +63,14 @@ DEFAULT_WARN_ZERO_DRIFT_PX = DEFAULT_MAX_ZERO_DRIFT_PX / 2.0
 #: 求亚像素零点时峰值窗口的半宽 (px), 与采集段 ``locate`` 的局部矩窗口同量级。
 DEFAULT_CENTRE_HALF_WINDOW = 60
 
+#: 受支持单色格式 → 有效满量程。跨位深比较只允许这几档，且帧按各自满量程
+#: 归一到 0..1；不认识的像素格式绝不猜位深、不做隐式换算（fail-closed）。
+SUPPORTED_MONO_BIT_DEPTHS: dict[str, int] = {
+    "MONO8": 8,
+    "MONO12": 12,
+    "MONO16": 16,
+}
+
 # --- 形状 (二阶矩) 判据 -------------------------------------------------------
 # 为什么要第二条判据: 归一化互相关 (NCC) 对**平移**和**整体亮度**确实是对的
 # (2026-11-11 用当天实测平场帧 ``data/debug/slm_transfer/20261111_204230_optical_
@@ -117,6 +125,85 @@ class OpticalProbe:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _integer_bit_depth(value: Any) -> int | None:
+    """只接受确定的整数位深；字符串/浮点小数/bool 一律不猜。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value in SUPPORTED_MONO_BIT_DEPTHS.values() else None
+    if isinstance(value, float) and value.is_integer():
+        candidate = int(value)
+        return candidate if candidate in SUPPORTED_MONO_BIT_DEPTHS.values() else None
+    return None
+
+
+def mono_bit_depth_of_probe(probe: OpticalProbe | None) -> int | None:
+    """取探针中**自洽**的单色位深；格式与位深矛盾时返回 None（fail-closed）。
+
+    MONO12 在 uint16 容器里仍是 12 bit，这里只信探针记录里的格式 + 位深，
+    不按帧 dtype 猜满量程（issue #246）。
+    """
+    if probe is None:
+        return None
+    fmt = probe.camera_format.strip().upper() if isinstance(probe.camera_format, str) else None
+    expected = SUPPORTED_MONO_BIT_DEPTHS.get(fmt or "")
+    actual = _integer_bit_depth(probe.bit_depth)
+    if expected is None or actual is None or expected != actual:
+        return None
+    return actual
+
+
+def normalize_flat_frame_to_unit_scale(frame: Any, bit_depth: int | None) -> np.ndarray:
+    """按**有效满量程**把单色平场帧归一到 0..1，失败抛 ValueError。
+
+    8/12/16 bit 分别除以 255/4095/65535。归一化只比形状，不拿它替代饱和
+    判据；坏帧（非 2D、空、非有限）直接否决，不做修补。
+    """
+    bits = _integer_bit_depth(bit_depth)
+    if bits is None:
+        raise ValueError(f"不支持的相机位深: {bit_depth!r}")
+    try:
+        array = np.asarray(frame, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"平场帧不可解析: {exc}") from exc
+    if array.ndim != 2 or array.size == 0:
+        raise ValueError("平场帧不是非空 2D 图像")
+    if not bool(np.isfinite(array).all()):
+        raise ValueError("平场帧含非有限像素")
+    return array / float((1 << bits) - 1)
+
+
+def _camera_metadata_criteria(
+    current: OpticalProbe, reference: OpticalProbe
+) -> tuple[bool, str, str]:
+    """格式/位深判据：受支持的单色格式允许跨位深比较，元数据不自洽则否决。"""
+    cur_bits = mono_bit_depth_of_probe(current)
+    ref_bits = mono_bit_depth_of_probe(reference)
+    cur_fmt = current.camera_format
+    ref_fmt = reference.camera_format
+    comparable = cur_bits is not None and ref_bits is not None
+
+    if comparable and cur_bits == ref_bits:
+        format_text = f"取图格式 {cur_fmt!r} vs 参照 {ref_fmt!r}"
+        bit_text = f"像素位深 {cur_bits} vs 参照 {ref_bits}"
+    elif comparable:
+        format_text = (
+            f"取图格式 {cur_fmt!r} vs 参照 {ref_fmt!r} "
+            "(受支持单色格式，按各自有效满量程归一化后比较)"
+        )
+        bit_text = (
+            f"像素位深 {cur_bits} vs 参照 {ref_bits} "
+            f"(满量程 {(1 << cur_bits) - 1}/{(1 << ref_bits) - 1}，归一化后比较)"
+        )
+    else:
+        format_text = (
+            f"取图格式 {cur_fmt!r} vs 参照 {ref_fmt!r}；"
+            "格式/位深缺失或自洽性校验未过，不能跨位深比较"
+        )
+        bit_text = f"像素位深 {current.bit_depth!r} vs 参照 {reference.bit_depth!r}；元数据不可比"
+    return comparable, format_text, bit_text
 
 
 @dataclass(frozen=True)
@@ -928,8 +1015,9 @@ def assess_reuse(
     - **形状** (缺平场帧时, 老 latest 目录): 退回 ``zero_xy`` 各轴
       ``<= tol_zero_px`` —— 没有形状证据就只能用位置, 宁可严格;
     - 曝光上界在当前区间 ``[参考/因子, 参考*因子]`` 内 (上界稳; 下界不稳不判);
-    - ``camera_format`` 完全相等 (None 之一视作不可比 → 不同);
-    - ``bit_depth`` 完全相等 (None 之一视作不可比 → 不同)。
+    - 单色 ``camera_format`` / ``bit_depth`` 各自完整且自洽：同格式直接比，
+      MONO8/MONO12/MONO16 之间允许跨位深比较（帧按各自有效满量程归一到
+      0..1 后再做形状判比）；未知格式、缺位深或格式与位深矛盾一律不同。
 
     任何一步配不上 (含 ``reference=None``) → ``same=False``, **绝不抛异常**;
     形状比对本身抛 ValueError (帧尺寸不一致等) 也按「不同」处理。
@@ -953,11 +1041,24 @@ def assess_reuse(
         criteria["reference"] = "没有 latest 参照"
         return ReuseDecision(False, criteria, None)
 
-    # 形状 (主判据) / 零点 (退路)
+    # 形状 (主判据) / 零点 (退路)。跨位深时两帧先按各自有效满量程归一，
+    # 否则 NCC 虽近似对增益不敏感，量纲与判据出处仍无法在结果里说清。
     if current_frame is not None and reference_frame is not None:
         try:
-            flat = compare_flat_frames(current_frame, reference_frame)
-        except ValueError as exc:
+            current_bits = mono_bit_depth_of_probe(current)
+            reference_bits = mono_bit_depth_of_probe(reference)
+            compared_current = (
+                normalize_flat_frame_to_unit_scale(current_frame, current_bits)
+                if current_bits is not None
+                else current_frame
+            )
+            compared_reference = (
+                normalize_flat_frame_to_unit_scale(reference_frame, reference_bits)
+                if reference_bits is not None
+                else reference_frame
+            )
+            flat = compare_flat_frames(compared_current, compared_reference)
+        except (TypeError, ValueError) as exc:
             criteria["flat"] = f"平场帧不可比 ({exc})"
             criteria["shape"] = "平场帧不可比, 无形状度量"
             return ReuseDecision(False, criteria, None)
@@ -998,25 +1099,12 @@ def assess_reuse(
         exposure_ok = False
     criteria["exposure"] = f"曝光上界 {cur_hi:g} ms vs 参照 {ref_hi:g} ms"
 
-    # 格式与位深: 都必须非空且完全一致
-    format_ok = (
-        current.camera_format is not None
-        and reference.camera_format is not None
-        and current.camera_format == reference.camera_format
-    )
-    criteria["camera_format"] = (
-        f"取图格式 {current.camera_format!r} vs 参照 {reference.camera_format!r}"
-    )
-    bit_ok = (
-        current.bit_depth is not None
-        and reference.bit_depth is not None
-        and current.bit_depth == reference.bit_depth
-    )
-    criteria["bit_depth"] = (
-        f"像素位深 {current.bit_depth!r} vs 参照 {reference.bit_depth!r}"
-    )
+    # 格式与位深: 受支持的单色格式可跨位深比较，但元数据必须完整且自洽。
+    format_ok, format_text, bit_text = _camera_metadata_criteria(current, reference)
+    criteria["camera_format"] = format_text
+    criteria["bit_depth"] = bit_text
     return ReuseDecision(
-        bool(flat_ok and moment_ok and exposure_ok and format_ok and bit_ok),
+        bool(flat_ok and moment_ok and exposure_ok and format_ok),
         criteria,
         flat,
     )
