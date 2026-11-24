@@ -23,7 +23,7 @@ from ao_shaping.tools.slm.transfer.capture import clock
 from ao_shaping.tools.slm.transfer.device import DEVICE_CHOICES, resolve_device
 from ao_shaping.tools.slm.transfer.radiometry import count_rate
 
-from .adaptation import SEALED_SPLITS
+from .splits import SEALED_SPLITS
 from .parallel_fit import EarlyStopper
 
 

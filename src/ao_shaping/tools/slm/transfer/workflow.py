@@ -15,7 +15,7 @@ import numpy as np
 from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
 from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
 
-from .adaptation import SELECTION_SPLIT
+from .splits import SELECTION_SPLIT
 from .capture import clock
 from .device import DEVICE_CHOICES, resolve_device
 from .light_guard import OpticalPathInvalid

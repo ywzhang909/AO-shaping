@@ -3,14 +3,10 @@ from __future__ import annotations
 
 import numpy as np
 
-#: Three-tier split (#254 T2): ``train`` = fitting rows; ``validation`` (role
-#: ``selection_validation``) = the ONLY tier promotion and checkpoint selection
-#: may read; ``test`` / ``final_test`` = sealed -- never fitted, never scored by
-#: selection quality, evaluated once by :func:`final_test_quality` after the
-#: candidate set is frozen. Older datasets legitimately lack these rows, so all
-#: readers must go through the split value, never the row count.
-SELECTION_SPLIT = "validation"
-SEALED_SPLITS = frozenset({"test", "final_test"})
+from .splits import SEALED_SPLITS, SELECTION_SPLIT
+
+__all__ = ["SEALED_SPLITS", "SELECTION_SPLIT", "configure_adaptation",
+           "final_test_quality", "needs_full_adaptation", "validation_quality"]
 
 
 def configure_adaptation(model, mode):

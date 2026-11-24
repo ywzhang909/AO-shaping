@@ -104,7 +104,7 @@ def fit_recorded_subset(directory: Path, checkpoint: Path, calibration: list[dic
     silently become fitting examples.
     """
     from ao_shaping.tools.slm.transfer.fit import fit
-    from .adaptation import SEALED_SPLITS
+    from .splits import SEALED_SPLITS
 
     if any(row["split"] in SEALED_SPLITS for row in calibration + training + validation):
         raise ValueError("sealed test/final_test rows cannot participate in subset fitting")
