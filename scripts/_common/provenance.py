@@ -308,6 +308,23 @@ REPORTS: dict[str, ReportProvenance] = {
             "数字来自同目录 reconciliation.json。无独立生成脚本，四法直接调用生产函数完成。人工撰写。"
         ),
     ),
+    "report/shape_trials/issue247_evidence_summary_20261124/issue247_evidence_summary_20261124.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线汇总（只读历史报告、原始数据与 GitHub issue 评论；未占用 SLM/CCD/激光）",
+        note=(
+            "Issue #247 全阶段证据汇总：按原始验收项区分物理现象成立、局部标定有效与校正算法收益未证明。"
+            "支持零级/目标级分离、探针标度与局部 2D/patch 映射；否定单一全局映射、单一族归因与直接轴校正收益；"
+            "根因、跨会话复现、加性判定、合成模板恢复、统一观测校正、默认路径逐位不变以及 Step A/holdout/Step B 收益仍证据不足。"
+            "明确披露 11-24 同窗口重复性含检查期新增的 8 px 边界排除、core_exclude_px=41.0 会吞掉距零级 37–40 px 的真实 p192 波瓣，"
+            "故只记限定口径下的同窗口可重复。issue 保持 OPEN，不冻结映射、不宣称闭环收益。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/issue247_zero_order_stability_20261117.py",
+            "scripts/slm/issue247_axis_map_solve_20261121.py",
+            "scripts/slm/issue247_waveform_probe_solve_20261122.py",
+            "scripts/slm/issue247_reproducibility_check_20261124.py",
+        ),
+    ),
     "report/shape_trials/issue247_zero_order_20261117/issue247_zero_order_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件（Santec SLM-200 #1 + Daheng CCD #0，2026-11-17 真线性 tilt 全幅采集；报告本体不占用设备）",
