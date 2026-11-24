@@ -755,6 +755,20 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/transfer/protocol.py",
         ),
     ),
+    "report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线计划；未连接或占用 SLM、CCD、激光（本轮未执行）",
+        note=(
+            "闭环 refit A/B–ABBA 主实验计划，按文档化契约重建；默认配置与 refit 变体采用同曝光、"
+            "A–B–B–A 交错与 N≥3 配对，主判据为实测 core CV。预测指标不替代实测闭环收益，"
+            "实验前须重新验证重建的回放脚本。"
+        ),
+        extra_scripts=(
+            "scripts/slm/replay_closed_loop_abba_20261124.py",
+            "scripts/slm/refit_transfer_forward.py",
+            "scripts/slm/evaluate_transfer_on_new_session.py",
+        ),
+    ),
     "report/shape_trials/multishape_scale/square_1000_diff_abba_20261030.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线分析与实验；ABBA 及 v6/v7 局部响应诊断均使用 Santec #1 / Daheng Mono12",

@@ -133,14 +133,14 @@ python scripts/slm/issue247_cross_session_check_20261124.py --root <cross-sessio
 
 ## 8. 缺数据采集与分析计划
 
-**可执行入口**：各行的采集/离线脚本 CLI 契约与安全语义统一登记于 `docs/dev/hw_capture_script_inventory_20261124.md`（下表"入口"列给最短指针）。注意：#247 与 PSF/refit 行原引用的两份计划文档当前被并发车道删除且未入 HEAD（悬空引用，见清单 §11）；#137/#213/#156 三行尚无完整契约执行器，只有可复用组件。
+**可执行入口**：各行的采集/离线脚本 CLI 契约与安全语义统一登记于 `docs/dev/hw_capture_script_inventory_20261124.md`（下表"入口"列给最短指针）。注意：#247 与 PSF/refit 行原引用的两份计划文档曾被并发车道删除且未入 HEAD，已按契约重建（原字节不可恢复），§8 引用已恢复（见清单 §11）；#137/#213/#156 三行尚无完整契约执行器，只有可复用组件。
 
 | 对象 | 必补证据 | 冻结执行口径 / 现有计划 | 入口（详见清单） |
 |---|---|---|---|
-| #247 | 三独立会话 15+5 复现、轴映射冻结、校正前后实测配对 | 每会话独立预检/open/close/release；内部 r1/r2/r3；主门 pinned 15/15、轴差 ≤2°；p192 沿用 35–45 px、`peak-background≥100`、每会话至少 3/4 帧强候选与轴角稳定门。见 `hw_window_20261124_issue247_cross_session_prereg.md`（现悬空）。 | `issue247_cross_session_capture_20261124.py`（无 `--execute`，演练必须 `--dry-run`）+ `issue247_geometry_capture_20261120.py`；离线 `issue247_reproducibility_check_20261124.py`、`issue247_core_blind_audit_20261124.py`、`scripts/slm/issue247_cross_session_check_20261124.py`（HEAD 可恢复）。 |
+| #247 | 三独立会话 15+5 复现、轴映射冻结、校正前后实测配对 | 每会话独立预检/open/close/release；内部 r1/r2/r3；主门 pinned 15/15、轴差 ≤2°；p192 沿用 35–45 px、`peak-background≥100`、每会话至少 3/4 帧强候选与轴角稳定门。见 `hw_window_20261124_issue247_cross_session_prereg.md`（按契约重建）。 | `issue247_cross_session_capture_20261124.py`（无 `--execute`，演练必须 `--dry-run`）+ `issue247_geometry_capture_20261120.py`；离线 `issue247_reproducibility_check_20261124.py`、`issue247_core_blind_audit_20261124.py`、`scripts/slm/issue247_cross_session_check_20261124.py`（HEAD 可恢复）。 |
 | #234/#236/#254 | Mono12 可分辨强度/方向门、三层 split、端到端效率配对 | 同会话同曝光同 bit-depth 暗场；train/selection_validation/final_test 隔离；final_test 只读一次；双门达门后做同起点/同 CCD 预算 2×2 交错，适配耗时计入总墙钟，失败/饱和不得增加。见 `transfer_efficiency_and_closed_loop_data_reuse_plan_20261121/plan.md`。 | 诊断：`efficiency_match_capture/analyze_20261123.py`、`content_axis_2x2_capture_20261124.py`；终验外壳：`validate_transfer_shapes_hardware.py`（演练 `--plan-only`）、`replay_transfer_shapes_hardware.py`。 |
 | #238 | 可发布 g₂π 与串扰独立验收 | Mono12/4095、全幅、≥4 曝光 bracket、同曝光熄灯暗场、`--wait-until-idle`；先冻结拟合和漂移门，再决定是否更新 LUT。 | `issue238_gray_phase_probes.py`（≥4 档 bracket；**无熄灯 hook，暗场须独立采集**）、`issue238_binary_fit.py`、`calib_slm_lut_checkerboard.py`；`capture_slm_lut_probes.py` 不满足硬门。 |
-| PSF/refit | 跨会话、跨形状稳健性及实测整形转化 | 保持默认关闭；新鲜验证集不参与选型；按 `closed_loop_refit_abba_plan_20261124.md`（现悬空）做默认 vs refit 的同曝光 A–B–B–A，只认实测 core CV 主判据。 | `refit_transfer_forward.py`、`evaluate_transfer_on_new_session.py`；ABBA replay 脚本已真丢失，需重建。 |
+| PSF/refit | 跨会话、跨形状稳健性及实测整形转化 | 保持默认关闭；新鲜验证集不参与选型；按 `closed_loop_refit_abba_plan_20261124.md`（按契约重建）做默认 vs refit 的同曝光 A–B–B–A，只认实测 core CV 主判据。 | `refit_transfer_forward.py`、`evaluate_transfer_on_new_session.py`；ABBA replay 脚本已按契约重建，实验前需重新验证。 |
 | #137 | 热启动效果和节省时间 | 同一连接 cold/hot 各 N≥3 交错，固定 0.05 ms、同几何同种子；探针预算 4→3→2；报告验证集相关/误差及采集+拟合总时间。 | **无完整执行器**；组件：`bootstrap_transfer_checkpoint.py`、`generate_cold_start_report.py`、validator `--initial-phase/--seed-run`。 |
 | #139 | 窗口约束后的不确定性探针收益 | 先修 U(p) 与相机窗口脱节并通过几何门，再同种子 N≥3 A/B；比较探针数、进窗能量、held-out correlation/CV/EE，不能直接关带限上线。 | `transfer_uncertainty_experiment.py`（`--execute`/`--render-only`）；sim 对照 `report/sim_tue_methods/t4_uncertainty_sampling.py`。 |
 | #124/#126 | 正向增量而非仅机制/反向验证 | 先 sim：错模型独立 freeform 验证集、同探针/步数预算、≥3 种子；#124 保留过噪声劣化反向验证，#126 必须优于 per-pixel-only 才进入硬件配对。 | sim 固定入口：`report/sim_tue_methods/t1_noise_relaxation.py`、`t2_mixed_fitting.py`；未达门不设硬件入口。 |

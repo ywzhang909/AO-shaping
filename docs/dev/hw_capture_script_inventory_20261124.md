@@ -53,10 +53,10 @@
 |---|---|---|
 | refit 前向 | `scripts/slm/refit_transfer_forward.py` | 离线；必填 `--dataset --checkpoint --out`（输出目录必须不存在）；`--dry-run` 只评估一个 loss、不写文件。 |
 | 跨会话评估 | `scripts/slm/evaluate_transfer_on_new_session.py` | 离线；必填 `--original --new --fit --out`；`--skip-validation` 只用于调试，不得作为正式验收命令。 |
-| ABBA 回放 | `scripts/slm/replay_closed_loop_abba_20261124.py` **【已消失；未入 HEAD，删除即真丢失】** | 原契约：`--phase-a/--phase-b/--mask-npz/--out`，`--execute` 才开设备，支持 `--bit-depth`。 |
+| ABBA 回放 | `scripts/slm/replay_closed_loop_abba_20261124.py` **【按契约重建；原字节不可恢复，实验前需重新验证】** | 原契约：`--phase-a/--phase-b/--mask-npz/--out`，`--execute` 才开设备，支持 `--bit-depth`。 |
 | PSF 评估 | `data/debug/slm_transfer/20261124_transfer_psf_v1/evaluate_psf.py` | 冻结实验固定入口，无常规 argparse，不补造参数。 |
 
-缺口：静态 PSF 双门与 refit 实测闭环收益是两个实验；refit ABBA 计划文档 `report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md` 与其入口同时被并发车道删除。
+缺口：静态 PSF 双门与 refit 实测闭环收益是两个实验；refit ABBA 计划文档 `report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md` 与其入口曾被并发车道删除，已按契约重建（原字节不可恢复，实验前需重新验证）。
 
 ## 5. #137 热启动交错
 
@@ -98,10 +98,10 @@
 | `scripts/slm/analyze_content_axis_2x2_20261124.py` | 已入 HEAD；工作树暂缺，可恢复 |
 | `scripts/slm/content_axis_2x2_capture_20261124.py` | 已入 HEAD；盘点时曾被删、复核时已在工作树（波动） |
 | `scripts/slm/s1e_same_bytes_probe_capture_20261124.py` | 已入 HEAD（`94282236`）；复核时已在工作树 |
-| `scripts/slm/replay_closed_loop_abba_20261124.py` | **未入 HEAD，删除即真丢失** |
-| `scripts/slm/capture_s1_mapping_disambiguation_20261124.py` | **未入 HEAD，删除即真丢失**（仅剩 `__pycache__` 编译产物） |
-| `docs/dev/hw_window_20261124_issue247_cross_session_prereg.md`（总账 §8 #247 行引用的预注册计划） | **未入 HEAD，真丢失**；§8 该行为悬空引用，待持有车道补回或改指 |
+| `scripts/slm/replay_closed_loop_abba_20261124.py` | **按契约重建（原字节不可恢复），实验前需重新验证** |
+| `scripts/slm/capture_s1_mapping_disambiguation_20261124.py` | **按契约重建（原字节不可恢复），11 项离线测试通过** |
+| `docs/dev/hw_window_20261124_issue247_cross_session_prereg.md`（总账 §8 #247 行引用的预注册计划） | **按契约重建（原字节不可恢复）**；§8 引用已恢复 |
 | `docs/dev/hw_window_20261124_issue247_reproducibility_prereg.md` | 已入 HEAD；工作树暂缺，可恢复 |
-| `report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md`（总账 §8 PSF/refit 行引用） | **未入 HEAD，真丢失**；§8 该行为悬空引用 |
+| `report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md`（总账 §8 PSF/refit 行引用） | **按契约重建（原字节不可恢复）**；§8 引用已恢复 |
 
 以上删除均非本车道所为；本车道未恢复、未改写任何被删文件。
