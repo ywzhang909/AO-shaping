@@ -3,14 +3,18 @@
 覆盖：
 
 1. ``--help`` 列出 ``--dir`` / ``--self-test`` / ``--overwrite``；
-2. ``--self-test`` 无需设备即退出 0，且三种合成场景各得预期结论；
+2. ``--self-test`` 无需设备即退出 0，且四种合成场景各得预期结论（含 held-out 反转）；
 3. import 脚本不会加载任何相机/SLM 驱动；
 4. 合成帧下逐门槛实测值正确（波形门、轴门、标度门、符号门、patch 门）；
 5. 二值 grating 必须**同时**报告 ±1 两侧，不允许只挑一侧；
 6. flat 漂移、饱和分别把结论压到 ``invalid_drift_or_saturation``；
 7. 产物写盘、默认拒绝覆盖、绝不产出 ``issue247_axis_map*.json`` / ``*.npz``；
 8. 缺失图样时相关门槛记为 skipped，不得被当成通过；
-9. 脚本与测试文件无 BOM、以 LF 结尾。
+9. 脚本与测试文件无 BOM、以 LF 结尾；
+10. role 解析（缺省/合法/非法）与旧 15 图样 JSON 的 gates/verdict 不变；
+11. G1–G4 的 pass/fail/skipped、grating 双峰必须用 axis_angle_deg；
+12. G1/G2 同时 pass 时 attribution_label 必须归因单族路径；
+13. held-out 轴向准确率、逐族门槛与符号判定。
 
 本测试只使用 ``tmp_path`` 与内存合成帧，不读 ``data/``、不碰设备。
 """
@@ -24,6 +28,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 SCRIPT = importlib.import_module("scripts.slm.issue247_waveform_probe_solve_20261122")
 
@@ -56,7 +61,7 @@ def _analyze(scene: str, thresholds: dict[str, float] | None = None):
 def _write_capture(target: Path, capture: SCRIPT.Capture) -> None:
     """按采集脚本的命名把合成帧与 plan.json 写到磁盘。
 
-    ``summary.json`` 按实验系统 schema 写满量程（采集脚本会写 ``full_scale``），
+    ``summary.json`` 按真机 schema 写满量程（采集脚本会写 ``full_scale``），
     这样默认路径与真采集一致；需要测推断分支时由用例自行删掉它。
     """
     frames_dir = target / "frames"
@@ -110,6 +115,8 @@ def test_self_test_exits_zero_and_reports_all_scenes():
     for scene, verdict in SCENES:
         assert f"scene={scene}" in result.stdout
         assert f"verdict={verdict}" in result.stdout
+    assert "scene=held_out_axis_flipped" in result.stdout
+    assert "held_out_gate_pass=False" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -336,3 +343,235 @@ def test_source_files_have_no_bom_and_lf_endings():
         raw = path.read_bytes()
         assert not raw.startswith(b"\xef\xbb\xbf"), path
         assert b"\r\n" not in raw, path
+
+
+# ---------------------------------------------------------------------------
+# 7. 归因门与 held-out 独立验证（预注册 §3.2 / §3.3）
+# ---------------------------------------------------------------------------
+def _fit_parts(capture, analysis):
+    fit_ids = {spec.pattern_id for spec in capture.catalog if spec.role == "fit"}
+    fit_catalog = [spec for spec in capture.catalog if spec.role == "fit"]
+    fit_records = {
+        pid: record for pid, record in analysis["patterns"].items() if pid in fit_ids
+    }
+    return fit_catalog, fit_records
+
+
+def _held_parts(capture, analysis):
+    held_ids = {spec.pattern_id for spec in capture.catalog if spec.role == "held_out"}
+    held_catalog = [spec for spec in capture.catalog if spec.role == "held_out"]
+    held_records = {
+        pid: record for pid, record in analysis["patterns"].items() if pid in held_ids
+    }
+    return held_catalog, held_records
+
+
+def test_role_parsing_default_legal_and_invalid():
+    plan = {
+        "patterns": [
+            {"id": "grating_x_p128", "kind": "grating"},
+            {"id": "tilt_x_plus", "kind": "tilt", "role": "held_out"},
+            {"id": "patch_x_plus_p128", "kind": "patch", "role": "fit"},
+        ]
+    }
+    specs = SCRIPT.build_specs(plan)
+    assert [spec.role for spec in specs] == ["fit", "held_out", "fit"]
+    plan["patterns"][1]["role"] = "validation"
+    with pytest.raises(ValueError, match="role"):
+        SCRIPT.build_specs(plan)
+
+
+def test_old_15_pattern_json_keeps_gates_and_verdict():
+    """旧窗口没有 role 字段；新增产物不得改动旧 gates/verdict 的口径。"""
+    old_dir = ROOT / "data" / "debug" / "hw_window_20261123_issue247_waveform_probe"
+    payload = json.loads(
+        (old_dir / SCRIPT.ANALYSIS_JSON_NAME).read_text(encoding="utf-8")
+    )
+    plan = json.loads((old_dir / "plan.json").read_text(encoding="utf-8"))
+    specs = SCRIPT.build_specs(plan)
+    assert len(specs) == 15
+    assert all(spec.role == "fit" for spec in specs)
+    drift = dict(payload["flat_reference"])
+    drift["pass"] = drift["invalid_drift"] is False
+    drift["pairwise_px"] = drift["pairwise_drift_px"]
+    gates = SCRIPT._build_gates(specs, payload["patterns"], drift, payload["thresholds"])
+    assert gates == payload["gates"]
+    verdict = SCRIPT._decide_verdict(gates)
+    assert verdict == payload["verdict"] == "patch_position_specific"
+
+    attribution = SCRIPT._build_attribution_gates(specs, payload["patterns"])
+    for key in (
+        "G1_waveform_dependency",
+        "G2_single_family_anomaly",
+        "G3_axis_separation",
+        "G4_sign_consistency",
+        "attribution_label",
+        "anomalous_family",
+    ):
+        assert key in attribution
+
+
+def test_attribution_gates_pass_fail_and_skipped():
+    consistent = _analyze("consistent")
+    gates = consistent["attribution_gates"]
+    # 三族在同面板轴上同轴：G1 fail（波形无关），G2 fail（无单族异常）。
+    assert gates["G1_waveform_dependency"]["pass"] is False
+    assert gates["G2_single_family_anomaly"]["pass"] is False
+    assert gates["G3_axis_separation"]["pass"] is True
+    # 旧自检场景的三族里没有成对的 ±，G4 必须 skipped 而不是 pass。
+    assert gates["G4_sign_consistency"]["pass"] is None
+    assert gates["attribution_label"] == "not_assessable"
+
+    capture = SCRIPT.build_self_test_capture("consistent")
+    capture.means.pop("blaze_patch_x")
+    capture.frame_stats.pop("blaze_patch_x")
+    capture.missing.append("blaze_patch_x")
+    skipped = SCRIPT.analyze(capture, dict(SCRIPT.DEFAULT_THRESHOLDS))["attribution_gates"]
+    assert skipped["G1_waveform_dependency"]["pass"] is None
+    assert skipped["G2_single_family_anomaly"]["pass"] is None
+    assert skipped["G3_axis_separation"]["families"]["blaze_patch"]["pass"] is None
+
+
+def test_g1_and_g2_both_pass_prefers_single_family_attribution():
+    analysis = _analyze("grating_rotated")
+    gates = analysis["attribution_gates"]
+    assert gates["G1_waveform_dependency"]["pass"] is True
+    assert gates["G2_single_family_anomaly"]["pass"] is True
+    assert gates["G2_single_family_anomaly"]["anomalous_family"] == "grating"
+    assert gates["attribution_label"] == "该族生成或下发路径问题"
+    assert gates["anomalous_family"] == "grating"
+    assert gates["g1_role"] == "descriptive_only"
+    # 逐门值必须在报告里同时列出，单一 label 不得盖住其他 fail。
+    report = SCRIPT.build_report(
+        analysis, SCRIPT.build_self_test_capture("grating_rotated").catalog
+    )
+    assert "## 归因门与 held-out 独立验证" in report
+    assert "G2_single_family_anomaly > G1_waveform_dependency" in report
+    assert "该族生成或下发路径问题" in report
+    for gate in ("G1 波形依赖[x]", "G2 单族异常[grating]", "G3 轴分离[grating]"):
+        assert gate in report
+
+
+def test_grating_attribution_uses_axis_angle_deg_not_principal():
+    capture = SCRIPT.build_self_test_capture("grating_rotated")
+    analysis = SCRIPT.analyze(capture, dict(SCRIPT.DEFAULT_THRESHOLDS))
+    record = dict(analysis["patterns"]["grating_x_p128"])
+    assert len(record["lobes"]) == 2
+    expected = float(record["axis_angle_deg"])
+    record["principal"] = {**record["principal"], "angle_deg": 0.0}
+    records = {
+        pid: record if pid == "grating_x_p128" else value
+        for pid, value in analysis["patterns"].items()
+    }
+    fit_catalog, _ = _fit_parts(capture, analysis)
+    gates = SCRIPT._build_attribution_gates(fit_catalog, records)
+    measured = gates["G1_waveform_dependency"]["axes"]["x"]["angles_deg"]["grating"]
+    assert abs(abs(measured) - 90.0) < 1e-3
+    assert abs(abs(expected) - 90.0) < 1e-3
+    assert record["principal"]["angle_deg"] == 0.0
+
+
+def test_g3_axis_routing_failure_and_g4_sign_failure():
+    capture = SCRIPT.build_self_test_capture("held_out_axis_flipped")
+    analysis = SCRIPT.analyze(capture, dict(SCRIPT.DEFAULT_THRESHOLDS))
+    fit_catalog, fit_records = _fit_parts(capture, analysis)
+
+    routing_records = dict(fit_records)
+    routing_records["tilt_y_plus"] = {
+        **fit_records["tilt_y_plus"],
+        "axis_angle_deg": 0.0,
+    }
+    routing_records["tilt_y_minus"] = {
+        **fit_records["tilt_y_minus"],
+        "axis_angle_deg": 180.0,
+    }
+    routing = SCRIPT._build_attribution_gates(fit_catalog, routing_records)
+    tilt = routing["G3_axis_separation"]["families"]["tilt"]
+    assert tilt["axis_routing_failed"] is True
+    assert routing["G3_axis_separation"]["pass"] is False
+    assert "tilt" in routing["G3_axis_separation"]["axis_routing_failed_families"]
+
+    sign_records = dict(fit_records)
+    plus_angle = float(fit_records["tilt_x_plus"]["axis_angle_deg"])
+    sign_records["tilt_x_minus"] = {
+        **fit_records["tilt_x_minus"],
+        "axis_angle_deg": plus_angle,
+    }
+    sign_gates = SCRIPT._build_attribution_gates(fit_catalog, sign_records)
+    pairs = {
+        (pair["family"], pair["axis"]): pair
+        for pair in sign_gates["G4_sign_consistency"]["pairs"]
+    }
+    assert pairs[("tilt", "x")]["pass"] is False
+    assert sign_gates["G4_sign_consistency"]["pass"] is False
+
+
+def test_held_out_validation_rejects_axis_flip_and_accepts_match():
+    capture = SCRIPT.build_self_test_capture("held_out_axis_flipped")
+    analysis = SCRIPT.analyze(capture, dict(SCRIPT.DEFAULT_THRESHOLDS))
+    validation = analysis["held_out_validation"]
+    predictions = analysis["held_out_predictions"]
+    assert validation["gate_pass"] is False
+    assert validation["held_out_axis_accuracy"] == 0.0
+    assert validation["axis_total_count"] == 10
+    assert len(predictions) == 10
+    assert all(not item["gate_pass"] for item in validation["per_family"].values())
+    assert "grating_x_p192" in validation["held_out_ids"]
+    assert "grating_x_p128" in validation["fit_ids"]
+    assert all(pred["status"] == "assessed" for pred in predictions)
+    assert all(pred["prediction_rule"] == "G3_all_pass" for pred in predictions)
+    report = SCRIPT.build_report(analysis, capture.catalog)
+    assert "held-out 预测与实测" in report
+    assert "held_out_axis_accuracy = 0/10" in report
+    assert "旧 `gates` / `verdict` 仅为兼容保存" in report
+
+    # 把 held-out 的轴向角改成 fit 预测值：必须全过（符号仍用原始 lobes，不影响轴向门）。
+    fit_catalog, fit_records = _fit_parts(capture, analysis)
+    held_catalog, held_records = _held_parts(capture, analysis)
+    fit_angles = SCRIPT._attribution_axis_angles(fit_catalog, fit_records)
+    matched = dict(held_records)
+    for spec in held_catalog:
+        if spec.family == "flat":
+            continue
+        matched[spec.pattern_id] = {
+            **matched[spec.pattern_id],
+            "axis_angle_deg": fit_angles[spec.axis][spec.family]["angle_deg"],
+        }
+    ok_validation, ok_predictions = SCRIPT._build_held_out_validation(
+        fit_catalog, fit_records, held_catalog, matched, analysis["attribution_gates"]
+    )
+    assert ok_validation["gate_pass"] is True
+    assert ok_validation["held_out_axis_accuracy"] == 1.0
+    assert all(item["gate_pass"] for item in ok_validation["per_family"].values())
+    assert all(pred["axis_correct"] is True for pred in ok_predictions)
+
+
+def test_measured_sign_uses_single_lobe_projection():
+    def sign(record: dict, pattern_id: str, axis: str):
+        return SCRIPT._measured_sign({pattern_id: record}, pattern_id, axis)
+
+    single = {"lobes": [{"dr": 0.0, "dc": 96.0}]}
+    assert sign(single, "grating_x_p192", "x") == 1
+    single = {"lobes": [{"dr": 0.0, "dc": -96.0}]}
+    assert sign(single, "tilt_x_minus_p192", "x") == -1
+    single = {"lobes": [{"dr": 96.0, "dc": 0.0}]}
+    assert sign(single, "tilt_y_plus_p192", "y") == 1
+    double = {"lobes": [{"dr": 0.0, "dc": 96.0}, {"dr": 0.0, "dc": -96.0}]}
+    assert sign(double, "grating_x_p192", "x") is None
+
+
+def test_held_out_predictions_and_validation_written_to_json(tmp_path: Path):
+    capture = SCRIPT.build_self_test_capture("held_out_axis_flipped")
+    _write_capture(tmp_path, capture)
+    assert SCRIPT.main(["--dir", str(tmp_path)]) == 0
+    payload = json.loads((tmp_path / SCRIPT.ANALYSIS_JSON_NAME).read_text(encoding="utf-8"))
+    for key in (
+        "attribution_gates",
+        "held_out_validation",
+        "held_out_predictions",
+        "role_by_pattern",
+    ):
+        assert key in payload
+    assert payload["role_by_pattern"]["grating_x_p192"] == "held_out"
+    assert payload["role_by_pattern"]["grating_x_p128"] == "fit"
+    assert payload["held_out_validation"]["gate_pass"] is False

@@ -323,6 +323,24 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/issue247_zero_order_stability_20261117.py",
         ),
     ),
+    "report/shape_trials/issue247_waveform_attribution_20261123/issue247_waveform_attribution_20261123.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM-200 #1 1064 nm + Daheng MER2-507-23GM cam 0，2026-11-24 采集；报告本体不占用设备）",
+        note=(
+            "Issue #247 波形族归因窗口 v2：23 图样 × 4 帧 = 92 帧全幅 Mono12 采集，"
+            "补齐三族 ± 对照与预注册 held-out 方向。G1 波形依赖门 fail（x 族极差 89.84° pass、"
+            "y 族 1.18° fail）、G2 单族异常门 fail（无单一异常族）、G3 轴分离门 fail"
+            "（grating 0.35° / tilt 0.74° 轴路由失败，blaze_patch 89.997° pass）、"
+            "G4 符号一致性门 fail（blaze_patch/y 偏离 164.01° 超 5° 容差）。"
+            "attribution_label = not_assessable，held-out 轴向正确 0/10，映射仍歧义、不冻结。"
+            "旧 6 值 verdict tilt_specific 仅兼容保存，不作为本窗口结论。人工撰写。"
+        ),
+        extra_scripts=(
+            "scripts/slm/issue247_geometry_capture_20261120.py",
+            "scripts/slm/issue247_waveform_probe_solve_20261122.py",
+            "scripts/slm/probe_optical_path_validity.py",
+        ),
+    ),
     "report/shape_trials/transfer_candidates_timing_20261117/transfer_candidates_timing_20261117.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（仅 CUDA，不占 SLM/CCD/激光；2026-11-17 生成）",
