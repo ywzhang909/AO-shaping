@@ -20,8 +20,9 @@
 
 * 只 import 三个**零导入叶子** (:mod:`ao_shaping.utils.slm.bench_constants`、
   :mod:`ao_shaping.utils.wavefront.matrix_utils` 与
-  :mod:`ao_shaping.tools.kernels.bench_kernels`) —— 实测它们**不牵入任何
-  ``ao_shaping.drivers.*``;
+  :mod:`ao_shaping.tools.kernels.bench_kernels`), 再加上只读相位文件的共享 helper
+  :mod:`scripts.slm._transfer_phase` (它只牵入 ``capture.to_panel``, 实测**不牵入任何
+  ``ao_shaping.drivers.*``**);
 * 波长常量 ``DEFAULT_WAVELENGTH_NM`` 用 ``ast`` 从 ``drivers/slm/factory.py``
   **静态读取** (不 import), 保持单一事实源又不触发驱动包的 import 期副作用;
 * 收尾时**断言** ``ao_shaping.drivers`` 没出现在 ``sys.modules`` 里 —— 这条断言
@@ -32,7 +33,7 @@
 而那个 import 会连带牵入相机/SLM 后端, 直接违约上面那条断言。``--execute`` 时像元
 自动从型号配置读 (未登记就报错并给出登记命令)。
 
-🔴 **扫描前先自检光路 (pre-flight)**: 基准帧 (Δz=0, GS 相位已施加) 一抓到就判
+🔴 **扫描前先自检光路 (pre-flight)**: 基准帧 (Δz=0, 被测相位已施加) 一抓到就判
 一次「有没有可评分的局域光斑」。判据看**结构**而不是亮度 —— 光路被挡住时画面里
 只有读出噪声, 而噪声帧照样能算出 CV/PIB/光斑, 于是本探针会安安静静地记下 30 行
 **纯噪声** 当成测量结果 (2026-10-21 实测)。所以:
@@ -128,6 +129,19 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
     # 打开去倾斜 (把二次相位的转向补掉; 默认关闭)
     python scripts/slm/hw_gs_defocus_probe.py --execute --chirp-tilt-cancel \
         --chirp-tilt-cal-dz-mm 2.0 --chirp-tilt-test-period-px 1000
+
+被测相位从哪来
+--------------
+
+``--phase-source transfer`` (**默认**) 用 ``scripts/slm/_transfer_phase.py`` 里的最新
+transfer 整形终稿 (``DEFAULT_TRANSFER_PHASE``, star dense 640x640 弧度), 经 replay 同款
+``capture.to_panel`` 铺满面板 —— 这是现在真正要验证的被测对象。``--transfer-phase PATH``
+可换成同一批次的其它终稿 (例如 ``square/mono12_dense/square_best.npy``)。
+
+``--phase-source gs`` 是**旧 GS 流程对照入口**: 必须同时给 ``--gs-phase PATH``, 否则
+直接报错。transfer 来源下 ``--gs-phase`` 被忽略, 但会记进计划/``run_config.json`` 的
+``gs_phase_ignored``, 免得「以为用了 A 其实用了 B」。旧调用方 (缺少 ``phase_source``
+属性的 ``argparse.Namespace``) 仍按 GS 流程处理, 行为不变。
 
 同一套 CLI 跑仿真
 -----------------
@@ -1171,9 +1185,99 @@ def build_chirp_tilt_plan(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+#: 被测相位来源。``transfer`` = 最新验收的 transfer 整形终稿 (默认, 真正要验的被测对象);
+#: ``gs`` = 旧 GS 流程, 只作对照。
+PHASE_SOURCES: tuple[str, ...] = ("transfer", "gs")
+
+#: 旧 GS 流程里「没有 --gs-phase 时现场生成」的那段说明 (计划/落盘用, 语义不变)。
+_LIVE_GS_SOURCE_TEXT = (
+    "现场生成: import scripts.slm.experiment_gs_defocus_offocus 的 OffFocusBench "
+    "跑 plain GS (Δz=0) —— 必须在 --execute 分支里 import, 因为它会牵入 "
+    "ao_shaping.drivers.sim (纯仿真模块, 不碰硬件, 但会破坏 dry-run 的"
+    "「零驱动包」断言)"
+)
+
+
+def resolve_phase_source(args: argparse.Namespace) -> str:
+    """解析 ``--phase-source``, 返回 ``"transfer"`` 或 ``"gs"``。
+
+    旧调用方 (或 ``--replot`` 路径) 的 Namespace 可能没有 ``phase_source`` 属性:
+    那时返回 ``"gs"``, 即保持引入本选项前的行为 (有 ``--gs-phase`` 用路径, 否则
+    现场生成)。**不要**用 ``getattr(args, "phase_source", "transfer")`` —— CLI 的
+    默认值由 :func:`build_parser` 显式给出, 缺属性只可能来自旧调用方, 而把老流程
+    悄悄换成 transfer 会改变它们测的东西。
+
+    Raises:
+        ValueError: 取值非法, 或 ``--phase-source gs`` 却没给 ``--gs-phase``。
+    """
+    source = getattr(args, "phase_source", None)
+    if source is None:
+        return "gs"
+    if source not in PHASE_SOURCES:
+        raise ValueError(
+            f"--phase-source 只能是 {'/'.join(PHASE_SOURCES)}, 收到 {source!r}"
+        )
+    if source == "gs" and not getattr(args, "gs_phase", None):
+        raise ValueError(
+            "--phase-source gs 必须同时给 --gs-phase PATH (旧 GS 流程要一份现成相位); "
+            "不指定 --phase-source 时默认用最新 transfer 整形终稿"
+        )
+    return source
+
+
+def phase_source_record(args: argparse.Namespace) -> dict[str, Any]:
+    """计划/元数据里的相位来源记录 (只解析路径, 不读相位, 不碰设备)。
+
+    Returns:
+        含 ``phase_source`` (机器可读标签)、``transfer_phase`` / ``gs_phase`` /
+        ``gs_phase_ignored`` (路径或 ``None``)、``gs_phase_source`` (旧键名, 语义
+        推广为「被测相位的来源描述」, 保持落盘产物向后兼容) 与 ``upsampling``
+        (该来源实际走的面板展开链)。
+    """
+    source = resolve_phase_source(args)
+    gs_path = getattr(args, "gs_phase", None)
+    gs_text = str(gs_path) if gs_path else None
+    transfer_resolved: str | None = None
+    ignored: str | None = None
+    if source == "transfer":
+        from scripts.slm._transfer_phase import DEFAULT_TRANSFER_PHASE
+
+        requested = getattr(args, "transfer_phase", None)
+        transfer_resolved = (
+            Path(requested).as_posix() if requested else DEFAULT_TRANSFER_PHASE.as_posix()
+        )
+        ignored = gs_text
+        description = (
+            f"transfer 整形终稿: {transfer_resolved} "
+            "(640x640 弧度; replay 同款 to_panel 铺满面板)"
+        )
+        if ignored:
+            description += f" —— --gs-phase {ignored} 被忽略 (phase_source=transfer)"
+        upsampling = (
+            "to_panel(model): 模型弧度按整数倍平铺/裁剪到 1200x1920 面板 "
+            "(capture.to_panel, 与 replay_phases 上屏逐位一致); 不走上采样 + "
+            "embed_pupil_square"
+        )
+    else:
+        description = gs_text if gs_text else _LIVE_GS_SOURCE_TEXT
+        upsampling = (
+            "upsample_bilinear_to_shape(n_grid, (900, 900)) -> embed_pupil_square(..., "
+            "panel, 450, (960, 600)) —— 复用 ao_shaping.utils 的既有实现, 不自己写"
+        )
+    return {
+        "phase_source": source,
+        "transfer_phase": transfer_resolved,
+        "gs_phase": gs_text,
+        "gs_phase_ignored": ignored,
+        "gs_phase_source": description,
+        "upsampling": upsampling,
+    }
+
+
 def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
     """完整实验计划: 扫哪些 Δz、每次施加什么相位、预计多久、需要哪些设备。"""
     dz_list = [float(v) for v in args.dz_mm]
+    phase_info = phase_source_record(args)
     focus_mm = args.defocus_focal_mm
     focus_text = (
         f"瞳面菲涅尔焦面矫正: f_v = {focus_mm:.1f} mm (pi·r²/(λ·f_v), 盘外为 0) —— "
@@ -1197,7 +1301,8 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
                 "chirp_corner_rad": edge * np.sqrt(2.0),
                 "defocus_focal_mm": focus_mm,
                 "action": (
-                    "set_phase_overlay(瞳面二次相位) + display_and_average(GS 相位)"
+                    "set_phase_overlay(瞳面二次相位) + display_and_average("
+                    f"被测相位 phase_source={phase_info['phase_source']})"
                 ),
                 "frames": int(args.frames),
             }
@@ -1277,17 +1382,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
             "camera_pixel_um": optics.camera_pixel_um,
             "dz_blur_mm": optics.dz_blur_m * 1e3,
         },
-        "gs_phase_source": (
-            str(args.gs_phase) if args.gs_phase else
-            "现场生成: import scripts.slm.experiment_gs_defocus_offocus 的 OffFocusBench "
-            "跑 plain GS (Δz=0) —— 必须在 --execute 分支里 import, 因为它会牵入 "
-            "ao_shaping.drivers.sim (纯仿真模块, 不碰硬件, 但会破坏 dry-run 的"
-            "「零驱动包」断言)"
-        ),
-        "upsampling": (
-            "upsample_bilinear_to_shape(n_grid, (900, 900)) -> embed_pupil_square(..., "
-            "panel, 450, (960, 600)) —— 复用 ao_shaping.utils 的既有实现, 不自己写"
-        ),
+        **phase_info,
         "zero_order": (
             "display_and_average 后用 zero_order_center(frame, refine=False) = 全局 argmax "
             "定位 (绝不假设在画面中心); 定位一次即冻结 center 与 target 框, 之后不逐帧重定位"
@@ -1308,7 +1403,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         "target_box": target_box,
         "chirp_tilt": chirp_tilt,
         "preflight": {
-            "what": "扫描开始前先对**基线帧** (Δz=0, GS 相位已施加) 做一次光路自检",
+            "what": "扫描开始前先对**基线帧** (Δz=0, 被测相位已施加) 做一次光路自检",
             "criteria": (
                 "判据看**结构**而不是亮度: 峰值停在读出噪声本底 **且** 帧里没有任何"
                 "局域光斑 ⇒ 光路受阻; 光到了但光斑太宽 ⇒ 只是没聚焦 (另一回事)"
@@ -1377,9 +1472,12 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
                 continue
             add(f"        {k}: {v}")
     add("")
-    add("GS 相位来源")
+    add("被测相位来源")
+    add(f"  phase_source = {plan['phase_source']}")
     add(f"  {plan['gs_phase_source']}")
-    add(f"  上采样: {plan['upsampling']}")
+    if plan.get("gs_phase_ignored"):
+        add(f"  已忽略 --gs-phase = {plan['gs_phase_ignored']} (transfer 来源不读它)")
+    add(f"  面板展开: {plan['upsampling']}")
     add("")
     add("零级与 ROI (关键: 不能假设 0 级在画面中心)")
     add(f"  {plan['zero_order']}")
@@ -1607,12 +1705,12 @@ def resolve_probe_target_side(
 
         side = clamp(round(fwhm_px), 4, floor(0.6 * roi_px))
 
-    其中 ``fwhm_px`` 是**基线帧** (Δz=0, GS 相位已施加) 的光斑 FWHM。框只量**一次**
+    其中 ``fwhm_px`` 是**基线帧** (Δz=0, 被测相位已施加) 的光斑 FWHM。框只量**一次**
     然后**冻结**: 逐帧按光斑重定尺会把离焦弥散本身藏起来 (弥散越大 → 框越大 →
     框内越均匀), 那正是仓库已经记下的自适应框刷分陷阱。
 
     Args:
-        baseline_frame: 基线帧 (Δz=0, GS 相位已施加)。
+        baseline_frame: 基线帧 (Δz=0, 被测相位已施加)。
         roi_px: ROI 边长 (px), 决定自动边长的上界。
         requested_side_px: ``--target-side-px``; 正数 = 显式框, ``0`` = 自动。
 
@@ -1635,15 +1733,29 @@ def resolve_probe_target_side(
 
 
 def load_gs_phase_panel(args: argparse.Namespace, optics: Optics) -> np.ndarray:
-    """拿到面板分辨率 (1200x1920) 的 GS 相位 (raw 弧度)。
+    """拿到面板分辨率 (1200x1920) 的被测相位 (raw 弧度)。
 
-    两条来源:
+    来源由 ``--phase-source`` 决定 (旧 Namespace 缺该属性时按 ``gs`` 处理, 行为不变):
 
-    * ``--gs-phase PATH``: 已有的 GS 相位 ``.npy`` / ``.npz``。面板分辨率的直接用;
-      模型网格 (方阵, 边长 != 0) 走**仓库既有**的上采样链。
-    * 未给路径: 现场用仿真脚本的已验证 :class:`OffFocusBench` 跑 plain GS (Δz=0),
-      再走同一条上采样链。这样实测与仿真的相位来自同一份代码, 对拍才有意义。
+    * ``transfer`` (**CLI 默认**): 最新 transfer 整形终稿, 经共享 helper
+      :func:`scripts.slm._transfer_phase.load_transfer_phase` 用 replay 同款
+      ``capture.to_panel`` 展开成面板弧度; ``--gs-phase`` 被忽略。
+    * ``gs`` (旧流程对照): ``--gs-phase PATH`` 的已有相位 ``.npy`` / ``.npz``。
+      面板分辨率的直接用; 模型网格 (方阵, 边长 != 0) 走**仓库既有**的上采样链。
+    * ``gs`` 且未给路径 (仅旧调用方): 现场用仿真脚本的已验证
+      :class:`OffFocusBench` 跑 plain GS (Δz=0), 再走同一条上采样链。这样实测与
+      仿真的相位来自同一份代码, 对拍才有意义。
+
+    function 名保留 ``gs`` 前缀是为了不搅动既有调用点; 语义已经推广为「被测相位」。
     """
+    if resolve_phase_source(args) == "transfer":
+        # 共享 helper 只 import 无驱动的 ``capture.to_panel``, 不牵入任何
+        # ``ao_shaping.drivers.*`` —— dry-run 的零驱动包断言因此照旧成立。
+        from scripts.slm._transfer_phase import load_transfer_phase
+
+        _, _, panel = load_transfer_phase(getattr(args, "transfer_phase", None))
+        return panel
+
     from ao_shaping.utils.image.resample import upsample_bilinear_to_shape
     from ao_shaping.utils.slm.phase_embed import embed_pupil_square, pupil_side
 
@@ -1655,7 +1767,7 @@ def load_gs_phase_panel(args: argparse.Namespace, optics: Optics) -> np.ndarray:
         return embed_pupil_square(box, optics.panel_shape, optics.beam_radius_panel,
                                   optics.beam_center_panel)
 
-    if args.gs_phase is not None:
+    if getattr(args, "gs_phase", None) is not None:
         path = Path(args.gs_phase)
         raw = np.load(path) if path.suffix == ".npy" else np.load(path)["phase"]
         raw = np.asarray(raw, dtype=np.float64)
@@ -1731,7 +1843,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
     print(f"测量目录: {out_dir}")
     print(f"变量组: {group_name} (自变量 {GROUP_VARIABLE}); 根目录 {out_root}")
 
-    gs_panel = load_gs_phase_panel(args, optics)
+    probe_panel = load_gs_phase_panel(args, optics)
     # 焦面矫正只算一次: 它与扫描点无关, 且每次重算都是几百 MB 级的无用开销。
     focus_panel = build_focus_panel(args.defocus_focal_mm, optics)
     params = _ProbeParams(
@@ -1864,7 +1976,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     # ⚠️ 冻结: 之后所有测量复用这一个 center 与框, 不逐帧重定位。
                     print(f"零级 (ROI 内 argmax, 已冻结): ({cx}, {cy})")
 
-                    # -- 基线帧 (Δz=0, **GS 相位已施加**): 目标框按它定尺 ----------
+                    # -- 基线帧 (Δz=0, **被测相位已施加**): 目标框按它定尺 ----------
                     # 框的边长必须由**本次相位自己的**光斑量出来。历史上写死的
                     # 44 px 是**模型** GS 相位的方形边长换算到硬件像元上的值, 而
                     # 硬件 GS 相位打出的光斑只有 12.9 px 宽 —— 框比光斑大 3.4 倍
@@ -1872,7 +1984,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     # PIB 的下降, 合成分于是**看起来是平的**。按相位自己的光斑
                     # 定尺后响应恢复单调。
                     slm.set_phase_overlay(focus_panel)
-                    baseline_frame = capture_retry(slm, cam, gs_panel, next_slot)
+                    baseline_frame = capture_retry(slm, cam, probe_panel, next_slot)
 
                     # -- 光路自检 (扫描前的 pre-flight) ---------------------------
                     # 判据看**结构**, 不看亮度: 光路被挡住时画面里只有读出噪声,
@@ -1937,7 +2049,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     def capture_state(state: OverlayState) -> np.ndarray:
                         """按状态设置叠加层并抓一帧 (标定与验证共用同一条路径)。"""
                         slm.set_phase_overlay(state.overlay)
-                        return capture_retry(slm, cam, gs_panel, next_slot)
+                        return capture_retry(slm, cam, probe_panel, next_slot)
 
                     chirp_tilt_cal: ChirpTiltCalibration | None = None
                     chirp_tilt_enabled = False
@@ -2030,6 +2142,10 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         **group_fields(group_name, group_meta),
                         "out_root": str(out_root),
                         "plan": plan,
+                        "phase_source": plan["phase_source"],
+                        "transfer_phase": plan.get("transfer_phase"),
+                        "gs_phase": plan.get("gs_phase"),
+                        "gs_phase_ignored": plan.get("gs_phase_ignored"),
                         "gs_phase_source": plan["gs_phase_source"],
                         "exposure_ms_requested": float(args.exposure_ms),
                         "exposure_ceiling_ms": float(ceiling),
@@ -2189,7 +2305,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 ),
                             }
                             try:
-                                frame = capture_retry(slm, cam, gs_panel, next_slot)
+                                frame = capture_retry(slm, cam, probe_panel, next_slot)
                             except SantecError as exc:
                                 # 单点失败不能让整轮扫描作废: 记一行失败, 继续下一个 Δz。
                                 logger.info(f"[跳过] Δz={step['dz_mm']} mm 取帧失败: {exc}",
@@ -2378,9 +2494,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dz-mm", nargs="+", type=float, default=list(DZ_SCAN_MM),
                    help=f"Δz 扫描点 (mm), 默认 {DZ_SCAN_MM[0]:.0f}..{DZ_SCAN_MM[-1]:.0f} "
                         f"步长 5, 共 {len(DZ_SCAN_MM)} 点 (与仿真脚本一致)")
+    p.add_argument("--phase-source", choices=PHASE_SOURCES, default="transfer",
+                   help="被测相位来源: transfer = 最新验收的 transfer 整形终稿 "
+                        "(默认, star dense 640x640 弧度); gs = 旧 GS 流程对照入口, "
+                        "此时**必须**同时给 --gs-phase")
+    p.add_argument("--transfer-phase", default=None, metavar="PATH",
+                   help="transfer 整形相位 .npy/.npz (默认 = scripts/slm/_transfer_phase.py "
+                        "里的 DEFAULT_TRANSFER_PHASE); 仅 --phase-source transfer 时生效")
     p.add_argument("--gs-phase", default=None,
-                   help="GS 相位来源 .npy/.npz (面板分辨率或方形模型网格); "
-                        "不给则现场用已验证的 OffFocusBench 生成")
+                   help="旧 GS 流程的相位来源 .npy/.npz (面板分辨率或方形模型网格); "
+                        "--phase-source gs 时必须给; transfer 来源下被忽略并记进元数据")
     p.add_argument("--quick", action="store_true", help="现场生成 GS 时用小网格")
     p.add_argument("--chirp-sign", type=float, default=CHIRP_SIGN,
                    help=f"瞳面二次相位符号 (默认 {CHIRP_SIGN:+.0f}, 由仿真数值反解)")
@@ -2457,6 +2580,13 @@ def main() -> None:
     args = build_parser().parse_args()
     try:
         args.group_meta = parse_group_meta(args.group_meta_pairs)
+    except ValueError as exc:
+        raise SystemExit(f"参数错误: {exc}") from exc
+
+    # 相位来源的契约在这里先校验: --phase-source gs 缺 --gs-phase 直接拒, 不等到
+    # 开设备后才在半路炸 (那时 SLM/CCD 已经被占住了)。
+    try:
+        args.phase_source = resolve_phase_source(args)
     except ValueError as exc:
         raise SystemExit(f"参数错误: {exc}") from exc
 

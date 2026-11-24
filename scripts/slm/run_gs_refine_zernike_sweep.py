@@ -85,6 +85,28 @@ truncation order ``n_max``. The group's identity is ``--group`` (default
 recorded verbatim), and the artefacts land in ``<out>/<group>/``. The root
 directory keeps a ``manifest.json`` indexing every group recorded under it, so
 several groups of one sweep share a root and stay separable.
+
+Phase source
+------------
+
+``--phase-source`` selects where the phase under test comes from (default
+``transfer``):
+
+* **``transfer``** (default) -- the latest accepted transfer-shaping phase
+  (``scripts/slm/_transfer_phase.py``), overridden by ``--transfer-phase``.
+  Stage A (the GS-refine optimisation) is **skipped**: the transfer panel
+  phase IS ``best_phase``. Only the flat-field probe still runs, because
+  Stage C needs the zero-order centre and the target-box side. No flat /
+  best baseline frames exist in this mode (they are recorded as ``null``,
+  never fabricated), and the model phase may carry a carrier, so a low-order
+  Zernike truncation of it does **not** mean the same thing as truncating a
+  GS-refine freeform phase -- this is spelled out in the logs and in
+  ``summary.json`` (``phase_source`` / ``transfer_phase`` / ``geometry_source``).
+* **``gs``** -- the original Stage-A GS-refine behaviour, including
+  ``--stage-a-only`` chunked resume, unchanged.
+
+``--stage-a-in`` always wins over ``--phase-source``: whatever phase the
+handover file carries (GS or transfer) is what Stage B/C consume.
 """
 from __future__ import annotations
 
@@ -153,16 +175,26 @@ from ao_shaping.utils.slm.bench_constants import (
     SLM_PITCH_M,
 )
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+)
+from ao_shaping.utils.slm.phase_embed import pupil_side
 from scripts._common.group_manifest import (
     group_output_dir,
     group_record,
     parse_group_meta,
     update_manifest,
 )
-from ao_shaping.utils.io.recorder_keys import (
-    RECORD_EPOCH,
-    RECORD_IMAGE,
-)
+from scripts.slm._transfer_phase import load_transfer_phase
+
+#: 被测相位的来源: ``transfer`` = 最新 transfer 整形终稿 (默认), ``gs`` = 原
+#: Stage A GS-refine 自由相位。来源只决定「Stage A 怎么产相位」, ``--stage-a-in``
+#: 的交接文件永远优先。
+PHASE_SOURCES = ("transfer", "gs")
+
+#: transfer 模型相位平铺到的物理面板形状 (``to_panel`` 的硬编码目标, 行列序)。
+TRANSFER_PANEL_SHAPE = (1200, 1920)
 
 #: 这一组扫的变量名 —— 写进分组清单的 ``variable`` 字段。
 #: 泽尼克这一组的自变量是截断阶数 n_max; 离焦那一组扫的是 ``dz_mm``。
@@ -826,8 +858,23 @@ class SweepParams:
     """本块 Stage A 跑多少个精化 epoch (0 = 跑满 ``epochs``)。
 
     「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, ``epochs`` 保持**总轮数**
+    (学习率按全局 epoch 续), 每块用 ``--chunk-epochs`` 压自己的工作量;
     (学习率调度的总地平线不变), 本字段只说这一块跑多少轮; 实际轮数还会被
     「总轮数 - 已跑轮数」夹住, 所以最后一块自动收口。
+    """
+
+    phase_source: str = "transfer"
+    """被测相位来源: ``transfer`` (默认, 跳过 Stage A 优化) 或 ``gs`` (原行为)。
+
+    只在**没有** ``--stage-a-in`` 时生效; 有交接文件时以文件里的
+    ``phase_source`` 为准。
+    """
+
+    transfer_phase: str = ""
+    """``--transfer-phase`` 给出的 transfer 相位路径 (空 = 用最新终稿)。
+
+    真实解析到的路径会写进 ``summary.json`` / ``manifest.json`` 的 config
+    (``transfer_phase`` 字段), 不只留 CLI 原始参数。
     """
 
 
@@ -842,6 +889,151 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+# ---------------------------------------------------------------------------
+# transfer 相位来源 (被测相位 = 最新 transfer 整形终稿)
+# ---------------------------------------------------------------------------
+
+
+def describe_transfer_geometry(
+    model_shape: tuple[int, int],
+    beam_radius_px: float,
+    panel_shape: tuple[int, int] = TRANSFER_PANEL_SHAPE,
+) -> str:
+    """写清 transfer 模型网格与泽尼克拟合所用面板几何的关系。
+
+    ``to_panel`` 把方形模型网格按 ``pitch = 1920 / grid`` 复制成 1920x1920 再取
+    前 1200 行, 即模型是**顶对齐**平铺到面板的, 模型中心并不落在面板中心; 而
+    Stage B 的泽尼克拟合 (:func:`fit_best_phase`) 一直在**面板中心**的
+    ``pupil_side(beam_radius_px)`` 方窗上截断。这段说明被写进
+    ``geometry_source``, 让读回的人知道截断窗覆盖模型的哪个区域。
+
+    Args:
+        model_shape: transfer 模型相位形状 ``(h, w)``。
+        beam_radius_px: 本次扫描的受照光瞳半径 (面板像素)。
+        panel_shape: 面板形状 (行, 列)。
+
+    Returns:
+        人可读的几何说明 (一行字符串)。
+    """
+    model_h, model_w = int(model_shape[0]), int(model_shape[1])
+    panel_h, panel_w = int(panel_shape[0]), int(panel_shape[1])
+    pitch = panel_w // model_w if model_w > 0 else 0
+    parts = [f"transfer 模型网格 {model_h}x{model_w} rad"]
+    if pitch > 1:
+        parts.append(
+            f"to_panel 以 pitch={pitch}px 复制后取前 {panel_h} 行 => 面板 "
+            f"{panel_h}x{panel_w} (模型只用前 {panel_h // pitch} 行、全部 {model_w} 列, "
+            f"模型中心不在面板中心)"
+        )
+    else:
+        parts.append(f"面板 {panel_h}x{panel_w} (逐像素)")
+    side_px = pupil_side(beam_radius_px)
+    cx, cy = panel_w // 2, panel_h // 2
+    x0, y0 = cx - side_px // 2, cy - side_px // 2
+    parts.append(
+        f"Stage B 泽尼克截断仍取面板中心 pupil_side({beam_radius_px:g})={side_px}px "
+        f"方窗 (模型列 {x0 // max(pitch, 1)}..{(x0 + side_px) // max(pitch, 1)} / "
+        f"行 {y0 // max(pitch, 1)}..{(y0 + side_px) // max(pitch, 1)})"
+    )
+    return "; ".join(parts)
+
+
+def stage_a_from_transfer(
+    *,
+    transfer_phase: str | Path | None,
+    center_xy: tuple[int, int],
+    w0: float,
+    side: float,
+    probe_shape: tuple[int, int],
+    beam_radius_px: float,
+    config: dict[str, Any] | None = None,
+) -> StageAResult:
+    """把 transfer 整形终稿包成 Stage B/C 直接可用的 :class:`StageAResult`。
+
+    **不跑任何 GS 优化**: ``best_phase`` 就是 ``load_transfer_phase`` 展开后的
+    面板弧度。平场 / 最佳相位基线帧没有采集, 留 ``None`` (落盘时不写这两个键,
+    summary 里记 ``null``) —— 不伪造。几何 (零级位置 / 腰径 / 目标框) 仍来自
+    调用方的平场探测, 因为 Stage C 摆 ROI 窗口需要它们。
+
+    Args:
+        transfer_phase: ``--transfer-phase`` 的值; ``None`` / 空 = 最新终稿。
+        center_xy: 平场探测到的零级 ``(x, y)`` (全幅传感器坐标)。
+        w0: 平场光斑腰径 (相机像素)。
+        side: 共享方形目标框边长 (相机像素)。
+        probe_shape: 平场探测的画面尺寸 ``(h, w)``。
+        beam_radius_px: 受照光瞳半径 (面板像素), 用于几何说明。
+        config: 写进 ``stage_a.json`` 的配置 (调用方传 ``asdict(params)``)。
+
+    Returns:
+        ``phase_source == "transfer"`` 的 :class:`StageAResult`。
+
+    Raises:
+        FileNotFoundError: 相位文件不存在 (由 helper 抛出)。
+        ValueError: 相位形状不能平铺面板 (由 helper 抛出)。
+    """
+    resolved, model, panel = load_transfer_phase(
+        transfer_phase if transfer_phase else None
+    )
+    geometry = describe_transfer_geometry(model.shape, beam_radius_px)
+    logger.info(
+        f"[phase] 被测相位来自 transfer 终稿 {resolved} (模型 {model.shape[0]}x"
+        f"{model.shape[1]}), Stage A 的 GS 优化被跳过"
+    )
+    logger.warning(
+        "[phase] transfer 模型相位可能含载波: 直接做低阶 Zernike 截断的物理含义"
+        "与 GS-refine 自由相位不同 —— 截断只描述面板中央方窗内的低阶成分, 且截断窗"
+        f"与模型中心不重合, 两种来源的拟合系数不可直接比较; {geometry}"
+    )
+    return StageAResult(
+        best_phase=np.asarray(panel, dtype=np.float64),
+        flat_frame=None,
+        best_frame=None,
+        center_xy=(int(center_xy[0]), int(center_xy[1])),
+        w0=float(w0),
+        side=float(side),
+        probe_shape=(int(probe_shape[0]), int(probe_shape[1])),
+        best_stage="transfer",
+        best_score=None,
+        epochs_executed=0,
+        epochs_total=0,
+        elapsed_s=0.0,
+        config=dict(config or {}),
+        mask_center_xy=None,
+        full_frame_center=None,
+        phase_source="transfer",
+        source_path=str(resolved),
+        geometry_source=geometry,
+    )
+
+
+def _summary_config(params: SweepParams, stage_a: StageAResult) -> dict[str, Any]:
+    """``asdict(params)`` 加上来源存真字段 (真实路径 / 几何说明)。
+
+    CLI 的 ``transfer_phase`` 可能是空 (默认最新终稿), 所以落盘记录的是
+    ``stage_a.source_path`` 里**实际读到**的路径。
+    """
+    config = _jsonable(asdict(params))
+    config["phase_source"] = str(stage_a.phase_source)
+    config["transfer_phase"] = str(stage_a.source_path) or None
+    config["geometry_source"] = str(stage_a.geometry_source) or None
+    return config
+
+
+def _provenance_meta(params: SweepParams, stage_a: StageAResult) -> dict[str, str]:
+    """分组清单 (manifest) 的 meta 里并入来源存真字段。
+
+    用户显式给的 ``--group-meta`` 键优先 (``setdefault``), 避免覆盖实验者自己
+    的标注。
+    """
+    meta = dict(params.group_meta)
+    meta.setdefault("phase_source", str(stage_a.phase_source))
+    if stage_a.source_path:
+        meta.setdefault("transfer_phase", str(stage_a.source_path))
+    if stage_a.geometry_source:
+        meta.setdefault("geometry_source", str(stage_a.geometry_source))
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -862,13 +1054,17 @@ class StageAResult:
     """
 
     best_phase: np.ndarray
-    """Stage A 的最佳相位 (面板尺寸的 raw 弧度)。"""
+    """Stage A 的最佳相位 (面板尺寸的 raw 弧度)。
 
-    flat_frame: np.ndarray
-    """平场基线帧 (raw 相机帧)。"""
+    ``phase_source == "transfer"`` 时是 transfer 终稿展开后的面板相位 (1200x1920
+    弧度), **没有**经过任何 GS 优化。
+    """
 
-    best_frame: np.ndarray
-    """最佳相位对应的远场帧 (raw 相机帧)。"""
+    flat_frame: np.ndarray | None
+    """平场基线帧 (raw 相机帧); ``None`` = 该来源没有采集 (transfer), 未伪造。"""
+
+    best_frame: np.ndarray | None
+    """最佳相位对应的远场帧 (raw 相机帧); ``None`` = 该来源没有采集 (transfer)。"""
 
     center_xy: tuple[int, int]
     """零级位置 ``(x, y)`` (**全幅**传感器坐标)。
@@ -887,12 +1083,12 @@ class StageAResult:
     """平场探测时的画面尺寸 ``(h, w)``。"""
 
     best_stage: str
-    """最佳结果来自哪个阶段 (flat / gs / refine)。"""
+    """最佳结果来自哪个阶段 (flat / gs / refine / **transfer**)。"""
 
-    best_score: float
-    """最佳复合分数。"""
+    best_score: float | None = None
+    """最佳复合分数; ``None`` = 该来源没有评分 (transfer 相位未经 GS 优化)。"""
 
-    epochs_executed: int
+    epochs_executed: int = 0
     """实际跑掉的精化 epoch 数 (被墙钟预算截断时小于请求值)。"""
 
     elapsed_s: float = 0.0
@@ -928,6 +1124,15 @@ class StageAResult:
     窗口一平移, 窗口坐标系就跟着挪, 冻结的框就指错了地方。
     """
 
+    phase_source: str = "gs"
+    """这份 ``best_phase`` 的来源: ``gs`` (Stage A 优化) 或 ``transfer`` (终稿)。"""
+
+    source_path: str = ""
+    """transfer 相位文件的**真实**路径 (仅 transfer 来源非空)。"""
+
+    geometry_source: str = ""
+    """相位网格的几何说明 (模型分辨率 → 面板平铺关系), 供读回与复现。"""
+
 
 def _resumable_arrays(stage_a: StageAResult) -> bool:
     """交接文件里够不够续跑一块。
@@ -961,9 +1166,17 @@ def save_stage_a(result: StageAResult, out_dir: Path) -> tuple[Path, Path]:
     npz_path = out_dir / STAGE_A_NPZ_NAME
     arrays: dict[str, np.ndarray] = {
         "best_phase": np.asarray(result.best_phase, dtype=np.float64),
-        "flat_frame": np.asarray(result.flat_frame, dtype=np.float64),
-        "best_frame": np.asarray(result.best_frame, dtype=np.float64),
     }
+    # transfer 来源没有基线帧: **值为 None 就不写这个键** (与 dof / base_panel 同
+    # 一约定), 读回来是 None 而不是伪造的空帧 —— summary 里另以 null 标注。
+    for key in ("flat_frame", "best_frame"):
+        frame = getattr(result, key)
+        if frame is not None:
+            arrays[key] = np.asarray(frame, dtype=np.float64)
+    # 来源存真: npz 里带一份 (字符串数组), stage_a.json 里还有一份人可读的。
+    arrays["phase_source"] = np.asarray(str(result.phase_source))
+    if result.source_path:
+        arrays["source_path"] = np.asarray(str(result.source_path))
     # 续跑需要的三件 (自由参数量 / 基座相位 / 未叠加的最佳相位): **值为 None 就
     # 不写这个键**。写成空数组的话, 读回来是「长度 0 的数组」而不是 None ——
     # 「不可续跑」的守卫就形同虚设, 带着空 DOF 往下跑会在更难懂的地方炸掉
@@ -996,7 +1209,12 @@ def save_stage_a(result: StageAResult, out_dir: Path) -> tuple[Path, Path]:
         "side": float(result.side),
         "probe_shape": [int(result.probe_shape[0]), int(result.probe_shape[1])],
         "best_stage": str(result.best_stage),
-        "best_score": float(result.best_score),
+        "best_score": (
+            None if result.best_score is None else float(result.best_score)
+        ),
+        "phase_source": str(result.phase_source),
+        "source_path": str(result.source_path),
+        "geometry_source": str(result.geometry_source),
         "epochs_executed": int(result.epochs_executed),
         "epochs_total": int(result.epochs_total),
         "elapsed_s": float(result.elapsed_s),
@@ -1035,12 +1253,12 @@ def load_stage_a(path: str | Path) -> StageAResult:
     if not isinstance(meta, dict):
         raise ValueError(f"Stage A 元数据必须是 JSON 对象: {json_path}")
     with np.load(npz_path) as data:
-        arrays = {
-            key: np.asarray(data[key], dtype=np.float64)
-            for key in ("best_phase", "flat_frame", "best_frame")
+        arrays: dict[str, np.ndarray] = {
+            "best_phase": np.asarray(data["best_phase"], dtype=np.float64)
         }
-        # 续跑用的两件是**可选**的 (旧版交接文件没有它们 ⇒ 只能从头跑)
-        for key in ("dof", "base_panel", "best_phase_plain"):
+        # 基线帧是**可选**的 (transfer 交接文件没有它们 ⇒ 基线记 null, 不伪造);
+        # 续跑用的三件也是可选的 (旧版 GS 交接文件没有 ⇒ 只能从头跑)
+        for key in ("flat_frame", "best_frame", "dof", "base_panel", "best_phase_plain"):
             if key in data:
                 arrays[key] = np.asarray(data[key], dtype=np.float64)
     try:
@@ -1048,16 +1266,17 @@ def load_stage_a(path: str | Path) -> StageAResult:
         shape = meta["probe_shape"]
         mask_center = meta.get("mask_center_xy")
         full_center = meta.get("full_frame_center")
+        raw_best_score = meta.get("best_score", None)
         return StageAResult(
             best_phase=arrays["best_phase"],
-            flat_frame=arrays["flat_frame"],
-            best_frame=arrays["best_frame"],
+            flat_frame=arrays.get("flat_frame"),
+            best_frame=arrays.get("best_frame"),
             center_xy=(int(center[0]), int(center[1])),
             w0=float(meta["w0"]),
             side=float(meta["side"]),
             probe_shape=(int(shape[0]), int(shape[1])),
             best_stage=str(meta.get("best_stage", "")),
-            best_score=float(meta.get("best_score", float("nan"))),
+            best_score=(None if raw_best_score is None else float(raw_best_score)),
             epochs_executed=int(meta.get("epochs_executed", 0)),
             epochs_total=int(meta.get("epochs_total", meta.get("epochs_executed", 0))),
             elapsed_s=float(meta.get("elapsed_s", 0.0)),
@@ -1075,6 +1294,9 @@ def load_stage_a(path: str | Path) -> StageAResult:
                 if full_center is None
                 else (int(full_center[0]), int(full_center[1]))
             ),
+            phase_source=str(meta.get("phase_source", "gs")),
+            source_path=str(meta.get("source_path", "")),
+            geometry_source=str(meta.get("geometry_source", "")),
         )
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise ValueError(f"Stage A 元数据缺字段或格式不对: {json_path} ({exc})") from exc
@@ -1171,6 +1393,94 @@ def _run_stage_a_with_saturation_backoff(
     raise RuntimeError("unreachable: Stage A saturation backoff exhausted")
 
 
+def _record_stage_a_only(
+    params: SweepParams,
+    stage_a: StageAResult,
+    out_root: Path,
+    out_dir: Path,
+) -> dict[str, Any]:
+    """``--stage-a-only`` 的收尾: 落盘交接文件 + summary, 不跑 Stage B/C。
+
+    GS 与 transfer 两种来源共用这一段 (几何与来源标记都从 ``stage_a`` 取,
+    ``best_score`` 为 ``None`` 时如实记 ``null``, 不伪造)。
+
+    Args:
+        params: 本次调用的参数。
+        stage_a: 待落盘的 Stage A 产物 (GS 优化结果或 transfer 交接)。
+        out_root: 输出根目录 (manifest.json 所在)。
+        out_dir: 组目录。
+
+    Returns:
+        写到 ``<组目录>/summary.json`` 的 summary dict。
+    """
+    npz_path, json_path = save_stage_a(stage_a, out_dir)
+    logger.info(f"[stage A] 落盘 {npz_path} / {json_path}")
+    summary = {
+        **group_fields(params.group, _provenance_meta(params, stage_a)),
+        "config": _summary_config(params, stage_a),
+        "cam_size": int(params.cam_size),
+        "probe_shape": [int(stage_a.probe_shape[0]), int(stage_a.probe_shape[1])],
+        "frame_shape": [int(stage_a.probe_shape[0]), int(stage_a.probe_shape[1])],
+        # center_xy = 全幅探测到的零级 (Stage C 摆窗口用);
+        # mask_center_xy = 窗口内的框中心 (评分用)。两个坐标系别混。
+        "center_xy": [int(stage_a.center_xy[0]), int(stage_a.center_xy[1])],
+        "mask_center_xy": (
+            None
+            if stage_a.mask_center_xy is None
+            else [
+                int(stage_a.mask_center_xy[0]),
+                int(stage_a.mask_center_xy[1]),
+            ]
+        ),
+        "full_frame_center": (
+            None
+            if stage_a.full_frame_center is None
+            else [
+                int(stage_a.full_frame_center[0]),
+                int(stage_a.full_frame_center[1]),
+            ]
+        ),
+        "w0_px": float(stage_a.w0),
+        "target_side": float(stage_a.side),
+        "beam_radius_px": float(params.beam_radius_px),
+        "best_stage": str(stage_a.best_stage),
+        "phase_source": str(stage_a.phase_source),
+        "transfer_phase": str(stage_a.source_path) or None,
+        "geometry_source": str(stage_a.geometry_source) or None,
+        "stage_a": {
+            "source": str(npz_path),
+            "epochs_executed": int(stage_a.epochs_executed),
+            "best_score": (
+                None if stage_a.best_score is None else float(stage_a.best_score)
+            ),
+            "elapsed_s": float(stage_a.elapsed_s),
+        },
+        "baselines": {},
+        "orders": [],
+    }
+    if stage_a.flat_frame is None or stage_a.best_frame is None:
+        # transfer 来源没有基线帧: 明说, 而不是留下让人误读的空值。
+        summary["baselines_note"] = (
+            "phase_source=transfer: Stage A GS 优化被跳过, 平场/自由相位基线帧"
+            "未采集 (stage_a.npz 里也没有这两个键), baseline 指标记 null, 未伪造"
+        )
+    (out_dir / "summary.json").write_text(
+        json.dumps(_jsonable(summary), indent=2), encoding="utf-8"
+    )
+    update_manifest(
+        out_root,
+        group_record(
+            group=params.group,
+            variable=GROUP_VARIABLE,
+            meta=_provenance_meta(params, stage_a),
+            dir_name=str(params.group),
+            n_rows=0,
+        ),
+    )
+    logger.info(f"[done] wrote {out_dir / 'summary.json'} (Stage A only)")
+    return summary
+
+
 def run_sweep(params: SweepParams) -> dict[str, Any]:
     """Run the GS-refine -> Zernike-fit -> SPGD sweep, one segment per call.
 
@@ -1217,6 +1527,12 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         # --- Segment 2+: read the Stage A result back ---------------------
         stage_a = load_stage_a(params.stage_a_in)
         stage_a_source = str(params.stage_a_in)
+        # 交接文件永远优先于 --phase-source: 它自己就带着 phase_source 标记。
+        if stage_a.phase_source == "transfer":
+            logger.info(
+                f"[phase] --stage-a-in 交接文件是被测 transfer 相位 "
+                f"({stage_a.source_path}), Stage B/C 直接对它做泽尼克拟合"
+            )
         center_xy = stage_a.center_xy
         w0 = stage_a.w0
         probe_shape = stage_a.probe_shape
@@ -1256,14 +1572,26 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         send_overlay = build_focus_overlay(
             params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
         )
+        best_score_text = (
+            "n/a (无评分)" if stage_a.best_score is None
+            else f"{stage_a.best_score:.4f}"
+        )
         logger.info(
             f"[stage A] 读回 {stage_a_source}: center={center_xy} w0={w0:.2f}px "
             f"target_side={side:.2f}px epochs={stage_a.epochs_executed} "
-            f"best_score={stage_a.best_score:.4f}"
+            f"best_score={best_score_text}"
         )
         # 续跑这一块 Stage A (--stage-a-only 与 --stage-a-in 同时给): 把上一块
         # 的末态交给优化器接着跑。
         if params.stage_a_only:
+            if stage_a.phase_source != "gs":
+                raise SystemExit(
+                    "参数错误: --stage-a-in 读回的是 transfer 交接文件 "
+                    f"(phase_source={stage_a.phase_source}), 没有 DOF / 基座相位, "
+                    "不能分块续跑 GS Stage A; transfer 相位直接 --stage-a-in "
+                    "跑 Stage B/C 即可, 或 --phase-source transfer --stage-a-only "
+                    "重落一份交接文件"
+                )
             if not _resumable_arrays(stage_a):
                 raise SystemExit(
                     "参数错误: --stage-a-in 读回的交接文件里没有续跑需要的 "
@@ -1344,10 +1672,32 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             f"[probe] cam_type={params.cam_type} probe_shape={probe_shape} "
             f"center={center_xy} w0={w0:.2f}px target_side={side:.2f}px"
         )
+        if params.phase_source == "transfer":
+            # --- Segment 1 (transfer): 终稿相位直接交接 ------------------
+            # 平场探测仍要做 (Stage C 摆窗口需要零级与目标框), 但 Stage A 的
+            # GS-refine 优化**整段跳过**: 被测相位就是 transfer 终稿展开后的
+            # 面板相位, 没有 DOF / 基座相位, 也就没有分块续跑一说。
+            stage_a = stage_a_from_transfer(
+                transfer_phase=params.transfer_phase or None,
+                center_xy=center_xy,
+                w0=w0,
+                side=side,
+                probe_shape=probe_shape,
+                beam_radius_px=params.beam_radius_px,
+                config=_jsonable(asdict(params)),
+            )
+            best_phase = stage_a.best_phase
+            flat_frame = None
+            best_frame = None
+            if params.stage_a_only:
+                return _record_stage_a_only(params, stage_a, out_root, out_dir)
 
-    if not params.stage_a_in or params.stage_a_only:
+    if (not params.stage_a_in and params.phase_source != "transfer") or (
+        params.stage_a_only and params.stage_a_in
+    ):
         # --- Stage A: one GS-refine optimisation --------------------------
-        # (续跑块也走这里: --stage-a-only + --stage-a-in)
+        # (续跑块也走这里: --stage-a-only + --stage-a-in; transfer 的交接已在上面
+        #  做完并 return, 不会落到这里)
         stage_a_cfg = SlmGsRefineConfig(
             epochs=params.epochs,
             seed=params.seed,
@@ -1378,11 +1728,17 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             else np.asarray(stage_a.flat_frame, dtype=np.float64)
         )
         chunk_best = max((r["score"] for r in rec_a.history), default=float("-inf"))
-        best_score = (
-            max(float(stage_a.best_score), float(chunk_best))
-            if resume_state is not None
-            else chunk_best
-        )
+        if resume_state is not None:
+            # 只有续跑块才需要与上一块的分数取 max (此时 stage_a 已由
+            # --stage-a-in 读回赋值; 全新 GS 跑的 stage_a 要到下面才构造)。
+            prev_score = (
+                float(stage_a.best_score)
+                if stage_a.best_score is not None
+                else float("-inf")
+            )
+            best_score = max(prev_score, float(chunk_best))
+        else:
+            best_score = chunk_best
         epochs_executed = int(getattr(rec_a, "epochs_executed", 0))
         logger.info(
             f"[stage A] best_stage={rec_a.best_stage} "
@@ -1428,57 +1784,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             ),
         )
         if params.stage_a_only:
-            npz_path, json_path = save_stage_a(stage_a, out_dir)
-            logger.info(f"[stage A] 落盘 {npz_path} / {json_path}")
-            summary = {
-                **group_fields(params.group, params.group_meta),
-                "config": _jsonable(asdict(params)),
-                "cam_size": int(params.cam_size),
-                "probe_shape": [int(probe_shape[0]), int(probe_shape[1])],
-                "frame_shape": [int(probe_shape[0]), int(probe_shape[1])],
-                # center_xy = 全幅探测到的零级 (Stage C 摆窗口用);
-                # mask_center_xy = 窗口内的框中心 (评分用)。两个坐标系别混。
-                "center_xy": [int(center_xy[0]), int(center_xy[1])],
-                "mask_center_xy": [
-                    int(mask_center_xy[0]),
-                    int(mask_center_xy[1]),
-                ],
-                "full_frame_center": (
-                    None
-                    if full_frame_center is None
-                    else [
-                        int(full_frame_center[0]),
-                        int(full_frame_center[1]),
-                    ]
-                ),
-                "w0_px": float(w0),
-                "target_side": float(side),
-                "beam_radius_px": float(params.beam_radius_px),
-                "best_stage": str(stage_a.best_stage),
-                "stage_a": {
-                    "source": str(npz_path),
-                    "epochs_executed": int(stage_a.epochs_executed),
-                    "best_score": float(stage_a.best_score),
-                    "elapsed_s": float(stage_a.elapsed_s),
-                },
-                "baselines": {},
-                "orders": [],
-            }
-            (out_dir / "summary.json").write_text(
-                json.dumps(_jsonable(summary), indent=2), encoding="utf-8"
-            )
-            update_manifest(
-                out_root,
-                group_record(
-                    group=params.group,
-                    variable=GROUP_VARIABLE,
-                    meta=params.group_meta,
-                    dir_name=str(params.group),
-                    n_rows=0,
-                ),
-            )
-            logger.info(f"[done] wrote {out_dir / 'summary.json'} (Stage A only)")
-            return summary
+            return _record_stage_a_only(params, stage_a, out_root, out_dir)
 
     # --- Stage B + C: per-order fit and SPGD ------------------------------
     runs: list[dict[str, Any]] = []
@@ -1523,15 +1829,33 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         )
     mask_center = (int(c_cx), int(c_cy))
 
-    flat_scored = _crop_to_shape(flat_frame, zero_order_center(flat_frame), ref_shape)
-    gs_scored = _crop_to_shape(best_frame, zero_order_center(best_frame), ref_shape)
-    baselines = {
-        "flat": score_frame(flat_scored, mask, mask_center, side),
-        "gs_freeform": score_frame(gs_scored, mask, mask_center, side),
-    }
-    if params.save_images:
-        _save_frame_png(flat_scored, out_dir / "baseline_flat.png", "flat")
-        _save_frame_png(gs_scored, out_dir / "baseline_gs_freeform.png", "gs freeform")
+    if flat_frame is None or best_frame is None:
+        # transfer 来源: 两张基线帧没有采集 (Stage A GS 优化被跳过) —— 记 null 并
+        # 在 summary 里明确标注, 不拿空数组 / 伪帧去凑 _crop_to_shape。
+        baselines = {"flat": None, "gs_freeform": None}
+        baselines_note = (
+            "phase_source=transfer: Stage A GS 优化被跳过, 平场/自由相位基线帧"
+            "未采集, baseline 指标记 null (未伪造); 各阶的 before/after 仍由 "
+            "Stage C 自己的帧给出, 可比性不受影响"
+        )
+        logger.info(f"[baseline] {baselines_note}")
+    else:
+        flat_scored = _crop_to_shape(
+            flat_frame, zero_order_center(flat_frame), ref_shape
+        )
+        gs_scored = _crop_to_shape(
+            best_frame, zero_order_center(best_frame), ref_shape
+        )
+        baselines = {
+            "flat": score_frame(flat_scored, mask, mask_center, side),
+            "gs_freeform": score_frame(gs_scored, mask, mask_center, side),
+        }
+        baselines_note = None
+        if params.save_images:
+            _save_frame_png(flat_scored, out_dir / "baseline_flat.png", "flat")
+            _save_frame_png(
+                gs_scored, out_dir / "baseline_gs_freeform.png", "gs freeform"
+            )
 
     orders: list[dict[str, Any]] = []
     for run in runs:
@@ -1616,8 +1940,8 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         )
 
     summary = {
-        **group_fields(params.group, params.group_meta),
-        "config": _jsonable(asdict(params)),
+        **group_fields(params.group, _provenance_meta(params, stage_a)),
+        "config": _summary_config(params, stage_a),
         "cam_size": int(params.cam_size),
         "probe_shape": [int(probe_shape[0]), int(probe_shape[1])],
         "frame_shape": [int(ref_shape[0]), int(ref_shape[1])],
@@ -1627,15 +1951,22 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         "target_side": float(side),
         "beam_radius_px": float(params.beam_radius_px),
         "best_stage": str(stage_a.best_stage),
+        "phase_source": str(stage_a.phase_source),
+        "transfer_phase": str(stage_a.source_path) or None,
+        "geometry_source": str(stage_a.geometry_source) or None,
         "stage_a": {
             "source": stage_a_source,
             "epochs_executed": int(stage_a.epochs_executed),
-            "best_score": float(stage_a.best_score),
+            "best_score": (
+                None if stage_a.best_score is None else float(stage_a.best_score)
+            ),
             "elapsed_s": float(stage_a.elapsed_s),
         },
         "baselines": baselines,
         "orders": orders,
     }
+    if baselines_note is not None:
+        summary["baselines_note"] = baselines_note
     (out_dir / "summary.json").write_text(
         json.dumps(_jsonable(summary), indent=2), encoding="utf-8"
     )
@@ -1645,7 +1976,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         group_record(
             group=params.group,
             variable=GROUP_VARIABLE,
-            meta=params.group_meta,
+            meta=_provenance_meta(params, stage_a),
             dir_name=str(params.group),
             n_rows=len(orders),
         ),
@@ -1701,11 +2032,33 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--phase-source",
+        default="transfer",
+        choices=list(PHASE_SOURCES),
+        help=(
+            "被测相位来源: transfer = 最新 transfer 整形终稿 (默认, 跳过 Stage A "
+            "GS 优化, 面板相位直接交给 Stage B 泽尼克拟合; 基线帧记 null 不伪造); "
+            "gs = 原 Stage A GS-refine 行为。--stage-a-in 给定时以交接文件为准。"
+        ),
+    )
+    parser.add_argument(
+        "--transfer-phase",
+        default=None,
+        help=(
+            "transfer 整形相位文件 (.npy 640x640 弧度 / .npz 含 model_phase); "
+            "缺省用 scripts/slm/_transfer_phase.py 的 DEFAULT_TRANSFER_PHASE "
+            "(最新已验收终稿)。仅 --phase-source transfer 生效; summary 里记录的是"
+            "实际解析到的真实路径。"
+        ),
+    )
+    parser.add_argument(
         "--stage-a-only",
         action="store_true",
         help=(
             "只跑 Stage A: 把最佳相位与两张基线帧落盘到 <组目录>/stage_a.npz "
-            "(配 stage_a.json), 然后退出 (不再跑 Stage B/C)。"
+            "(配 stage_a.json), 然后退出 (不再跑 Stage B/C)。transfer 来源下同样"
+            "落一份可复用的交接文件 (best_phase + phase_source/source_path 元数据),"
+            "不需要先跑 GS。"
         ),
     )
     parser.add_argument(
@@ -1861,6 +2214,8 @@ def main(argv: list[str] | None = None) -> int:
         orders=orders,
         time_budget_s=float(args.time_budget_s),
         chunk_epochs=int(args.chunk_epochs),
+        phase_source=str(args.phase_source),
+        transfer_phase=str(args.transfer_phase or ""),
     )
     try:
         run_sweep(params)

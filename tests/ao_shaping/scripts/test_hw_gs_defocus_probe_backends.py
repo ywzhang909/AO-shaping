@@ -26,8 +26,10 @@ a fake that implements the twin's contract *exactly* (see
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,8 +46,11 @@ from scripts.slm.hw_gs_defocus_probe import (
     build_plan,
     compose_overlay,
     device_driver_strings,
+    load_gs_phase_panel,
+    main,
     overlay_api_text,
     panel_pupil_chirp,
+    resolve_phase_source,
     run_execute,
 )
 
@@ -281,6 +286,8 @@ def _run_probe(
             "0",
             "--settle-max-wait-s",
             "0.2",
+            "--phase-source",
+            "gs",
             "--gs-phase",
             str(gs),
             "--out-root",
@@ -642,6 +649,8 @@ class TestRealTwinEndToEnd:
                 "0",
                 "--settle-max-wait-s",
                 "0.2",
+                "--phase-source",
+                "gs",
                 "--gs-phase",
                 str(gs),
                 "--out-root",
@@ -666,3 +675,82 @@ class TestRealTwinEndToEnd:
         baseline = rows[0]
         deflected = max(rows[1:], key=lambda row: float(row["dz_mm"]))
         assert float(deflected["spot_fwhm_px"]) > float(baseline["spot_fwhm_px"])
+
+
+# ---------------------------------------------------------------------------
+# 被测相位来源: transfer (默认) 与旧 GS 流程对照入口
+# ---------------------------------------------------------------------------
+class TestPhaseSourceSelection:
+    """``--phase-source`` 的契约: 默认 transfer 终稿, ``gs`` 必须带 ``--gs-phase``。
+
+    默认值一旦退回 GS, 探针量的就不再是「最新 transfer 整形」, 而这恰好是它现在
+    唯一有意义的被测对象; 反过来, 把旧调用方的缺属性 Namespace 也默认成 transfer,
+    会悄悄改掉它们测的东西。两条都要钉住。
+    """
+
+    def test_default_is_the_latest_transfer_final(self):
+        args = build_parser().parse_args(["--camera-pixel-um", "2.2"])
+        assert args.phase_source == "transfer"
+        assert args.transfer_phase is None
+
+        plan = build_plan(args, build_optics(args))
+        assert plan["phase_source"] == "transfer"
+        assert plan["transfer_phase"].endswith("star_best.npy")
+        assert Path(plan["transfer_phase"]).is_file()
+        assert plan["gs_phase"] is None
+        assert plan["gs_phase_ignored"] is None
+        # 旧键名保留, 但语义要说得清来源是 transfer 而不是 GS。
+        assert "transfer" in plan["gs_phase_source"]
+
+    def test_gs_source_without_a_phase_file_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "hw_gs_defocus_probe.py",
+                "--dry-run",
+                "--camera-pixel-um",
+                "2.2",
+                "--phase-source",
+                "gs",
+            ],
+        )
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+        assert "--gs-phase" in str(excinfo.value.code)
+
+    def test_transfer_ignores_gs_phase_and_records_both(self, tmp_path):
+        transfer = tmp_path / "star_best.npy"
+        model = np.linspace(0.0, 1.0, 640 * 640, dtype=np.float64).reshape(640, 640)
+        np.save(transfer, model)
+        gs = tmp_path / "gs_phase.npy"
+        np.save(gs, np.zeros((64, 64), dtype=np.float64))
+
+        args = build_parser().parse_args(
+            [
+                "--camera-pixel-um",
+                "2.2",
+                "--transfer-phase",
+                str(transfer),
+                "--gs-phase",
+                str(gs),
+            ]
+        )
+        optics = build_optics(args)
+        plan = build_plan(args, optics)
+        assert plan["phase_source"] == "transfer"
+        assert Path(plan["transfer_phase"]) == transfer
+        assert plan["gs_phase"] == str(gs)
+        assert plan["gs_phase_ignored"] == str(gs)
+
+        from scripts.slm._transfer_phase import load_transfer_phase
+
+        _, _, expected = load_transfer_phase(transfer)
+        panel = load_gs_phase_panel(args, optics)
+        assert panel.shape == PANEL_SHAPE
+        assert np.array_equal(panel, expected)
+
+    def test_legacy_namespace_without_the_attribute_keeps_the_gs_flow(self):
+        legacy = argparse.Namespace(gs_phase="old_gs_phase.npy")
+        assert resolve_phase_source(legacy) == "gs"
+        assert resolve_phase_source(argparse.Namespace()) == "gs"

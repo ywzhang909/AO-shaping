@@ -529,9 +529,13 @@ class TestSegmentedSweep:
 
     @staticmethod
     def _stage_a(tmp_path, *extra):
+        # --phase-source gs: 本组测的是 GS Stage A 的交接文件 (transfer 来源的
+        # 交接另在 test_gs_refine_zernike_transfer_phase.py 覆盖)。
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--phase-source",
+                "gs",
                 "--target-side",
                 "24",
                 "--epochs",
@@ -633,6 +637,7 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--phase-source", "gs",
                 "--target-side",
                 "24",
                 "--epochs", "4",
@@ -652,6 +657,7 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--phase-source", "gs",
                 "--target-side",
                 "24",
                 "--epochs", "4",
