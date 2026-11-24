@@ -336,3 +336,100 @@ S0 光路探测(G3,G4) → S1 映射闭合(G1) → [G1 不过 ⇒ 保留 S2 载�
   `C:/Users/zhangh/AppData/Local/Temp/opencode/issue247_axis_report_20261123.md`、
   `issue247_axis_*.{json,txt}`（结论已并入 §0.2 与本条，双链约定核对 T5–T8 进行中）
 - 原子计划：`docs/dev/hw_direction_test_plan_20261117.md`（P1–P5）
+
+---
+
+## 10. 修订 R1（2026-11-24）：S0 补测 Fresnel D —— 指令与判据
+
+> 本节是**附加段**：§2 的段表、§6 的判决口径**一字不改**。它只解决 §2 S0 判据 ⑥「落盘
+> `optical_path_record.json`（含新 D）」为何未闭合，以及在设备已上线的前提下如何闭合。
+
+### 10.1 触发事实（08:00 窗口实测，非推测）
+
+| 事实 | 证据 |
+|---|---|
+| S0 六步探测已通过 | `data/experiments/attribution_20261123/s0/s0_attribution_20261123_lowexp/20261124_024252Z/optical_path_probe.json` 的 `probe_status=ok`（0.05 ms、峰值 2637/4095、噪声底 20.9、无饱和） |
+| 但 D 仍是 `null` | 同目录 `optical_path_record.json` 的 `optical_path.fresnel_compensation_m_inv = null`，理由字段写着「探针不做 Fresnel 补偿标定（compensation 由焦面标定给出）」 |
+| 探针结构上测不出 D | 该段只做 Noll-4（rad）离焦扫描，判的是「离焦响应是否显著」，**与 Fresnel 光焦度（m⁻¹）不是同一量**，不能换算 |
+
+⇒ **S0 未闭合，S1 不得开始**（§1 执行顺序 + 判据 ⑥）。本节定义补测段 **S0‑R1**。
+
+### 10.2 实现落点（为什么改探针而不是另写脚本）
+
+在 `scripts/slm/probe_optical_path_validity.py` 内新增**默认关闭**的 `--focus-calibration` 段，
+在该脚本既有的「一次 open/close、持锁到底、位深回读校验、放锁后才写 `released.json`」纪律内
+调用 `src/ao_shaping/tools/slm/panel/focus_probe.py::sweep_focus`（设备无关的焦面扫描，
+自带逐点自适应曝光、`peak/exposure` 排序、抛物线顶点四点复测、曝光线性度检查）。
+
+- 不新增脚本：设备锁、位深校验、`occupancy.released_at`、`--wait-until-idle`、`--out` 契约都已在探针里，
+  另写一份就等于复制一遍纪律并留下两套要同步的代码。
+- **不默认开启**：不带 `--focus-calibration` 时行为与 2026-11-24 02:42Z 那次逐位一致（D 仍 `null`、理由保留）。
+- 同一次会话内、现有各段之后、**放锁之前**执行 ⇒ 不产生第二次 open/close（§3 禁止背靠背）。
+
+### 10.3 命令契约（S0‑R1）
+
+> 该脚本**无 `--execute` 门控**（必须整段持锁，见 `tests/ao_shaping/scripts/test_device_lock_callers.py`）：
+> 敲回车即占用 SLM #1 与 CCD。`--wait-until-idle` 默认 0.0＝不等，必须显式 600。
+> 曝光是逗号分隔字符串。`--out-root` + `--session` 决定落盘 `<out-root>/<session>/<UTC戳>/`。
+
+```powershell
+.venv/Scripts/python.exe scripts/slm/probe_optical_path_validity.py `
+  --bit-depth 12 --wait-until-idle 600 --exposures 0.087 `
+  --session s0r1_dcal_20261124 `
+  --out-root data/experiments/attribution_20261123/s0 `
+  --focus-calibration `
+  --focus-centre-px 960,600 --focus-radius-px 450 `
+  --focus-coarse-points 13 --focus-diopter-range 1.5 `
+  --focus-refine-points 7 --focus-frames 3 `
+  --focus-floor-ms 0.02 --focus-ceiling-ms 20
+```
+
+- `--focus-centre-px 960,600 --focus-radius-px 450`：**冻结值，SLM 面板坐标（panel px）**。
+  `focus_probe.py::_measure_point`（292–320 行）把这两个数交给 `fresnel_panel`，用作 Fresnel
+  透镜的 `pupil_center` 与 `radius`；**不是相机帧坐标**，也不是相机里 0 级的 argmax。
+  二者与 02:42Z S0 的 `config.pupil_center_px=[960,600]`、`config.defocus_radius_px=450`
+  完全一致，且与 `bench_kernels.BEAM_CENTER_PANEL/BEAM_RADIUS_PANEL` 的默认值一致。
+  相机帧里的 0 级 argmax 实测 ≈(1227.7, 1103.2)（10 帧 x=1227–1229、y=1102–1105），
+  **只用于 S1 的零级定位，绝不传给 D 标定** —— 两者坐标空间不同，混用必错。
+- `--focus-floor-ms 0.02`：0.05 ms 那次 `optical_path_probe.json` 的 `cam_exposure_range_ms=[0.02, 1000.0]`，
+  **0.02 是本机设备下限**（不是随便写的 0.011）。最佳焦点的中心像素远亮于离焦面（离焦 0.05 ms 已到
+  2637/4095），自适应曝光会被压到下限；**若在下限仍饱和**，按 10.4 D4 记为失败，不加衰减片、不外推。
+- 参数（13 点 / ±1.5 m⁻¹ / 步长 0.25 m⁻¹ + 7 点细化 + 3 帧平均）**在本节冻结**，与历史值无关地独立选取。
+
+### 10.4 判据（采集前冻结）
+
+| 编号 | 判据 | 不满足时 |
+|---|---|---|
+| **D0 SLM 相位自检** | 调用 `display_state.slm_self_check(slm)`：`get_current_grayscale()` 必须为 0；`get_displayed_memory_number()` 的 code=1 属正常；回读结果入证据 | 中止 D 标定段、不写 D，记录失败原因并**人工提醒用户**检查面板状态后重排；不连带作废既有 12 帧 S0 结果 |
+| **D1 内点** | 最优点必须是不在扫描端点的内点（左右各有 ≥2 个采样点） | 落端点 ⇒ 允许自动外扩一次；外扩后仍落端点 ⇒ 标定失败，**记 `out_of_range`，不外推** |
+| **D2 单峰** | 最优点两侧的 `peak_per_ms` 至少各单调下降 2 个采样点 | 记 `ambiguous`，**不写 D** |
+| **D3 曝光线性度** | `sweep_focus` 自带线性度检查通过（`peak/exposure` 排序成立） | **不写 D**，把失败证据留档 |
+| **D4 不饱和** | 最优点及复测点在 `effective_full_scale=4095` 下无饱和像素 | 记 `saturated_at_floor`，**不写 D**；下一步是加衰减片重测（另起修订） |
+| **D5 可复算** | `focus_calibration.json` 含全部扫描点（diopter / exposure / peak）与复测点，任何人可离线复算出同一个 D | 缺证据 ⇒ D 不写 |
+
+**写入规则**：只有 D0–D5 全过，才把实测值写进 `optical_path_record.json` 的
+`optical_path.fresnel_compensation_m_inv`，并删除「探针不做 Fresnel 补偿标定」那条理由；
+同时新增 `fresnel_calibration` 证据子对象（run_id、UTC 时间、方法、`centre_px` 与其来源、
+`radius_px`、网格参数、逐点读数、复测点、status、SLM/相机序列号）。
+任何一项不过 ⇒ 字段保持 `null`，理由改写为具体失败原因。**可疑值不得当 D 记录。**
+
+### 10.5 旧值声明（重要）
+
+本窗口**不引用任何历史 D**。理由：预注册旧值 `+0.559 m⁻¹`（§5 S0 行）**找不到出处**；
+`report/shape_trials/hw_defocus_zernike/artifacts/*/focus_calibration/slm1_*.json` 里的历史值互不相等
+（`+0.626 / +0.645 / +0.652 / +0.739 / +0.746`），且部分文件**内部字段自相矛盾**。
+因此历史值既不能作为新 D 的等价性基准，也不能用来做范围一致性检查 —— 新 D 独立成立。
+
+### 10.6 帧数与预算
+
+焦面扫描的帧数由扫描点决定，**不并入 §2 S0 的「12 帧」**（那 12 帧是六步探测的）。按本节参数：
+13 个粗扫点 + 最多 1 次外扩（+13）× 3 帧/点 + 7 个细化点 + 1 个顶点复测 × 3 帧/点 ⇒ **上界 ≈ 105 帧**；
+`peak_per_ms` 排序与抛物线细化通常只走粗扫网格（≈39 帧）+ 细化（≈24 帧），实测值以
+`focus_calibration.json` 的点数为准，事后回写本节。单次会话墙钟按最坏情况预留 **≤30 min**。
+
+### 10.7 上位关系与回滚
+
+- S0‑R1 成功后，**新目录**（`s0/s0r1_dcal_20261124/<UTC戳>/`）的 `optical_path_record.json` 成为
+  S0 的**正式记录**；02:42Z 那次**保持原样不改**，作为「探针通过但 D 缺失」的历史证据。
+- S0‑R1 失败（D0–D5 任一不过）⇒ S0 仍未闭合，S1 继续封锁，按失败原因另起 R2（不外推、不降级判据）。
+- 本节不改变 §2/§6 的判据；若需改判据本身，按 §8 另起带日期的新文件。
