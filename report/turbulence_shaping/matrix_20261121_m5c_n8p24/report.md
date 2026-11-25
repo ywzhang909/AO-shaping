@@ -12,14 +12,6 @@
 |---|---|---|---|---|
 | heuristic | 2e-12 | 0.8977 | 2908 | [report.md](heuristic_cn22e-12/report.md) |
 
-## 口径
-
-- dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;
-- 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,
-  MIL 因解析孪生 (`_SimBench` 钉死 cn2=0) 无湍流通道暂不入列 (GS-refine
-  自带孪生湍流通道已入列, 见 matrix_20261121_m5a; #253 注记);
-- 种子: dist_seed = 20261121 + 冻结网格序号 (``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。
-
 ## M5c 种群重配结论 (配对口径, heuristic @2e-12 slot 8)
 
 | n_max × pop | best shape | 光学求值 | vs 同维 pop12 |
@@ -37,3 +29,10 @@
   搜索空间结构而非种群不足。
 - **#253 择优终判不变**: 湍流 dynamic 下「整形质量 × 求值成本」最优 = n_max=8
   spgd-adamod; M5c 候选就此收口。
+## 口径
+
+- dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;
+- 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,
+  MIL 因解析孪生 (`_SimBench` 钉死 cn2=0) 无湍流通道暂不入列 (GS-refine
+  自带孪生湍流通道已入列, 见 matrix_20261121_m5a; #253 注记);
+- 种子: dist_seed = 20261121 + 冻结网格序号 (``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。
