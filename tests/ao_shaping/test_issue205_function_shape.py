@@ -148,6 +148,9 @@ _CAPRESP = "src/ao_shaping/tools/slm/transfer/capture_response.py"
 _OBJ = "src/ao_shaping/utils/image/target/objective.py"
 _DIFF_BEAM = "src/ao_shaping/optimizer/wfless/differentiable_beam.py"
 _SWEEP_ANALYSIS = "src/ao_shaping/tools/kernels/sweep_analysis.py"
+_HW_GS_SCANS = "scripts/slm/hw_gs_square_scans.py"
+_SWEEP_TARGET = "scripts/slm/sweep_target_size.py"
+_MULTI_SLM = "src/ao_shaping/gui/slm/multi_slm_controller.py"
 
 #: (relative path under src, function name, span ceiling, nesting ceiling,
 #:  the span measured when the guard was written)
@@ -592,6 +595,19 @@ def _build_targets() -> list[tuple[str, str, int, int, int]]:
     (_WAVEFRONT_CORRECTION, "_default_calc", 155, 1, 134),
     (_WAVEFRONT_CORRECTION, "_wc_fit_correction_map", 66, 1, 57),
     (_WAVEFRONT_CORRECTION, "_wc_detect_outliers", 58, 1, 50),
+    # 第 186 批 (#201 C 档登记, 登记先于拆分): 2026-10-24 扫描窗复测 —— 12 项中 6 项
+    # 已由上游消化 (render_report 1130→102 c55d06ee; _run_bench/render_atomic_section/
+    # render_retest_section/_parse_args 随 b933e723 重组消失或迁入 _SECTIONS;
+    # _run_gs_refine_session 自然缩到 61 已下线)。剩余 7 项按 issue 判定先上形状钉:
+    # 硬件脚本 4 项 + sweep 1 项拆分需实验窗口 (设备会话生命周期, 逐字拆错的回归
+    # CI 测不到), 轻度 src 2 项以钉防增长。拆分别等实验窗口, 走 #167/#168 sibling 惯例。
+    (_HW_GS_SCANS, "run_execute", 556, 4, 506),
+    (_HW_GS_SCANS, "run_atomic", 395, 5, 356),
+    (_HW_GS_SCANS, "build_plan", 285, 2, 257),
+    (_HW_GS_SCANS, "print_plan", 155, 2, 141),
+    (_SWEEP_TARGET, "run_execute", 255, 3, 229),
+    (_GS_REFINE, "_rasterise_target", 105, 2, 92),
+    (_MULTI_SLM, "render_phase_overlay_block", 105, 4, 93),
     ]
 
 _TABLE_BUILD_ERROR = ""
