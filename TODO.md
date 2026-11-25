@@ -5915,6 +5915,11 @@ slm_zernike_pib.py:1813`（2026-10-30 复核 `6b52f34c` #44 净 −4 行后由 `
 - **#255 (ci-fix `_fmt`)**: 复核确认已由第 182 批 (`1464a345`: efficiency_match → `partial(fmt_fixed_or_text, nonfinite_text="inf")`, waveform → `_fmt_cell` 委托 `fmt_general(bool pass/fail)`) 与第 184 批 (`33049c6c`: 下一合并窗口又带回的 cross_session/reproducibility 两份) 分两波收口; tip 上守卫参数化用例 `[_fmt]` 绿 + `scripts/` 无顶层 `def _fmt` 残留 (仅 analyze_model_hw_fidelity 函数体内嵌套 `_fmt(values: Sequence)` 属序列格式化, AST 顶层扫描不判红); 证据评论后关闭
 - **#201 (窗口长函数债)**: 按 issue 判定收口。AST 复测 12 项: 6 项已由上游消化 —— `render_report` 1130→**102** (第 168 批 c55d06ee A 档分节 sibling)、`_run_bench`(667)/`render_atomic_section`(312)/`render_retest_section`(536)/`_parse_args`(227) 随 b933e723 重组消失或迁入 `_SECTIONS`、sweep `build_plan`/`print_plan` 消失、`_run_gs_refine_session` 自然缩至 61 (已低于阈值下线)。剩余 7 项按「登记先于拆分」上 #205 形状钉: `hw_gs_square_scans` run_execute **506**/run_atomic **356**/build_plan 257/print_plan 141、`sweep_target_size` run_execute 229、`slm_gs_refine::_rasterise_target` 92、`multi_slm_controller::render_phase_overlay_block` 93 —— 硬件脚本侧拆分需实验窗口 (设备会话生命周期逐字拆错的回归 CI 测不到, issue 原文同判), 轻度 src 2 项以钉防增长; 守卫 **443 passed** (436+7)
 - 载体: #205 443 绿 / ruff / term / modsize / preflight 见 CI; #255 #201 证据评论后关闭
+
+**2026-11-25 · eebb1b5b 之后 · 第 187 批: #138 第 2 项 bayes 合并 (纯数学选型入口单一化) + #197/#138 延后项评估记录**
+- **#138-2 (bayes 两文件合并)**: `optimizer/wfless/bayes_opt_lr_delta.py` (206 行) 的 lr/delta 物理选型并入同域 `bayes_hyperparam.py` 后删除旧模块 —— 此前同一 GP 框架有两份实现 (`gp_minimize` 各自直调), 属「重复实现漂移」高危形。等价性论证 (合并注记块留档, 无测试能逐字节验证 GP 轨迹): legacy 以 **最小化 -PIB** 搜索 ≡ 引擎**最大化 PIB**, 失败分 `+1e6 ↔ WORST_LR_DELTA_SCORE=-1e6` 同一换算; legacy `n_initial_points=10` ≡ 引擎 `min(10, n_calls)` (skopt 对超界随机点数内部钳制); `random_state=42` 两边一致 ⇒ 同 seed 同轨迹; legacy 的**全局** `warnings.filterwarnings("ignore")` 副作用**有意不移植**。lr/delta 专用 `optimize_pib` 形状参数 (`cam_size=200`/`dm_neibor_diff=200`/`shrink_iter=0`/`shrink_ratio=0.9`, 区别于引擎 `_run_physical` 默认) 固化为 `_LR_DELTA_PIB_KWARGS` 并注明**不得与默认参数去重** (数值行为不同); 自动质心探针改惰性函数内 `MIICamera` import (保持 wfless 无设备顶层导入契约)。唯一调用方 `scripts/slm/demo_bayes_lr_delta.py` 改 import, 两函数名与 dict 返回契约不变; 文档三处同步 (module_inventory 行删+职责并入说明、miicam/agent_wiki MIICamera 回退层清单、issues_report print 表按 `a8d8410b` 先例标注)。新增 5 桩驱动测试 (kwargs 透传含 `abs(delta)`、失败→WORST 不抛、`bayesian_optimize_lr_delta` 返回 dict 键契约、grid 逐点报错行记 `-inf+error` 且 best 正确) —— `test_bayes_hyperparam` **10 passed**; `test_conventions`+`test_script_imports_resolve`+`test_call_graph_span_drift` **1053 passed**; 合并踩坑: 新代码用了 `np`/`logger` 而原模块无此二 import, 桩测试当场抓出 (grid NameError), 全量跑前必须逐符号核对新并入体的依赖
+- **#138 其余项评估**: 第 1 项 (utils 兼容 shim 删除) 已由上游 `8792ced1`+`a8d8410b` 完成; 第 3 项 (DM 环 `pib`/`gready_cam` 合并) 与第 4 项 (`slm_square_shaping`/`slm_gs_refine` 合并) 均为**硬件会话生命周期交织**的闭环编排合并, CI 只能测纯函数半区, 拆错设备时序的回归需实验窗口逐段核对 → 缓行, issue 留处置评论说明
+- **#197 收口评估**: Phase 1 三项已由上游 `4b07416b` 等完成 (gready_cam ROOT_DIR 硬编码删除、README 例外措辞、ml 可选包标注); Phase 2 (`scripts/slm/` 323 文件按域再分层、wfless `_hw`/`_sim` 后缀改名) 复核为**上游当前活跃提交面**上的纯改名重构: provenance 281 个路径键需整体重键、零行为收益、冲突概率高 → 判定缓行, 关账评论记录评估依据
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
@@ -5933,7 +5938,7 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 | `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
 | `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
 | `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |
-| `optimizer/wfless/bayes_opt_lr_delta.py` | 33 | 1 | **0** |
+| ~~`optimizer/wfless/bayes_opt_lr_delta.py`~~ | 33 | 1 | **0**（← 2026-11-25 第 187 批已整体并入 `bayes_hyperparam.py`（#138），本行为历史测量留档） |
 | `optimizer/wfless/adc_dm_adam.py` | 29 | 1 | **0** |
 | `optimizer/wf/interaction_matrix.py` | 21 | 1 | **0** |
 
