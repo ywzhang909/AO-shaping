@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Bayesian lr/delta optimization demo (extracted from
-``ao_shaping.optimizer.wfless.bayes_opt_lr_delta`` — see issue #90).
+"""Bayesian lr/delta optimization demo (functions merged into
+``ao_shaping.optimizer.wfless.bayes_hyperparam``, #138; originally
+``bayes_opt_lr_delta.py`` — see issue #90).
 
 Runs ``bayesian_optimize_lr_delta`` and ``grid_search_lr_delta`` on real
 hardware (requires a camera); shrunk to 50 epochs for a quick pass.
@@ -16,7 +17,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from ao_shaping.optimizer.wfless.bayes_opt_lr_delta import (
+from ao_shaping.optimizer.wfless.bayes_hyperparam import (
     bayesian_optimize_lr_delta,
     grid_search_lr_delta,
 )

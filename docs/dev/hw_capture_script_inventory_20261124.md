@@ -7,6 +7,7 @@
 ## 0. 状态快照与通用纪律
 
 - **并发写入警告**：落笔时同工作树有多个并行车道在增删文件。本清单所有路径在 2026-11-24 深夜落笔时逐一 `Test-Path` 核实存在；被并发车道删除的入口标 **【已消失】**，恢复或迁移由持有该车道者决定。
+- **2026-11-25 复核（文档守护）**：上表 5 个「工作树暂缺」条目（`cross_session_check` / `analyze_dark_frame_exposures` / `analyze_content_axis_2x2` / `content_axis_2x2_capture` / `reproducibility_prereg`）现已全部回到工作树；其中 `cross_session_check` 已被 `33049c6c` 修改（import 降级为 `DEPS_MISSING` 哨兵），**禁止**再执行旧版 `git checkout 6c686a00 -- <path>`（会用 `6c686a00` 旧版覆盖回退代码）。其余【已消失】条目（ABBA replay、s1 mapping 脚本、cross_session prereg、ABBA 计划文档）截至 2026-11-25 仍未入 HEAD，保持"真丢失"判定。
 - **开设备门禁**：绝大多数采集脚本遵循 `--execute` 才开设备的约定。**例外**：`issue247_cross_session_capture_20261124.py` 根本没有 `--execute` 开关，真实路径自动向三个子进程注入 `--execute`；它的安全演练模式是显式 `--dry-run`。不要套用"不带 --execute 就安全"的惯例。
 - **`--help` 不是普遍安全查询**：少数固定入口（如 `analyze_cold_start_cv.py`、`report/sim_tue_methods/t*.py`、`evaluate_psf.py`）没有 argparse，裸跑会执行离线分析并写产物。
 - **释放证明**：预注册要求的 open/close/release 以采集目录里的 `released.json` 等产物为准，不能只看进程 exit 0。
@@ -20,7 +21,7 @@
 | 单会话几何采集 | `scripts/slm/issue247_geometry_capture_20261120.py` | `--plan {frozen,waveform,attribution,reproduction}`；plan-only 默认，`--execute` 才开设备；`--self-test` 离线自检。 |
 | 跨会话复现检查 | `scripts/slm/issue247_reproducibility_check_20261124.py` | 离线；必填 `--dir --baseline-dir --probe-dir --out-dir`；消费 `released.json`；输出目录必须与采集目录分离。 |
 | 盲评审计 | `scripts/slm/issue247_core_blind_audit_20261124.py` | 离线；必填 `--dir --out-dir`；默认拒绝覆盖。 |
-| 总账离线判定器 | `scripts/slm/issue247_cross_session_check_20261124.py` **【已消失；已提交于 `6c686a00`，可 `git checkout 6c686a00 -- <path>` 恢复】** | 离线；必填 `--root --out-dir`；`--root` 需含 `cross_session_manifest.json` 与 s1/s2/s3。 |
+| 总账离线判定器 | `scripts/slm/issue247_cross_session_check_20261124.py`（2026-11-25 复核：已在工作树，且被 `33049c6c` 更新为 import 降级 `DEPS_MISSING` 哨兵版） | 离线；必填 `--root --out-dir`；`--root` 需含 `cross_session_manifest.json` 与 s1/s2/s3。 |
 | 波形求解 / 轴映射 | `scripts/slm/issue247_waveform_probe_solve_20261122.py`；`scripts/slm/issue247_axis_map_solve_20261121.py` | 离线；注意 waveform 求解默认把分析产物写回采集目录。 |
 
 缺口：三会话复现、轴映射冻结、校正前后实测配对是三个递进实验，控制器只覆盖第一步。
@@ -31,8 +32,8 @@
 |---|---|---|
 | 效率帧矩阵采集 | `scripts/slm/efficiency_match_capture_20261123.py` | `--execute` 才开设备；`--out` 新目录、`--cooldown-s`（≥20 s）；help **没有位深参数**，Mono12 口径需另行核实；`--dark-frames-dir` 复用既有暗场。 |
 | 效率分析 | `scripts/slm/efficiency_match_analyze_20261123.py` | 离线；`--dir`；bootstrap 默认 2000、seed 0；写回采集目录 `analysis.json/EM_REPORT.md`。 |
-| 内容轴四帧诊断 | `scripts/slm/content_axis_2x2_capture_20261124.py`（盘点时曾被删、落笔复核时已恢复；已入 HEAD） + `analyze_content_axis_2x2_20261124.py` **【工作树暂缺；已入 HEAD 可恢复】** | capture 契约：`--execute` 才开设备，支持 `--bit-depth`。 |
-| 暗帧评估 | `scripts/slm/analyze_dark_frame_exposures_20261124.py` **【工作树暂缺；已入 HEAD 可恢复】** | — |
+| 内容轴四帧诊断 | `scripts/slm/content_axis_2x2_capture_20261124.py`（盘点时曾被删、落笔复核时已恢复；已入 HEAD） + `analyze_content_axis_2x2_20261124.py`（2026-11-25 复核：已在工作树） | capture 契约：`--execute` 才开设备，支持 `--bit-depth`。 |
+| 暗帧评估 | `scripts/slm/analyze_dark_frame_exposures_20261124.py`（2026-11-25 复核：已在工作树，`8032b3f6` 新增） | — |
 | 闭环/replay 通用外壳 | `scripts/slm/validate_transfer_shapes_hardware.py`；`scripts/slm/replay_transfer_shapes_hardware.py` | validator 安全演练模式是 `--plan-only`，支持 `--bit-depth {8,12}`、`--initial-phase`、`--seed-run`；replay 外壳无 `--execute` 拒绝且不导入设备模块，持锁贯穿、finally 释放并写 `device_lock.json`。 |
 
 缺口：efficiency-match 固定 16 帧与内容轴四帧都是**诊断入口**，不等同于 train/selection_validation/final_test 三层隔离、适配总墙钟与完整算法 2×2 交错的终验执行器。
@@ -93,10 +94,10 @@
 
 | 路径 | 状态（以 HEAD + 落笔复核为准） |
 |---|---|
-| `scripts/slm/issue247_cross_session_check_20261124.py` | 已入 HEAD（`6c686a00`）；工作树暂缺，`git checkout 6c686a00 -- <path>` 可恢复 |
-| `scripts/slm/analyze_dark_frame_exposures_20261124.py` | 已入 HEAD；工作树暂缺，可恢复 |
-| `scripts/slm/analyze_content_axis_2x2_20261124.py` | 已入 HEAD；工作树暂缺，可恢复 |
-| `scripts/slm/content_axis_2x2_capture_20261124.py` | 已入 HEAD；盘点时曾被删、复核时已在工作树（波动） |
+| `scripts/slm/issue247_cross_session_check_20261124.py` | 已入 HEAD（`6c686a00`）；落笔时工作树暂缺 → 2026-11-25 复核已回到工作树，且已被 `33049c6c` 更新（`DEPS_MISSING` 哨兵降级）；**勿用 `6c686a00` 旧版 checkout 覆盖** |
+| `scripts/slm/analyze_dark_frame_exposures_20261124.py` | 已入 HEAD（`8032b3f6`）；2026-11-25 复核已在工作树 |
+| `scripts/slm/analyze_content_axis_2x2_20261124.py` | 已入 HEAD（`2c76e6b4`）；2026-11-25 复核已在工作树 |
+| `scripts/slm/content_axis_2x2_capture_20261124.py` | 已入 HEAD（`c5b48717`）；盘点时曾被删、复核时已在工作树（波动） |
 | `scripts/slm/s1e_same_bytes_probe_capture_20261124.py` | 已入 HEAD（`94282236`）；复核时已在工作树 |
 | `scripts/slm/replay_closed_loop_abba_20261124.py` | **按契约重建（原字节不可恢复），实验前需重新验证** |
 | `scripts/slm/capture_s1_mapping_disambiguation_20261124.py` | **按契约重建（原字节不可恢复），11 项离线测试通过** |

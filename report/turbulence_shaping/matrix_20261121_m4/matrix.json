@@ -7,37 +7,37 @@
     "report": "spgd_cn21e-14/report.md"
   },
   {
-    "variant": "heuristic",
-    "cn2": 1e-14,
-    "sigma_total_rad": 0.062191943051675996,
-    "evals": 1456,
-    "report": "heuristic_cn21e-14/report.md"
-  },
-  {
     "variant": "spgd",
     "cn2": 2e-13,
-    "sigma_total_rad": 0.27705072757809757,
+    "sigma_total_rad": 0.26985426083387803,
     "evals": 244,
     "report": "spgd_cn22e-13/report.md"
   },
   {
-    "variant": "heuristic",
-    "cn2": 2e-13,
-    "sigma_total_rad": 0.27951467963946897,
-    "evals": 1456,
-    "report": "heuristic_cn22e-13/report.md"
-  },
-  {
     "variant": "spgd",
     "cn2": 2e-12,
-    "sigma_total_rad": 0.896307644996149,
+    "sigma_total_rad": 0.9027645897196689,
     "evals": 244,
     "report": "spgd_cn22e-12/report.md"
   },
   {
     "variant": "heuristic",
+    "cn2": 1e-14,
+    "sigma_total_rad": 0.06320539001928568,
+    "evals": 1456,
+    "report": "heuristic_cn21e-14/report.md"
+  },
+  {
+    "variant": "heuristic",
+    "cn2": 2e-13,
+    "sigma_total_rad": 0.28643254271881563,
+    "evals": 1456,
+    "report": "heuristic_cn22e-13/report.md"
+  },
+  {
+    "variant": "heuristic",
     "cn2": 2e-12,
-    "sigma_total_rad": 0.9057792309849358,
+    "sigma_total_rad": 0.8939214045930496,
     "evals": 1456,
     "report": "heuristic_cn22e-12/report.md"
   }

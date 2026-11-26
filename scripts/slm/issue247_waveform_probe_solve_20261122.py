@@ -2,7 +2,7 @@
 
 输入是一个采集目录：``plan.json``（必需）、``frames/*.npy``（每图样 4 帧，
 命名沿用采集脚本的 ``{frame_index:04d}_{pattern_id}.npy``）、可选 ``summary.json``。
-全部计算都是确定性的离线处理，**不打开相机/SLM、不读真机状态、不拟合映射**。
+全部计算都是确定性的离线处理，**不打开相机/SLM、不读实验系统状态、不拟合映射**。
 
 算法（与 ``docs/dev/issue247_waveform_diagnostic_plan_20261121.md`` 对齐）：
 
@@ -518,7 +518,7 @@ def _find_peaks(
     raw: list[dict[str, float]] = []
     for row, col in np.argwhere(mask):
         if row < 100 and col < 100:
-            # 本台架左上有固定杂散光；与既有离线脚本保持同一屏蔽口径。
+            # 本实验系统左上有固定杂散光；与既有离线脚本保持同一屏蔽口径。
             continue
         center_row, center_col = _subpixel_peak(work, int(row), int(col))
         raw.append(
@@ -1740,13 +1740,13 @@ def _report_attribution_section(analysis: dict[str, Any]) -> list[str]:
     for axis in ("x", "y"):
         item = g1["axes"][axis]
         angles = ", ".join(
-            f"{family}={_fmt(item['angles_deg'][family])}°" for family in ATTRIBUTION_FAMILIES
+            f"{family}={_fmt_cell(item['angles_deg'][family])}°" for family in ATTRIBUTION_FAMILIES
         )
         lines.append(
             f"| G1 波形依赖[{axis}] | {item['status']} | "
-            f"极差 {_fmt(item['measured_spread_deg'])}°（{angles}） | "
-            f">{_fmt(g1['dependent_min_deg'])}° pass / "
-            f"≤{_fmt(g1['independent_max_deg'])}° fail |"
+            f"极差 {_fmt_cell(item['measured_spread_deg'])}°（{angles}） | "
+            f">{_fmt_cell(g1['dependent_min_deg'])}° pass / "
+            f"≤{_fmt_cell(g1['independent_max_deg'])}° fail |"
         )
     lines.append(
         f"| G1 波形依赖(总) | {_status_text(g1['pass'])} | 两轴合并 | 两轴均 pass 才 pass |"
@@ -1754,9 +1754,9 @@ def _report_attribution_section(analysis: dict[str, Any]) -> list[str]:
     g2 = gates["G2_single_family_anomaly"]
     for family in ATTRIBUTION_FAMILIES:
         item = g2["families"][family]
-        dev = ", ".join(f"{axis}={_fmt(item['deviation_deg'][axis])}°" for axis in ("x", "y"))
+        dev = ", ".join(f"{axis}={_fmt_cell(item['deviation_deg'][axis])}°" for axis in ("x", "y"))
         spread = ", ".join(
-            f"{axis}={_fmt(item['other_families_spread_deg'][axis])}°" for axis in ("x", "y")
+            f"{axis}={_fmt_cell(item['other_families_spread_deg'][axis])}°" for axis in ("x", "y")
         )
         lines.append(
             f"| G2 单族异常[{family}] | {_status_text(item['anomalous'])} | "
@@ -1772,15 +1772,15 @@ def _report_attribution_section(analysis: dict[str, Any]) -> list[str]:
         routing = "，轴路由失败" if item["axis_routing_failed"] is True else ""
         lines.append(
             f"| G3 轴分离[{family}] | {_status_text(item['pass'])}{routing} | "
-            f"abs(θx−θy)={_fmt(item['measured_separation_deg'])}° | "
-            f"{_fmt(g3['expected_deg'], 3)}° ± {_fmt(g3['tol_deg'])}° |"
+            f"abs(θx−θy)={_fmt_cell(item['measured_separation_deg'])}° | "
+            f"{_fmt_cell(g3['expected_deg'], 3)}° ± {_fmt_cell(g3['tol_deg'])}° |"
         )
     g4 = gates["G4_sign_consistency"]
     for pair in g4["pairs"]:
         lines.append(
             f"| G4 符号[{pair['family']}/{pair['axis']}] | {_status_text(pair['pass'])} | "
-            f"θ(+)−θ(−)={_fmt(pair['measured_angle_deg'])}° | "
-            f"{_fmt(g4['expected_deg'], 0)}° ± {_fmt(g4['tol_deg'], 0)}° |"
+            f"θ(+)−θ(−)={_fmt_cell(pair['measured_angle_deg'])}° | "
+            f"{_fmt_cell(g4['expected_deg'], 0)}° ± {_fmt_cell(g4['tol_deg'], 0)}° |"
         )
     lines.append("")
 
@@ -1794,7 +1794,7 @@ def _report_attribution_section(analysis: dict[str, Any]) -> list[str]:
         )
         lines.append(
             f"| `{item['id']}` | {item['family']} | {item['axis'] or '—'} | "
-            f"{_fmt(item['period_px'], 0)} | {item['predicted_axis_class'] or '—'} | "
+            f"{_fmt_cell(item['period_px'], 0)} | {item['predicted_axis_class'] or '—'} | "
             f"{item['measured_axis_class'] or '—'} | "
             f"{'正确' if item['axis_correct'] is True else ('错误' if item['axis_correct'] is False else '—')} | "
             f"{sign_text} | {item['status']} |"
@@ -1803,8 +1803,8 @@ def _report_attribution_section(analysis: dict[str, Any]) -> list[str]:
     lines.append(
         f"- prediction_rule：`{validation['prediction_rule']}`；"
         f"held_out_axis_accuracy = {validation['axis_correct_count']}/{validation['axis_total_count']}"
-        f" = {_fmt(validation['held_out_axis_accuracy'])}；"
-        f"held_out_sign_accuracy = {_fmt(validation['held_out_sign_accuracy'])}。"
+        f" = {_fmt_cell(validation['held_out_axis_accuracy'])}；"
+        f"held_out_sign_accuracy = {_fmt_cell(validation['held_out_sign_accuracy'])}。"
     )
     lines.append(
         "- 逐族正确数/总数："
@@ -1996,7 +1996,7 @@ def build_report(analysis: dict[str, Any], catalog: list[PatternSpec]) -> str:
             )
         elif verdict == "binary_grating_specific":
             lines.append(
-                "- 异常只出现在二值 grating 族：应排查灰度/LUT/选峰口径（H1），不改正向模型。"
+                "- 异常只出现在二值 grating 族：应排查灰度/LUT/选峰口径（H1），不改物理预测模型。"
             )
         elif verdict == "tilt_specific":
             lines.append(

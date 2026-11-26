@@ -362,6 +362,26 @@ def _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name,
 
 
 
+def _cap_split_kwargs(args) -> dict[str, object]:
+    """仅在非默认 split scheme 时传 kwarg (测试桩替换 probes 后旧签名仍可用, 同 load_dataset 先例)。"""
+    if getattr(args, "split_scheme", "legacy") == "legacy":
+        return {}
+    return {"split_scheme": args.split_scheme,
+            "final_test_rounds": getattr(args, "final_test_rounds", 1)}
+
+
+def _cap_append_row(args, manifest: list[dict], row: dict) -> None:
+    """行审计字段 + manifest/pkl 落盘 (2026-11-24 自 capture() 抽出过 #205 形状预算)。"""
+    row["probe_round"] = probe_round_of_label(row["label"])
+    row["split_scheme"] = getattr(args, "split_scheme", "legacy")
+    manifest.append(row)
+    (args.out / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    with (args.out / "capture_records.pkl").open("wb") as stream:
+        pickle.dump(manifest, stream, protocol=5)
+
+
 def _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial):
 # Probe spot location plus flat-frame sidecar lifted verbatim
     if label == "reference_start":
@@ -639,18 +659,12 @@ def capture(args, *, on_frame=None):
 
                 # reference_start 是本会话零级；之后 ramp 帧用它屏蔽零级邻域再定位。
                 session_zero: tuple[float, float] | None = None
-                split_kwargs: dict[str, object] = {}
-                if getattr(args, "split_scheme", "legacy") != "legacy":
-                    split_kwargs = {
-                        "split_scheme": args.split_scheme,
-                        "final_test_rounds": getattr(args, "final_test_rounds", 1),
-                    }
                 for label, split, grid in probes(
                     args.grid,
                     args.count,
                     args.seed,
                     getattr(args, "ramp_periods", (64, 128)),
-                    **split_kwargs,
+                    **_cap_split_kwargs(args),
                 ):
                     live_label[0] = f"探针 {label}"
                     # The parallel-fit worker (or an operator) may ask capture to
@@ -727,14 +741,7 @@ def capture(args, *, on_frame=None):
                     _cap_record_dataset(args, exposure_frames, frame, gray, grid, panel, path, raw, samples, save_dataset)
                     flat_frame_name, session_zero, x, y = _cap_spot_xy(args, exposure, flat_frame_name, frame, label, session_zero, slm_serial)
                     row = _cap_sample_row(attempt, clocks, exposure, exposure_clocks, flat_frame_name, label, live_prediction, path, raw, setting, split, x, y, full_scale=full_scale)
-                    row["probe_round"] = probe_round_of_label(label)
-                    row["split_scheme"] = getattr(args, "split_scheme", "legacy")
-                    manifest.append(row)
-                    (args.out / "manifest.json").write_text(
-                        json.dumps(manifest, indent=2), encoding="utf-8"
-                    )
-                    with (args.out / "capture_records.pkl").open("wb") as stream:
-                        pickle.dump(manifest, stream, protocol=5)
+                    _cap_append_row(args, manifest, row)
                     logger.info(
                         f"{label}: exposure={exposure:.5f} peak={raw.max():.1f} spot=({x:.1f},{y:.1f}) {setting.status}"
                     )

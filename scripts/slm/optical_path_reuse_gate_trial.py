@@ -1,8 +1,8 @@
-"""真机光路复用门试跑：跑一次复用门并按计划 §4 校验结果可信度。
+"""实验系统光路复用门试跑：跑一次复用门并按计划 §4 校验结果可信度。
 
 计划: docs/dev/next_hw_plan_optical_path_reuse_gate_trial_20261124.md
 
-本脚本**调用** :func:`optical_path_reuse_gate.run_reuse_gate` 在真实硬件上跑一次复用门
+本脚本**调用** :func:`optical_path_reuse_gate.run_reuse_gate` 在实验系统上跑一次复用门
 （持锁、开 SLM+CCD、拍一帧当前平场、单曝光饱和校验、``assess_reuse`` 判一致、fail-closed），
 再按计划 §4 通过判据校验其返回结果与退出码是否**可信**：
 
@@ -15,7 +15,7 @@
 本脚本只判「这个门可信」。无论门结果 passed 或 failed，只要结果自洽，试跑都算**有效**；
 结果不自洽 / 门崩溃 / 退出码异常 → 试跑**无效**（退出码 1），须先修门再试。
 
-本脚本不产生归因/冻结数据，不改 issue #247 状态；真机运行前须报告设备占用并 ``--wait-until-idle``。
+本脚本不产生归因/冻结数据，不改 issue #247 状态；实验运行前须报告设备占用并 ``--wait-until-idle``。
 
 用法::
 
@@ -173,7 +173,7 @@ def _build_gate_args(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def run_trial(args: argparse.Namespace) -> int:
-    """跑一次真机复用门并按计划 §4 判读，写试判读 JSON，返回试跑退出码。"""
+    """跑一次实验系统复用门并按计划 §4 判读，写试判读 JSON，返回试跑退出码。"""
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -217,7 +217,7 @@ def run_trial(args: argparse.Namespace) -> int:
         json.dumps(doc, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
-    logger.info(f"真机复用门试跑: trial={verdict['trial']} → {target}")
+    logger.info(f"实验系统复用门试跑: trial={verdict['trial']} → {target}")
     return EXIT_TRIAL_VALID if verdict["trial"] == "valid" else EXIT_TRIAL_INVALID
 
 

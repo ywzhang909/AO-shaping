@@ -1,0 +1,9 @@
+[
+  {
+    "variant": "heuristic",
+    "cn2": 2e-12,
+    "sigma_total_rad": 0.8976704804522272,
+    "evals": 2908,
+    "report": "heuristic_cn22e-12/report.md"
+  }
+]

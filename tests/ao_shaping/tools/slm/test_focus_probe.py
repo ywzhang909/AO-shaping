@@ -548,7 +548,7 @@ class TestFixedExposureSweep:
 
     为什么要有这个模式: 实测峰值是 ``peak(ms) = k*ms + B`` (B 是与曝光无关的
     加性本底), 跨曝光的 ``peak/ms`` 归一化因此不成立 —— R3 的实测曲线只在
-    **同一**曝光下干净单调。这些测试把那条实测教训钉在合成台架上。
+    **同一**曝光下干净单调。这些测试把那条实测教训钉在合成实验系统上。
     """
 
     def test_it_measures_every_point_at_one_exposure(self) -> None:

@@ -201,6 +201,15 @@ class TestStageAFromTransfer:
 
     def test_none_path_uses_the_default_phase(self):
         # None → DEFAULT_TRANSFER_PHASE (仓库里在盘的最新终稿)。
+        from pathlib import Path as _P
+
+        from scripts.slm._transfer_phase import DEFAULT_TRANSFER_PHASE as _DEF
+
+        _root = _P(__file__).resolve().parents[4]
+        if not (_root / _DEF).is_file():
+            pytest.skip(
+                f"冻结 transfer 产物不在本机 (data/debug 硬件数据未入库): {_DEF}"
+            )
         result = stage_a_from_transfer(
             transfer_phase=None,
             center_xy=(0, 0),

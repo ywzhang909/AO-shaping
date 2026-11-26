@@ -1,13 +1,9 @@
-# Transfer 正向模型静态 CCD PSF 适配验证报告
+# Transfer 物理预测模型静态 CCD PSF 适配验证报告
 
 <!-- provenance:start -->
-> **生成方式**: 人工撰写；数值由冻结评估脚本计算，图由同一评估 JSON 直接绘制
-> **评估脚本**: `data/debug/slm_transfer/20261124_transfer_psf_v1/evaluate_psf.py`，SHA256 `828bf746757daad246ecaa8333d29e429e04bfa0e708a4b09908aff35f892a79`
-> **绘图脚本**: `data/debug/slm_transfer/20261124_transfer_psf_v1/make_psf_figures.py`，SHA256 `90d29c7d07d68d4c716a4112ef08649f1afad639870110ce8ad82eb6c6113a41`
-> **复现命令**: `python data/debug/slm_transfer/20261124_transfer_psf_v1/evaluate_psf.py`；训练命令见 §7
-> **运行环境**: 离线 CPU 拟合与评估；拟合和评估阶段不打开 SLM、CCD 或激光控制器，数据由先前会话采集
-> **预注册**: [`docs/dev/transfer_psf_adaptation_prereg_20261124.md`](../../docs/dev/transfer_psf_adaptation_prereg_20261124.md)
-> **说明**: 本轮只检验单一共享、静态、各向同性、有界 CCD 高斯 PSF。原 capture validation 门与独立 192 px capture 主门均通过，**支持将静态 PSF 适配作为显式 opt-in**；默认 `learn_psf=False` 保持不变。
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 离线 CPU 拟合与评估（拟合与评估阶段不打开 SLM、CCD 或激光控制器，数据由先前会话采集）
+> **说明**: 数值由冻结评估脚本计算，图由同一评估 JSON 直接绘制。评估脚本 `data/debug/slm_transfer/20261124_transfer_psf_v1/evaluate_psf.py`，SHA256 `828bf746757daad246ecaa8333d29e429e04bfa0e708a4b09908aff35f892a79`；绘图脚本 `data/debug/slm_transfer/20261124_transfer_psf_v1/make_psf_figures.py`，SHA256 `90d29c7d07d68d4c716a4112ef08649f1afad639870110ce8ad82eb6c6113a41`；复现命令 `python data/debug/slm_transfer/20261124_transfer_psf_v1/evaluate_psf.py`；训练命令见 §7。预注册 `docs/dev/transfer_psf_adaptation_prereg_20261124.md`。本轮只检验单一共享、静态、各向同性、有界 CCD 高斯 PSF；原 capture validation 门与独立 192 px capture 主门均通过，**支持将静态 PSF 适配作为显式 opt-in**；默认 `learn_psf=False` 保持不变。人工撰写。
 <!-- provenance:end -->
 
 > 类型：实测、离线拟合与独立 held-out 验证报告

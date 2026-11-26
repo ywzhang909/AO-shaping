@@ -156,7 +156,8 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
         "",
         "- dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;",
         "- 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,",
-        "  MIL / GS-refine 因 sim 孪生无湍流通道暂不入列 (#253 注记);",
+        "  MIL 因解析孪生 (`_SimBench` 钉死 cn2=0) 无湍流通道暂不入列 (GS-refine",
+        "  自带孪生湍流通道已入列, 见 matrix_20261121_m5a; #253 注记);",
         f"- 种子: dist_seed = {BASE_DIST_SEED} + 冻结网格序号 "
         "(``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。",
         "",

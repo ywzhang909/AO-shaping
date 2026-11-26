@@ -1,10 +1,10 @@
-# 真机光路复用门试跑计划（2026-11-24）
+# 实验系统光路复用门试跑计划（2026-11-24）
 
 **状态：试跑代码已写好并通过离线校验（14 tests / ruff 通过），本地未提交；等待设备窗口（SLM #1 + CCD 空闲）。**
 
 ## 1. 目的与边界
 
-- 目的：用试跑 harness `scripts/slm/optical_path_reuse_gate_trial.py` 在真实硬件上端到端验证复用门 `scripts/slm/optical_path_reuse_gate.py`，确认它能在一次打开周期内给出可信的 `optical_path_reuse_gate.json` 与退出码，为后续实验「跳过完整 Step 3 阶梯」提供依据。
+- 目的：用试跑 harness `scripts/slm/optical_path_reuse_gate_trial.py` 在实验系统上端到端验证复用门 `scripts/slm/optical_path_reuse_gate.py`，确认它能在一次打开周期内给出可信的 `optical_path_reuse_gate.json` 与退出码，为后续实验「跳过完整 Step 3 阶梯」提供依据。
 - 边界：这是**工具验证**，不是实验采集，不产生用于归因/冻结的图样数据；不写映射/标定/模型产物；不改 issue #247 冻结归因状态；试跑结果只用于判断复用门本身可用性，不代表任何物理结论。
 
 ## 2. 前提（全部满足才可开设备）

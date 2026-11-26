@@ -1,11 +1,11 @@
 """共享的“最新 transfer 整形相位 → SLM 面板相位”读入口。
 
-上机脚本（泽尼克匀化、离焦扫描、均匀性重放）的被测相位统一从这里取：
+实验脚本（泽尼克匀化、离焦扫描、均匀度重放）的被测相位统一从这里取：
 ``ab_session_20261124`` 的 accepted 终稿 ``*_best.npy`` (640x640 弧度) 或等价的
 ``capture_*.npz`` / ``replay_*.npz`` 中的 ``model_phase``。面板展开沿用
 :func:`ao_shaping.tools.slm.transfer.capture.to_panel`，与
 ``replay_phases.replay`` 的上屏路径逐位一致；不需要 ramp 矩阵、几何校正或
-frozen_parameters（那些只用于前向模型，不参与相位重放）。
+frozen_parameters（那些只用于物理预测模型，不参与相位重放）。
 
 dry-run 不打开设备：本模块只 import 无驱动的 ``capture.to_panel``。
 """

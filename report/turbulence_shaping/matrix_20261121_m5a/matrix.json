@@ -1,0 +1,23 @@
+[
+  {
+    "variant": "gs_refine",
+    "cn2": 1e-14,
+    "sigma_total_rad": 0.06325929259894623,
+    "evals": 362,
+    "report": "gs_refine_cn21e-14/report.md"
+  },
+  {
+    "variant": "gs_refine",
+    "cn2": 2e-13,
+    "sigma_total_rad": 0.2782721509717552,
+    "evals": 362,
+    "report": "gs_refine_cn22e-13/report.md"
+  },
+  {
+    "variant": "gs_refine",
+    "cn2": 2e-12,
+    "sigma_total_rad": 0.9110572525958557,
+    "evals": 362,
+    "report": "gs_refine_cn22e-12/report.md"
+  }
+]

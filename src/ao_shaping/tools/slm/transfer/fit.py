@@ -204,8 +204,8 @@ class FitComponents:
 
 def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full",
                    amplitude_center_lr=None, radiometry="exposure", samples=None,
-                   train_all=False, learn_geometry=False, learn_psf=False,
-                   psf_sigma_init=None, psf_sigma_max=8.0):
+                   train_all=False, score_final_test=False, learn_geometry=False,
+                   learn_psf=False, psf_sigma_init=None, psf_sigma_max=8.0):
     """Assemble a physical-forward fit model from a recorded dataset.
 
     Shared by :func:`fit` (offline) and the headless parallel worker. The model is
@@ -238,6 +238,8 @@ def build_fit_model(dataset, checkpoint, *, span, device=None, adaptation="full"
     load_kwargs: dict[str, Any] = {"samples": samples}
     if train_all:
         load_kwargs["train_all"] = True
+    if score_final_test:
+        load_kwargs["score_final_test"] = True
     rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(
         dataset, old.grid_size, span, **load_kwargs)
     manifest_rows = json.loads((dataset / "manifest.json").read_text(encoding="utf-8"))
@@ -438,6 +440,7 @@ def fit(args):
                             radiometry=getattr(args, "radiometry", "exposure"),
                             samples=getattr(args, "samples", None),
                             train_all=bool(getattr(args, "train_all", False)),
+                            score_final_test=bool(getattr(args, "score_final_test", False)),
                             learn_geometry=bool(getattr(args, "learn_geometry", False)),
                             learn_psf=bool(getattr(args, "learn_psf", False)),
                             psf_sigma_init=getattr(args, "psf_sigma_init", None),

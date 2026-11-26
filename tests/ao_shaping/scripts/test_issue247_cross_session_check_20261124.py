@@ -13,6 +13,13 @@ import pytest
 
 MODULE_NAME = Path(__file__).stem.removeprefix("test_")
 SCRIPT = importlib.import_module(f"scripts.slm.{MODULE_NAME}")
+
+if getattr(SCRIPT, "DEPS_MISSING", None):
+    pytest.skip(
+        f"依赖模块尚未入库 (仅在硬件机工作区): {SCRIPT.DEPS_MISSING}",
+        allow_module_level=True,
+    )
+
 BASE_IDS = tuple(SCRIPT.EVALUABLE_BASE_IDS)
 PINNED_IDS = tuple(SCRIPT.PINNED_MAIN_BASE_IDS)
 NON_PINNED_IDS = tuple(SCRIPT.EXCLUDED_P192_BASE_IDS)

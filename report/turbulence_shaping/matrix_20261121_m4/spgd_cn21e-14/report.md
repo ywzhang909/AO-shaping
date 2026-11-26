@@ -1,8 +1,8 @@
-# 湍流仿真整形实验报告 — 20261122_140156
+# 湍流仿真整形实验报告 — 20261124_133950
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/run_turb_shaping_matrix.py`](../../../../scripts/slm/run_turb_shaping_matrix.py)
-> **复现命令**: `python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 --variants spgd,heuristic --out-root data/turb_matrix_m4 --report-root report/turbulence_shaping/matrix_20261121_m4`
+> **复现命令**: `python scripts/slm/run_turb_shaping_matrix.py --epochs 120 --n-max 11 --variants spgd,heuristic --out-root data/turb_matrix_m4b --report-root report/turbulence_shaping/matrix_20261121_m4`
 > **运行环境**: 离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）
 > **说明**: M4 单元 spgd x cn2=1e-14 (实测 σ≈0.064 rad, n_max=11/120ep); 相位/光斑双 GIF + metrics.png
 <!-- provenance:end -->
@@ -15,7 +15,7 @@
 | 实测 σ_total | 0.0635 rad (0.0101 waves) |
 | 光学求值次数 | 244 |
 | epochs | 120 |
-| quality 首/末/最优 | -1.4212666912341185 / -0.8191595286746547 / -0.7970719956761345 |
+| quality 首/末/最优 | -1.4212666912341185 / -1.2323217719930881 / -0.840382070571426 |
 
 ## 动态演化
 

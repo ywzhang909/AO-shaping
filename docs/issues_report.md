@@ -208,7 +208,7 @@ cls = registry.get_class(reachable[0])
 | 文件 | 调用数 | 说明 |
 |------|--------|------|
 | `algorithm/adam.py` | ~25 | Auto Delta Detection 状态输出 |
-| `optimizer/wfless/bayes_opt_lr_delta.py` | ~12 | 参数搜索进度输出 |
+| `optimizer/wfless/bayes_opt_lr_delta.py`（已并入 `bayes_hyperparam.py`，第 187 批 #138） | ~12 | 参数搜索进度输出 |
 | `optimizer/wfless/gready_cam.py` | ~6 | 中心值/矩阵加载调试 |
 | `optimizer/wfless/adc_dm_adam.py` | ~3 | 文件保存/状态输出 |
 | `algorithm/sim.py` | ~5 | 仿真进度输出（中文） |

@@ -7,6 +7,8 @@ from collections.abc import Callable
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
+import numpy as np
+from loguru import logger
 
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.optimizer.wfless.sim_spgd import optimize_spgd, optimize_spgd_zernike
@@ -137,3 +139,156 @@ def bayesian_search_hyperparams(
         history=history,
         raw_result=result,
     )
+
+
+# ---------------------------------------------------------------------------
+# lr/delta 选型（#138 第 2 项，第 187 批）：原 ``bayes_opt_lr_delta.py`` 并入。
+# 评分统一为「越大越好」的 PIB；原 ``objective_function`` 的「返回 -PIB / 失败
+# 返回 1e6」是最小化方向的同值写法（送入 ``gp_minimize`` 的目标逐点相同：
+# 引擎取 ``-score`` 后失败点仍是 +1e6，``n_initial_points`` 在 skopt 内部
+# 钳到 ``min(10, n_calls)``，与旧 ``10`` 等价，``random_state=42`` 同值）。
+# 原模块 import 期的 ``warnings.filterwarnings('ignore')`` 全局副作用不再
+# 保留——它只影响告警显示，不影响任何数值。
+# ---------------------------------------------------------------------------
+
+WORST_LR_DELTA_SCORE = -1.0e6
+
+#: 原 bayes_opt_lr_delta 的 optimize_pib 固定形状参数（与引擎 _run_physical
+#: 的默认值**不同**：shrink_ratio 0.9 / cam_size 200 / dm_neibor_diff 200）。
+_LR_DELTA_PIB_KWARGS: dict[str, Any] = {
+    "shrink_iter": 0,
+    "shrink_ratio": 0.9,
+    "cam_size": 200,
+    "dm_unit_mask": None,
+    "dm_neibor_diff": 200,
+    "dm_max_voltage": None,
+    "dm_min_voltage": None,
+}
+
+
+def _auto_center_from_camera(cam_id: int, exposure_time_ms: float):
+    from ao_shaping.drivers import MIICamera
+    from ao_shaping.utils.image.spots_calc import centroid
+
+    with MIICamera(cam_id=cam_id, exposure_time_ms=exposure_time_ms) as cam:
+        img = cam.get_numpy_image(10)
+    h, w = img.shape
+    return centroid(np.where(img > np.max(img[: max(int(h // 50), 2), : max(int(w // 50), 2)]), 1, 0))
+
+
+def lr_delta_score(
+    lr: float,
+    delta: float,
+    *,
+    center: Any = None,
+    epochs: int = 100,
+    exposure_time_ms: float = 80,
+    cam_id: int = 0,
+) -> float:
+    """一次硬件 lr/delta 评估，返回 PIB（越大越好）。
+
+    ``center=None`` 时与原实现一致：每次评估都开相机取左上角亮区质心。
+    """
+    try:
+        if center is None:
+            center = _auto_center_from_camera(cam_id, exposure_time_ms)
+        recorder = optimize_pib(
+            center=center,
+            epochs=epochs,
+            delta=abs(delta),
+            lr=lr,
+            exposure_time_ms=exposure_time_ms,
+            cam_id=cam_id,
+            show=False,
+            init_v=[],
+            **_LR_DELTA_PIB_KWARGS,
+        )
+        best_iter, _ = recorder.get_best_iter()
+        return float(best_iter["pib"])
+    # policy: a failed hardware measurement is reported to the optimiser as its
+    # worst score so the search keeps going; the failure itself is logged
+    except Exception as exc:
+        logger.error(f"lr/delta 评估失败: {exc}")
+        return WORST_LR_DELTA_SCORE
+
+
+def bayesian_optimize_lr_delta(
+    n_calls: int = 30,
+    lr_bounds: tuple[float, float] = (0.1, 5.0),
+    delta_bounds: tuple[float, float] = (0.1, 5.0),
+    center: Any = None,
+    epochs: int = 100,
+    exposure_time_ms: float = 80,
+    cam_id: int = 0,
+) -> dict[str, Any]:
+    """贝叶斯搜索 (lr, delta)，走共享 ``bayesian_search_hyperparams`` 引擎。
+
+    返回键与原模块一致：``best_params`` / ``best_score`` / ``optimization_result``。
+    """
+
+    def _score(params: dict[str, float]) -> float:
+        return lr_delta_score(
+            params["lr"],
+            params["delta"],
+            center=center,
+            epochs=epochs,
+            exposure_time_ms=exposure_time_ms,
+            cam_id=cam_id,
+        )
+
+    result = bayesian_search_hyperparams(
+        mode="physical",
+        search_params=[
+            SearchParam("lr", float(lr_bounds[0]), float(lr_bounds[1])),
+            SearchParam("delta", float(delta_bounds[0]), float(delta_bounds[1])),
+        ],
+        n_calls=n_calls,
+        objective_fn=_score,
+    )
+    return {
+        "best_params": result.best_params,
+        "best_score": result.best_score,
+        "optimization_result": result.raw_result,
+    }
+
+
+def grid_search_lr_delta(
+    lr_values: tuple[float, ...] = (0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0),
+    delta_values: tuple[float, ...] = (0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0),
+    center: Any = None,
+    epochs: int = 100,
+    exposure_time_ms: float = 80,
+    cam_id: int = 0,
+) -> dict[str, Any]:
+    """网格搜索 (lr, delta)；单点失败记为 ``-inf`` 并继续（比较价值在全表）。"""
+    best_score = -np.inf
+    best_params: dict[str, Any] = {"lr": None, "delta": None}
+    results: list[dict[str, Any]] = []
+    total = len(lr_values) * len(delta_values)
+    current = 0
+
+    for lr in lr_values:
+        for delta in delta_values:
+            current += 1
+            logger.debug(f"测试参数组合 {current}/{total}: lr={lr}, delta={delta}")
+            try:
+                score = lr_delta_score(
+                    lr,
+                    delta,
+                    center=center,
+                    epochs=epochs,
+                    exposure_time_ms=exposure_time_ms,
+                    cam_id=cam_id,
+                )
+                results.append({"lr": lr, "delta": delta, "score": score})
+                if score > best_score:
+                    best_score = score
+                    best_params = {"lr": lr, "delta": delta}
+                logger.debug(f"  得分: {score:.4f}")
+            # policy: one failing (lr, delta) point is recorded with its error and
+            # the sweep continues -- the grid's value is the comparison across points
+            except Exception as exc:
+                logger.error(f"  错误: {exc}")
+                results.append({"lr": lr, "delta": delta, "score": -np.inf, "error": str(exc)})
+
+    return {"best_params": best_params, "best_score": best_score, "all_results": results}

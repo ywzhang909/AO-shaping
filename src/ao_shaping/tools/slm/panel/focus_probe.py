@@ -109,7 +109,7 @@ DEFAULT_COARSE_POINTS = 25
 #: 曝光策略: ``adapt`` = 逐点自适应曝光 (老行为); ``fixed`` = 整段扫描用同一个曝光。
 #:
 #: 为什么需要 ``fixed``: 实测峰值不是 ``k*ms``, 而是 ``peak(ms) = k*ms + B`` ——
-#: 帧里有一个与曝光无关的加性本底 (实机实测 B≈757 counts, k/B≈24)。所以
+#: 帧里有一个与曝光无关的加性本底 (实验实测 B≈757 counts, k/B≈24)。所以
 #: ``peak/ms`` 只在**同一曝光**下可比, 跨曝光归一化会把本底放大成假信号
 #: (R3 证据: 0.05 ms 粗扫曲线干净单调, 混进 0.0935 ms 的细化点后比值必然
 #: 偏离 1)。固定曝光扫描下排序用原始峰值, 等价于用常数分母的 ``peak/ms``。
@@ -631,33 +631,8 @@ def _fp_fill_coarse_grid(
 
 
 
-def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable):
-# Best-diopter selection + parabolic refine lifted verbatim
-    best: FocusPoint | None = None
-    best_diopter: float | None = None
-    if usable:
-        grid_sorted = sorted(usable, key=lambda p: p.diopter_m1)
-        grid_best = max(grid_sorted, key=lambda p: p.peak_per_ms)
-        best = grid_best
-        best_diopter = grid_best.diopter_m1
-
-        # Refine: a parabola through the winner and its neighbours gives a
-        # sub-step estimate; it is only kept if a measurement there confirms it.
-        idx = grid_sorted.index(grid_best)
-        if 0 < idx < len(grid_sorted) - 1:
-            trio = grid_sorted[idx - 1 : idx + 2]
-            vertex = _parabolic_vertex(
-                [p.diopter_m1 for p in trio], [p.peak_per_ms for p in trio]
-            )
-            if vertex is not None:
-                refined = measure(vertex)
-                if refined.status == "ok" and refined.peak_per_ms > best.peak_per_ms:
-                    best, best_diopter = refined, refined.diopter_m1
-                notes.append(
-                    f"抛物线顶点 {vertex:+.3f} m⁻¹，四点复测后取 "
-                    f"{best_diopter:+.3f} m⁻¹"
-                )
-
+def _fp_fine_sweep(best, best_diopter, coarse_points, diopter_range, diopters, measure, measured, notes, refine_points):
+# Fine sweep around the winner + winner-change note lifted verbatim (R4 D5)
         # A fine sweep around the winner, so "the best of 7 refined points" is
         # really the best and not just the middle of a coarse bracket.
         if int(refine_points) > 2 and best_diopter is not None:
@@ -688,8 +663,70 @@ def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, not
                     f"精扫后最优点改为 {best_diopter:+.3f} m⁻¹ "
                     f"(精扫 {int(refine_points)} 点内最高 peak/ms)"
                 )
+        return best, best_diopter
+
+
+def _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable):
+# Best-diopter selection + parabolic refine lifted verbatim
+    best: FocusPoint | None = None
+    best_diopter: float | None = None
+    if usable:
+        grid_sorted = sorted(usable, key=lambda p: p.diopter_m1)
+        grid_best = max(grid_sorted, key=lambda p: p.peak_per_ms)
+        best = grid_best
+        best_diopter = grid_best.diopter_m1
+
+        # Refine: a parabola through the winner and its neighbours gives a
+        # sub-step estimate; it is only kept if a measurement there confirms it.
+        idx = grid_sorted.index(grid_best)
+        if 0 < idx < len(grid_sorted) - 1:
+            trio = grid_sorted[idx - 1 : idx + 2]
+            vertex = _parabolic_vertex(
+                [p.diopter_m1 for p in trio], [p.peak_per_ms for p in trio]
+            )
+            if vertex is not None:
+                refined = measure(vertex)
+                if refined.status == "ok" and refined.peak_per_ms > best.peak_per_ms:
+                    best, best_diopter = refined, refined.diopter_m1
+                notes.append(
+                    f"抛物线顶点 {vertex:+.3f} m⁻¹，四点复测后取 "
+                    f"{best_diopter:+.3f} m⁻¹"
+                )
+
+        best, best_diopter = _fp_fine_sweep(best, best_diopter, coarse_points, diopter_range, diopters, measure, measured, notes, refine_points)
     return best, best_diopter
 
+
+
+def _fp_split_usable(measured, notes):
+# Usable/skipped partition + the out-of-band note lifted verbatim
+    usable = [p for p in measured.values() if p.status == "ok"]
+    skipped = [p for p in measured.values() if p.status != "ok"]
+    if skipped:
+        notes.append(
+            f"{len(skipped)} 个点落在可用曝光带之外"
+            f"（clipped {sum(p.status == 'clipped' for p in skipped)} / "
+            f"dim {sum(p.status == 'dim' for p in skipped)}），未参与排序"
+        )
+    return usable
+
+
+def _fp_gate_ratios(exposure_mode, apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames,
+                    notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm, fixed_ms):
+# D3 same-exposure repeat vs cross-exposure linearity check, chosen by mode; lifted verbatim
+    if exposure_mode == EXPOSURE_MODE_FIXED:
+        # D3 换成同曝光复测: 加性本底让跨曝光线性度失去意义 (见 sweep_focus
+        # docstring)。固定模式下 linearity_ratio 必须保持 None。
+        return _fp_same_exposure_repeat(
+            apply_phase, best, float(fixed_ms), centre_px, discard, frames, notes,
+            panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm,
+        ), None
+    # Linearity check at the winner. The whole ranking is peak-per-ms, which is
+    # only valid if the sensor is linear in exposure. One extra reading at a
+    # different exposure either confirms it or tells the operator to distrust
+    # the pick. Halving is preferred; when the winner already sits near the
+    # floor (bright bench) there is no room below, so it doubles instead.
+    return None, _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
 
 
 def sweep_focus(
@@ -756,9 +793,7 @@ def sweep_focus(
     scale = float(full_scale)
 
     # 固定模式: 整段扫描共用这一个曝光; adapt 模式下 None = 逐点自适应。
-    fixed_ms: float | None = (
-        exposure_guess if exposure_mode == EXPOSURE_MODE_FIXED else None
-    )
+    fixed_ms: float | None = exposure_guess if exposure_mode == EXPOSURE_MODE_FIXED else None
 
     def measure(d: float) -> FocusPoint:
         nonlocal exposure_guess
@@ -834,46 +869,13 @@ def sweep_focus(
             )
             fixed_ms = new_ms
 
-    usable = [p for p in measured.values() if p.status == "ok"]
-    skipped = [p for p in measured.values() if p.status != "ok"]
-    if skipped:
-        notes.append(
-            f"{len(skipped)} 个点落在可用曝光带之外"
-            f"（clipped {sum(p.status == 'clipped' for p in skipped)} / "
-            f"dim {sum(p.status == 'dim' for p in skipped)}），未参与排序"
-        )
+    usable = _fp_split_usable(measured, notes)
 
     best, best_diopter = _fp_pick_best(coarse_points, diopter_range, diopters, measure, measured, notes, refine_points, usable)
 
     gain = _fp_flat_gain(best, measured)
 
-    if exposure_mode == EXPOSURE_MODE_FIXED:
-        # D3 换成同曝光复测: 加性本底让跨曝光线性度失去意义 (见 sweep_focus
-        # docstring)。固定模式下 linearity_ratio 必须保持 None。
-        repeat_ratio: float | None = _fp_same_exposure_repeat(
-            apply_phase,
-            best,
-            float(fixed_ms),
-            centre_px,
-            discard,
-            frames,
-            notes,
-            panel_shape,
-            pixel_um,
-            radius_px,
-            read_frame,
-            set_exposure_ms,
-            wavelength_nm,
-        )
-        linearity: float | None = None
-    else:
-        # Linearity check at the winner. The whole ranking is peak-per-ms, which is
-        # only valid if the sensor is linear in exposure. One extra reading at a
-        # different exposure either confirms it or tells the operator to distrust
-        # the pick. Halving is preferred; when the winner already sits near the
-        # floor (bright bench) there is no room below, so it doubles instead.
-        linearity = _fp_exposure_alt(apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm)
-        repeat_ratio = None
+    repeat_ratio, linearity = _fp_gate_ratios(exposure_mode, apply_phase, best, ceiling_ms, centre_px, discard, floor_ms, frames, notes, panel_shape, pixel_um, radius_px, read_frame, set_exposure_ms, wavelength_nm, fixed_ms)
 
     # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
     #

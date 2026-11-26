@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_default_transfer_phase_is_the_latest_accepted_dense_final() -> None:
     path = ROOT / DEFAULT_TRANSFER_PHASE
-    assert path.is_file(), path
+    if not path.is_file():
+        pytest.skip(f"冻结 transfer 产物不在本机 (data/debug 硬件数据未入库): {path}")
     resolved, model, panel = load_transfer_phase()
     assert resolved == DEFAULT_TRANSFER_PHASE
     assert model.shape == (640, 640)
@@ -58,15 +59,18 @@ def test_loader_rejects_non_tileable_shape_and_missing_file(tmp_path: Path) -> N
         load_transfer_phase(tmp_path / "missing.npy")
 
 
-def test_loader_does_not_import_device_drivers() -> None:
+def test_loader_does_not_import_device_drivers(tmp_path: Path) -> None:
     """单独进程验证：导入/调用读入口后 ``ao_shaping.drivers.*`` 仍为空。
 
     同进程断言会被其它测试先 import 的驱动污染，所以这里起干净子进程。
+    路径用合成 npy：默认常量指向 data/debug 冻结产物（未入库，CI 机上不存在）。
     """
+    synthetic = tmp_path / "synthetic_transfer_phase.npy"
+    np.save(synthetic, np.zeros((640, 640), dtype=np.float64))
     code = (
         "import sys\n"
         "from scripts.slm._transfer_phase import load_transfer_phase\n"
-        "load_transfer_phase()\n"
+        f"load_transfer_phase({str(synthetic)!r})\n"
         "bad = [n for n in sys.modules if n.startswith('ao_shaping.drivers')]\n"
         "print(','.join(bad))\n"
     )
