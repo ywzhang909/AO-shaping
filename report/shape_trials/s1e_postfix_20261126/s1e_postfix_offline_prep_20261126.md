@@ -5,7 +5,7 @@
 > **修复脚本**: [`src/ao_shaping/drivers/slm/santec/driver.py`](../../../src/ao_shaping/drivers/slm/santec/driver.py)（`_write_to_memory` §12.16.5 守卫）
 > **采集脚本**: [`scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py)
 > **判读脚本（冻结，复用）**: [`scripts/slm/s1e_same_bytes_probe_judge_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
-> **绑定 commit**: 代码 / 测试 / 预注册见 `s1e_postfix_code` 提交；本报告在其后提交，以其 commit id 为准（见 §6）。
+> **绑定 commit**: 代码 / 测试 / 预注册 / 本报告同批提交 `d273544754d19cccf790b398c2351369ffe3d88c`（短 `d2735447`）。
 > **运行环境**: 全程**离线**。本轮未占用 SLM/CCD/激光、未取设备锁、未建 run 目录；实验须用户另行授权。
 <!-- provenance:end -->
 

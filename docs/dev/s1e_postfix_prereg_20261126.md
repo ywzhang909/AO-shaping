@@ -8,7 +8,7 @@
 > **修复后采集测试**: [`test_s1e_same_bytes_probe_capture_postfix_20261126.py`](../../tests/ao_shaping/scripts/test_s1e_same_bytes_probe_capture_postfix_20261126.py)
 > **判读脚本（冻结，复用）**: [`s1e_same_bytes_probe_judge_20261126.py`](../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
 > **运行环境**: 本文与所有改动、门禁、计划模式下机清单均为**离线**产出，本轮**未占用 SLM/CCD/激光**；实验须经用户另行授权后按 §5 清单执行。
-> **绑定 commit**: 预注册/修复/测试/脚本在本轮提交后以其 commit id 为准（见 §7）。
+> **绑定 commit**: 预注册/修复/测试/脚本/本文见 `d273544754d19cccf790b398c2351369ffe3d88c`（本轮提交，短 `d2735447`）；实验后判读报告另以其自身 commit id 为准。
 <!-- provenance:end -->
 
 ## 摘要
@@ -160,7 +160,7 @@ python scripts/slm/s1e_same_bytes_probe_judge_20261126.py \
   - `docs/dev/s1e_postfix_prereg_20261126.md`（新增，本文）
   - `docs/dev/next_experiment_plan_20261124.md`（§2.P1 加一行状态指针；该文件 HEAD 干净、无他车道改动）
 - **不碰**：`scripts/_common/provenance.py`、`hw_window_20261123_attribution_prereg.md`、`driver.py` 的 `SlotRotator` hunk、冻结脚本/冻结测试/冻结 judge。
-- 提交后 commit id 写入 §7 与实验报告 provenance 头。
+- 本轮 commit id：`d273544754d19cccf790b398c2351369ffe3d88c`（短 `d2735447`）；实验后判读报告的实验报告 provenance 头引用该 commit。
 
 ### 任务项
 
