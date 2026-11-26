@@ -1,0 +1,583 @@
+{
+ "schema": "issue247-s1e-same-bytes-probe-judgment/v1",
+ "capture_dir": "data\\experiments\\attribution_20261123\\s1\\s1e_same_bytes_probe_20261124\\run_02",
+ "criteria": {
+  "intra_upload_max_dist_px": 1.5,
+  "D1": {
+   "min_effective_uploads": 5,
+   "max_pairwise_dist_px": 1.5
+  },
+  "D2": {
+   "axis_ratio_min": 1.5,
+   "col_dist_px": [
+    90.0,
+    102.0
+   ],
+   "row_dist_px": [
+    52.0,
+    64.0
+   ]
+  },
+  "D4": {
+   "weak_peak_fraction": 0.1
+  },
+  "D6": {
+   "zero_exception_groups_required": true
+  }
+ },
+ "zero_order_reference": {
+  "row": 1104.517,
+  "col": 1227.642,
+  "flat_peak": 2322.0
+ },
+ "uploads": {
+  "s1e_a1": {
+   "array": "H",
+   "predecessor": "flat",
+   "intra_upload_dist_px": 0.606,
+   "row": 1102.099,
+   "col": 1132.908,
+   "dr": -2.418,
+   "dc": -94.734,
+   "dist_px": 94.765,
+   "axis_type": "col-type",
+   "peak": 655.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a2": {
+   "array": "H",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.57,
+   "row": 1102.615,
+   "col": 1132.969,
+   "dr": -1.902,
+   "dc": -94.673,
+   "dist_px": 94.692,
+   "axis_type": "col-type",
+   "peak": 657.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_b1": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.754,
+   "row": 1102.528,
+   "col": 1168.758,
+   "dr": -1.989,
+   "dc": -58.884,
+   "dist_px": 58.917,
+   "axis_type": "other",
+   "peak": 555.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a3": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.087,
+   "row": 1101.613,
+   "col": 1133.879,
+   "dr": -2.904,
+   "dc": -93.763,
+   "dist_px": 93.808,
+   "axis_type": "col-type",
+   "peak": 654.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_b2": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.365,
+   "row": 1102.187,
+   "col": 1168.455,
+   "dr": -2.33,
+   "dc": -59.186,
+   "dist_px": 59.232,
+   "axis_type": "other",
+   "peak": 605.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a4": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.557,
+   "row": 1101.786,
+   "col": 1133.584,
+   "dr": -2.731,
+   "dc": -94.058,
+   "dist_px": 94.097,
+   "axis_type": "col-type",
+   "peak": 663.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a5": {
+   "array": "H",
+   "predecessor": "flat_mid",
+   "intra_upload_dist_px": 0.101,
+   "row": 1101.051,
+   "col": 1133.226,
+   "dr": -3.466,
+   "dc": -94.416,
+   "dist_px": 94.48,
+   "axis_type": "col-type",
+   "peak": 692.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_b3": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.793,
+   "row": 1101.104,
+   "col": 1168.696,
+   "dr": -3.412,
+   "dc": -58.946,
+   "dist_px": 59.044,
+   "axis_type": "other",
+   "peak": 627.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a6": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.668,
+   "row": 1101.893,
+   "col": 1133.832,
+   "dr": -2.624,
+   "dc": -93.81,
+   "dist_px": 93.847,
+   "axis_type": "col-type",
+   "peak": 679.5,
+   "weak": false,
+   "valid": true
+  }
+ },
+ "arms": {
+  "H": {
+   "array": "H",
+   "n_effective": 6,
+   "max_pairwise_dist_px": 1.585,
+   "threshold_px": 1.5,
+   "verdict": "D-fail",
+   "axis_types": [
+    "col-type",
+    "col-type",
+    "col-type",
+    "col-type",
+    "col-type",
+    "col-type"
+   ]
+  },
+  "B": {
+   "array": "B",
+   "n_effective": 3,
+   "max_pairwise_dist_px": 1.424,
+   "threshold_px": 1.5,
+   "verdict": "inconclusive",
+   "axis_types": [
+    "other",
+    "other",
+    "other"
+   ]
+  }
+ },
+ "D1": {
+  "array": "H",
+  "verdict": "D-fail",
+  "max_pairwise_dist_px": 1.585,
+  "n_effective": 6
+ },
+ "D2": {
+  "H": [
+   "col-type",
+   "col-type",
+   "col-type",
+   "col-type",
+   "col-type",
+   "col-type"
+  ],
+  "B": [
+   "other",
+   "other",
+   "other"
+  ],
+  "H_dist_px": [
+   94.765,
+   94.692,
+   93.808,
+   94.097,
+   94.48,
+   93.847
+  ],
+  "B_dist_px": [
+   58.917,
+   59.232,
+   59.044
+  ]
+ },
+ "D3": {
+  "verdict": "display_nondeterministic",
+  "predecessor_groups": {
+   "flat": [
+    "col-type",
+    "col-type"
+   ],
+   "H": [
+    "col-type",
+    "other",
+    "other",
+    "other"
+   ],
+   "B": [
+    "col-type",
+    "col-type",
+    "col-type"
+   ]
+  },
+  "predecessor_groups_H": {
+   "flat": [
+    "col-type",
+    "col-type"
+   ],
+   "H": [
+    "col-type"
+   ],
+   "B": [
+    "col-type",
+    "col-type",
+    "col-type"
+   ]
+  },
+  "predecessor_groups_B": {
+   "H": [
+    "other",
+    "other",
+    "other"
+   ]
+  },
+  "zero_exception": false,
+  "zero_exception_H": true,
+  "degenerate_H_single_axis_type": true,
+  "discriminating": false,
+  "note": "行程内 H 臂六次上传全为同一轴型，无法按轴型区分历史效应——D-fail 是位置抖动而非轴型翻转；全量前驱分组出现例外仅因 B 上传（本身即 other）跟随 H，属数组身份混杂，非历史依赖。故 E3 不适用，取 E2。",
+  "degenerate_single_axis_type": false
+ },
+ "E_branch": "E2",
+ "D4": {
+  "verdict": "inconclusive",
+  "note": "B has 3 uploads; the frozen D1 rule needs 5 effective uploads. Supplementary: B also jitters, so it is not demonstrated stable.",
+  "n_effective": 3,
+  "max_pairwise_dist_px": 1.424,
+  "axis_types": [
+   "other",
+   "other",
+   "other"
+  ]
+ },
+ "D5": {
+  "verdict": "not_applicable",
+  "note": "arm P (power cycle) not executed"
+ },
+ "D6": {
+  "verdict": "zero_exception_slot_groups",
+  "slot_groups": {
+   "4": [
+    "col-type"
+   ],
+   "5": [
+    "col-type"
+   ],
+   "6": [
+    "other"
+   ],
+   "7": [
+    "col-type"
+   ],
+   "8": [
+    "other"
+   ],
+   "9": [
+    "col-type"
+   ],
+   "11": [
+    "col-type"
+   ],
+   "12": [
+    "other"
+   ],
+   "13": [
+    "col-type"
+   ]
+  },
+  "zero_exception": true,
+  "degenerate_single_axis_type": false
+ },
+ "delivery_uniformity": {
+  "H": {
+   "n_distinct_physical_digest": 1,
+   "physical_sha256": [
+    "b98be9a6696cd94dbb3fa966e22a7f86e52f52b16ae252d21f7aa07af4079c3a"
+   ]
+  },
+  "B": {
+   "n_distinct_physical_digest": 1,
+   "physical_sha256": [
+    "c8d937cedb294339fa385f9ffa65cebd0ff3471ff62009cef42d7637bf590a73"
+   ]
+  }
+ },
+ "harmonics_supporting": {
+  "s1e_a1": {
+   "array": "H",
+   "fundamental_dist_px": 95.06,
+   "fundamental_peak": 683.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 283.0,
+     "dist_ratio": 2.977,
+     "peak": 85.0,
+     "i_over_i0": 0.124
+    },
+    "h5": {
+     "dist_px": 474.69,
+     "dist_ratio": 4.993,
+     "peak": 47.0,
+     "i_over_i0": 0.069
+    }
+   }
+  },
+  "s1e_a3": {
+   "array": "H",
+   "fundamental_dist_px": 93.79,
+   "fundamental_peak": 688.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 283.65,
+     "dist_ratio": 3.024,
+     "peak": 89.0,
+     "i_over_i0": 0.129
+    },
+    "h5": {
+     "dist_px": 476.3,
+     "dist_ratio": 5.078,
+     "peak": 44.0,
+     "i_over_i0": 0.064
+    }
+   }
+  },
+  "s1e_a5": {
+   "array": "H",
+   "fundamental_dist_px": 94.48,
+   "fundamental_peak": 694.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 282.97,
+     "dist_ratio": 2.995,
+     "peak": 86.0,
+     "i_over_i0": 0.124
+    },
+    "h5": {
+     "dist_px": 473.05,
+     "dist_ratio": 5.007,
+     "peak": 42.0,
+     "i_over_i0": 0.061
+    }
+   }
+  },
+  "s1e_a6": {
+   "array": "H",
+   "fundamental_dist_px": 93.74,
+   "fundamental_peak": 737.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 285.03,
+     "dist_ratio": 3.041,
+     "peak": 82.0,
+     "i_over_i0": 0.111
+    },
+    "h5": {
+     "dist_px": 475.43,
+     "dist_ratio": 5.072,
+     "peak": 44.0,
+     "i_over_i0": 0.06
+    }
+   }
+  },
+  "s1e_b1": {
+   "array": "B",
+   "fundamental_dist_px": 59.29,
+   "fundamental_peak": 546.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 178.69,
+     "dist_ratio": 3.014,
+     "peak": 88.0,
+     "i_over_i0": 0.161
+    },
+    "h5": {
+     "dist_px": 297.48,
+     "dist_ratio": 5.017,
+     "peak": 36.0,
+     "i_over_i0": 0.066
+    }
+   }
+  },
+  "s1e_b2": {
+   "array": "B",
+   "fundamental_dist_px": 59.41,
+   "fundamental_peak": 636.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 176.82,
+     "dist_ratio": 2.976,
+     "peak": 88.0,
+     "i_over_i0": 0.138
+    },
+    "h5": {
+     "dist_px": 297.5,
+     "dist_ratio": 5.008,
+     "peak": 38.0,
+     "i_over_i0": 0.06
+    }
+   }
+  },
+  "s1e_b3": {
+   "array": "B",
+   "fundamental_dist_px": 58.71,
+   "fundamental_peak": 623.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 178.24,
+     "dist_ratio": 3.036,
+     "peak": 90.0,
+     "i_over_i0": 0.144
+    },
+    "h5": {
+     "dist_px": 293.95,
+     "dist_ratio": 5.007,
+     "peak": 39.0,
+     "i_over_i0": 0.063
+    }
+   }
+  }
+ },
+ "supplementary": {
+  "flat_reference_track": {
+   "flat": [
+    {
+     "frame": "0000_flat.npy",
+     "row": 1104.517,
+     "col": 1227.642,
+     "peak": 2322
+    },
+    {
+     "frame": "0001_flat.npy",
+     "row": 1103.577,
+     "col": 1227.638,
+     "peak": 2305
+    }
+   ],
+   "flat_mid": [
+    {
+     "frame": "0014_flat_mid.npy",
+     "row": 1104.422,
+     "col": 1227.472,
+     "peak": 2277
+    },
+    {
+     "frame": "0015_flat_mid.npy",
+     "row": 1103.102,
+     "col": 1227.484,
+     "peak": 2331
+    }
+   ],
+   "flat_post": [
+    {
+     "frame": "0022_flat_post.npy",
+     "row": 1103.424,
+     "col": 1228.134,
+     "peak": 2264
+    },
+    {
+     "frame": "0023_flat_post.npy",
+     "row": 1102.806,
+     "col": 1228.045,
+     "peak": 2141
+    }
+   ],
+   "flat_offset": {
+    "drow": 0.0,
+    "dcol": 0.0,
+    "dist_px": 0.0
+   },
+   "flat_mid_offset": {
+    "drow": -0.285,
+    "dcol": -0.162,
+    "dist_px": 0.328
+   },
+   "flat_post_offset": {
+    "drow": -0.932,
+    "dcol": 0.45,
+    "dist_px": 1.035
+   }
+  },
+  "drift_corrected_spread": {
+   "H": {
+    "array": "H",
+    "max_pairwise_dist_px": 1.327,
+    "positions": {
+     "s1e_a1": {
+      "dr": -1.928,
+      "dc": -94.72
+     },
+     "s1e_a2": {
+      "dr": -1.371,
+      "dc": -94.636
+     },
+     "s1e_a3": {
+      "dr": -2.292,
+      "dc": -93.68
+     },
+     "s1e_a4": {
+      "dr": -2.037,
+      "dc": -93.929
+     },
+     "s1e_a5": {
+      "dr": -2.63,
+      "dc": -94.328
+     },
+     "s1e_a6": {
+      "dr": -1.465,
+      "dc": -94.028
+     }
+    },
+    "note": "supplementary: not part of the frozen verdict"
+   },
+   "B": {
+    "array": "B",
+    "max_pairwise_dist_px": 1.016,
+    "positions": {
+     "s1e_b1": {
+      "dr": -1.417,
+      "dc": -58.824
+     },
+     "s1e_b2": {
+      "dr": -1.677,
+      "dc": -59.081
+     },
+     "s1e_b3": {
+      "dr": -2.415,
+      "dc": -59.011
+     }
+    },
+    "note": "supplementary: not part of the frozen verdict"
+   }
+  }
+ }
+}

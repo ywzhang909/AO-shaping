@@ -1,0 +1,143 @@
+{
+  "schema": "issue247-s1e-arm-p-d5-judgment/v1",
+  "verdict": "no_power_cycle_effect",
+  "note": "同序位主瓣相对各自 0th 的差最大 1.389 px（s1e_a1），未超冻结阈值 1.5 px；跨变体轴型全一致、无 col/row 翻转；绝对坐标差最大 2.613 px 仅作佐证（含各变体 0th 质心抖动）。",
+  "threshold_px": 1.5,
+  "threshold_source": "FROZEN_CRITERIA['intra_upload_max_dist_px']",
+  "position_basis": "dr/dc relative to each variant's own 0th (frozen §12.16.3)",
+  "max_rel_diff_px": 1.389,
+  "worst_slot": "s1e_a1",
+  "max_abs_diff_px": 2.613,
+  "any_axis_flip": false,
+  "n_compared_slots": 9,
+  "per_slot": {
+    "s1e_a1": {
+      "array": "H",
+      "dr_A": -1.634,
+      "dr_P": -2.418,
+      "dc_A": -93.587,
+      "dc_P": -94.734,
+      "rel_diff_px": 1.389,
+      "abs_diff_px": 2.362,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    },
+    "s1e_a2": {
+      "array": "H",
+      "dr_A": -1.85,
+      "dr_P": -1.902,
+      "dc_A": -94.185,
+      "dc_P": -94.673,
+      "rel_diff_px": 0.491,
+      "abs_diff_px": 1.431,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    },
+    "s1e_b1": {
+      "array": "B",
+      "dr_A": -0.842,
+      "dr_P": -1.989,
+      "dc_A": -59.197,
+      "dc_P": -58.884,
+      "rel_diff_px": 1.189,
+      "abs_diff_px": 2.487,
+      "axis_A": "other",
+      "axis_P": "other",
+      "axis_flip": false
+    },
+    "s1e_a3": {
+      "array": "H",
+      "dr_A": -2.13,
+      "dr_P": -2.904,
+      "dc_A": -93.318,
+      "dc_P": -93.763,
+      "rel_diff_px": 0.893,
+      "abs_diff_px": 2.121,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    },
+    "s1e_b2": {
+      "array": "B",
+      "dr_A": -1.092,
+      "dr_P": -2.33,
+      "dc_A": -58.56,
+      "dc_P": -59.186,
+      "rel_diff_px": 1.387,
+      "abs_diff_px": 2.613,
+      "axis_A": "other",
+      "axis_P": "other",
+      "axis_flip": false
+    },
+    "s1e_a4": {
+      "array": "H",
+      "dr_A": -1.963,
+      "dr_P": -2.731,
+      "dc_A": -94.306,
+      "dc_P": -94.058,
+      "rel_diff_px": 0.807,
+      "abs_diff_px": 2.104,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    },
+    "s1e_a5": {
+      "array": "H",
+      "dr_A": -3.503,
+      "dr_P": -3.466,
+      "dc_A": -95.142,
+      "dc_P": -94.416,
+      "rel_diff_px": 0.727,
+      "abs_diff_px": 1.499,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    },
+    "s1e_b3": {
+      "array": "B",
+      "dr_A": -3.454,
+      "dr_P": -3.412,
+      "dc_A": -58.899,
+      "dc_P": -58.946,
+      "rel_diff_px": 0.063,
+      "abs_diff_px": 1.271,
+      "axis_A": "other",
+      "axis_P": "other",
+      "axis_flip": false
+    },
+    "s1e_a6": {
+      "array": "H",
+      "dr_A": -2.401,
+      "dr_P": -2.624,
+      "dc_A": -95.115,
+      "dc_P": -93.81,
+      "rel_diff_px": 1.324,
+      "abs_diff_px": 2.056,
+      "axis_A": "col-type",
+      "axis_P": "col-type",
+      "axis_flip": false
+    }
+  },
+  "E4_triggered": false,
+  "input_A": {
+    "capture_dir": "data\\experiments\\attribution_20261123\\s1\\s1e_same_bytes_probe_20261124\\run_01",
+    "zero_order_reference": {
+      "row": 1105.829,
+      "col": 1227.582,
+      "flat_peak": 2411.0
+    },
+    "D1": "D-fail"
+  },
+  "input_P": {
+    "capture_dir": "data\\experiments\\attribution_20261123\\s1\\s1e_same_bytes_probe_20261124\\run_02",
+    "zero_order_reference": {
+      "row": 1104.517,
+      "col": 1227.642,
+      "flat_peak": 2322.0
+    },
+    "D1": "D-fail",
+    "E_branch": "E2"
+  }
+}
