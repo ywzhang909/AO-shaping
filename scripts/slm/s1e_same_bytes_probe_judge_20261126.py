@@ -407,11 +407,11 @@ def judge(capture_dir: Path) -> dict[str, Any]:
         e_branch = "undetermined"
     d3_discriminating = bool(d1_h == "D-fail" and not h_axis_degenerate)
     d3_note = (
-        "行程内 H 臂六次上传全为同一轴型，无法按轴型区分历史效应——"
+        "行程内 H 变体六次上传全为同一轴型，无法按轴型区分历史效应——"
         "D-fail 是位置抖动而非轴型翻转；全量前驱分组出现例外仅因 B 上传（本身即 other）"
         "跟随 H，属数组身份混杂，非历史依赖。故 E3 不适用，取 E2。"
         if h_axis_degenerate
-        else "H 臂存在轴型差异，可按前驱分组检验历史依赖。"
+        else "H 变体存在轴型差异，可按前驱分组检验历史依赖。"
     )
 
     slot_groups = group_by_slot(uploads, records)

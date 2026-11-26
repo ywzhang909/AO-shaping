@@ -1,3 +1,10 @@
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/s1e_same_bytes_probe_judge_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
+> **复现命令**: `python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --capture-dir data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_02 --out-dir report/shape_trials/s1e_same_bytes_probe_20261126 --stem s1e_arm_p_20261126`
+> **运行环境**: 离线 CPU 判读（读采集目录, 不打开设备）
+> **说明**: s1e arm-p 冻结表格
+<!-- provenance:end -->
+
 | pattern_id | 数组 | 前驱 | 帧内差 px | dr | dc | dist px | 轴型 | 峰值 | 有效 |
 |---|---|---|---|---|---|---|---|---|---|
 | flat | flat | — | — | — | — | — | — | — | 参考 |

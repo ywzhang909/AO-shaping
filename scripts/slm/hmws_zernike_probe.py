@@ -826,7 +826,7 @@ def resolve_dark_frame(
 def run_hardware(
     args: argparse.Namespace, run_dir: Path, focal_mm: float | None
 ) -> dict[str, Any]:
-    """真机采集: 锁 → SLM → CCD 依次进入 ExitStack, 逆序关闭, 最后放锁。"""
+    """实验系统采集: 锁 → SLM → CCD 依次进入 ExitStack, 逆序关闭, 最后放锁。"""
     from ao_shaping.drivers.ccd.common import (
         create_camera,
         full_scale,

@@ -1,14 +1,13 @@
-# HMWS 五点 Zernike 探测真机验证：焦面扫描与五帧采集（8-bit 首采 + 12-bit 重采）
+# HMWS 五点 Zernike 探测实验系统验证：焦面扫描与五帧采集（8-bit 首采 + 12-bit 重采）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/hmws_zernike_probe.py`](../../../scripts/slm/hmws_zernike_probe.py)
-> **复现命令**: `python scripts/slm/hmws_zernike_probe.py --noll 4 5 --inject-rad -0.2 0.0 0.2 --bias-rad 0.3 --radius 450 --bit-depth 12 --exposure-ms 0.08 --auto-exposure --wait-until-idle 600 --out data/hmws_zernike_probe`
+> **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/probe_optical_path_validity.py`](../../../scripts/slm/probe_optical_path_validity.py)
 > **数据/关联脚本**: [`tests/ao_shaping/scripts/test_hmws_zernike_probe.py`](../../../tests/ao_shaping/scripts/test_hmws_zernike_probe.py)
 > **数据/关联脚本**: [`src/ao_shaping/utils/image/zernike_probe.py`](../../../src/ao_shaping/utils/image/zernike_probe.py)
 > **数据/关联脚本**: [`src/ao_shaping/utils/wavefront/pattern_helper.py`](../../../src/ao_shaping/utils/wavefront/pattern_helper.py)
 > **运行环境**: 硬件：1064 nm Santec SLM-200 #1 + Daheng MER2-507-23GM CCD；12-bit 重采相机 12-bit / full_scale=4095，暗帧严格匹配 0.08 ms；分析离线 CPU
-> **说明**: Pathak & Jomy 2026 HMWS 五点估计真机验证：先六步光路探测 + Fresnel 焦面扫描（verdict=ok，标定 ambiguous，未补偿），再对 Noll 4/5 各注入 ±0.2/0 rad、b=0.3 rad、r=450 px 采集五帧。8-bit 首采（曝光 0.06 ms）：Noll 5 线性良好（slope=1.0753，R²≈0.999996），Noll 4 失效（slope=0.3947，R²=0.9302）。12-bit 重采（曝光 0.08 ms，严格匹配暗帧）：Noll 5 仍可用（slope=0.8662，R²=0.9726），Noll 4 反而更差（slope=0.1772，R²=0.2911），位深量化假设被证伪，失效源于离焦峰值响应本身，不作系数定标。
+> **说明**: Pathak & Jomy 2026 HMWS 五点估计实验系统验证：先六步光路探测 + Fresnel 焦面扫描（verdict=ok，标定 ambiguous，未补偿），再对 Noll 4/5 各注入 ±0.2/0 rad、b=0.3 rad、r=450 px 采集五帧。8-bit 首采（曝光 0.06 ms）：Noll 5 线性良好（slope=1.0753，R²≈0.999996），Noll 4 失效（slope=0.3947，R²=0.9302）。12-bit 重采（曝光 0.08 ms，严格匹配暗帧）：Noll 5 仍可用（slope=0.8662，R²=0.9726），Noll 4 反而更差（slope=0.1772，R²=0.2911），位深量化假设被证伪，失效源于离焦峰值响应本身，不作系数定标。
 <!-- provenance:end -->
 
 **HMWS Five-Point Zernike Probe on Hardware: Focus Scan and Five-Frame Acquisition (First 8-bit Run + 12-bit Re-run)**
@@ -17,13 +16,13 @@
 
 ## 摘要
 
-本报告给出 HMWS（模态波前传感，Pathak & Jomy 2026）五点 Zernike 探测在真实 SLM+CCD 光路上的首次上机验证结果。验证分两段：先复用 `probe_optical_path_validity.py --focus-calibration` 在一次设备会话内完成六步光路探测与 Fresnel 焦面扫描，再运行 `scripts/slm/hmws_zernike_probe.py` 对 Noll 4（离焦，n,m=(2,0)）与 Noll 5（像散，(2,−2)）各注入 −0.2/0/0.2 rad，以偏置 b=0.3 rad、孔径半径 450 px、曝光 0.06 ms 完成每组五帧采集（帧均值 3 帧）。六步光路探测判定 `verdict=ok`；焦面扫描在 −0.500 m⁻¹ 处峰值最高但峰形不唯一（`status=ambiguous`，`accepted=false`），且曝光线性度 1.35 偏离 [0.8, 1.25]，因此**本采集不加 Fresnel 焦面补偿**（`focal_mm=null`）。
+本报告给出 HMWS（模态波前传感，Pathak & Jomy 2026）五点 Zernike 探测在真实 SLM+CCD 光路上的首次实验验证结果。验证分两段：先复用 `probe_optical_path_validity.py --focus-calibration` 在一次设备会话内完成六步光路探测与 Fresnel 焦面扫描，再运行 `scripts/slm/hmws_zernike_probe.py` 对 Noll 4（离焦，n,m=(2,0)）与 Noll 5（像散，(2,−2)）各注入 −0.2/0/0.2 rad，以偏置 b=0.3 rad、孔径半径 450 px、曝光 0.06 ms 完成每组五帧采集（帧均值 3 帧）。六步光路探测判定 `verdict=ok`；焦面扫描在 −0.500 m⁻¹ 处峰值最高但峰形不唯一（`status=ambiguous`，`accepted=false`），且曝光线性度 1.35 偏离 [0.8, 1.25]，因此**本采集不加 Fresnel 焦面补偿**（`focal_mm=null`）。
 
-采集共 6 条记录（2 模式 × 3 注入），全部 `valid=true`、`dark_subtracted=true`、clipped=0、质量门 `qualified=true`。结果分化明显：**Noll 5（像散）线性良好**——slope=1.0753、R²≈0.999996、截距=−0.0521 rad，ΔRMSE=0.0536 rad；**Noll 4（离焦）线性失效**——slope=0.3947、R²=0.9302，五帧对比度仅 −0.27%～−19.5%，ΔRMSE=0.1401 rad。离线复核确认：位深错位（本轮相机 8-bit、暗帧 12-bit）不是 Noll 4 失效的数学原因（暗帧是常数偏置，在五点组合中被抵消），真正的差异在峰值响应本身——Noll 4 的峰值随注入几乎不变，Noll 5 则有明显单调响应。本报告结论：**Noll 5 五点估计在真机光路上得到初步验证；Noll 4 在本轮条件下不可靠，不能作为系数定标**，需以 12-bit 重采复核。
+采集共 6 条记录（2 模式 × 3 注入），全部 `valid=true`、`dark_subtracted=true`、clipped=0、质量门 `qualified=true`。结果分化明显：**Noll 5（像散）线性良好**——slope=1.0753、R²≈0.999996、截距=−0.0521 rad，ΔRMSE=0.0536 rad；**Noll 4（离焦）线性失效**——slope=0.3947、R²=0.9302，五帧对比度仅 −0.27%～−19.5%，ΔRMSE=0.1401 rad。离线复核确认：位深错位（本轮相机 8-bit、暗帧 12-bit）不是 Noll 4 失效的数学原因（暗帧是常数偏置，在五点组合中被抵消），真正的差异在峰值响应本身——Noll 4 的峰值随注入几乎不变，Noll 5 则有明显单调响应。本报告结论：**Noll 5 五点估计在实验系统光路上得到初步验证；Noll 4 在本轮条件下不可靠，不能作为系数定标**，需以 12-bit 重采复核。
 
 SLM #1 恢复后完成 12-bit 重采（产物 `data/hmws_zernike_probe/20261126_053859Z/`）：相机 12-bit / full_scale=4095，光路变暗后先用仅 CCD 光强扫描在暗帧库严格匹配档位中选定曝光 0.08 ms（峰值比 0.459，落在接受带内），再以同一组参数（Noll 4/5、inject ±0.2/0 rad、b=0.3 rad、r=450 px、`--bit-depth 12`）跑五帧采集。6 条记录全部 `valid=true`、`dark_subtracted=true`、clipped=0、`qualified=true`，曝光预检 `settled_ms=effective_ms=0.08`、`converged=true`、`peak_fraction=0.487`，曝光阶梯未移动。**重采未挽救 Noll 4**：slope=0.1772、R²=0.2911、ΔRMSE=0.2814 rad，比 8-bit 更差；Noll 5 仍可用但略降（slope=0.8662、R²=0.9726、ΔRMSE=0.0997 rad）。位深量化假设被证伪——Noll 4 的失效源于离焦模式对焦面峰值响应本身，而非 8-bit 量化或位深错位。
 
-**关键词**：自适应光学；HMWS 模态波前传感；五点估计；Zernike 相差；相位探测；SLM；CCD；真机验证
+**关键词**：自适应光学；HMWS 模态波前传感；五点估计；Zernike 相差；相位探测；SLM；CCD；实验系统验证
 
 ---
 
@@ -151,7 +150,7 @@ SLM #1 恢复后完成 12-bit 重采（产物 `data/hmws_zernike_probe/20261126_
 1. **位深错位/量化非数学原因**：首采相机 8-bit（full_scale=255）、暗帧 12-bit（full_scale=4095）；暗帧是常数偏置（mean≈14.9），在五点组合公式中作为常数被抵消，raw/扣暗估计完全相同。12-bit 重采统一到位深 12-bit、曝光 0.08 ms 严格匹配暗帧后 Noll 4 线性度不升反降，**位深量化假设被证伪**。首采的位深错位仍是数据质量/溯源问题，见 §5。
 2. **真正的差异在峰值响应**：Noll 4 五帧峰值随注入的变化弱，而 Noll 5 有明显响应——问题不在算法或暗帧，而在离焦模式对焦面峰值的实际影响弱/被其他因素掩盖（偏置 b 选择、离焦在近似焦面处响应弱、或与光斑弥散/相机增益耦合）。
 
-**与仿真对比。** `zernike_probe_sim_20261105.md` 中 2f 光路下 defocus（Noll 4）恢复误差 <0.01 rad；本真机 Noll 4 在 8-bit 与 12-bit 两轮均失效说明“仿真模型未捕获”的真实物理因素（离焦响应/光路状态）在起作用，位深不是根因，需在更合适偏置下复核。
+**与仿真对比。** `zernike_probe_sim_20261105.md` 中 2f 光路下 defocus（Noll 4）恢复误差 <0.01 rad；本实验系统 Noll 4 在 8-bit 与 12-bit 两轮均失效说明“仿真模型未捕获”的真实物理因素（离焦响应/光路状态）在起作用，位深不是根因，需在更合适偏置下复核。
 
 ## 5. 数据质量限制与已知问题
 
@@ -204,7 +203,7 @@ python scripts/slm/hmws_zernike_probe.py \
 - [x] **12-bit 重采**：已完成（2026-11-26，`data/hmws_zernike_probe/20261126_053859Z/`），`--bit-depth 12`、曝光 0.08 ms 严格匹配暗帧、6 条记录全 `qualified=true`；结论：Noll 4 未恢复、反而更差，位深量化假设被证伪。
 - [ ] **焦面标定复核**：排查曝光线性度 1.35（×0.5 曝光复核）的来源，重测并确认 Fresnel 补偿符号与量级，再决定是否给采集加 `--focal-mm`。
 - [ ] **Noll 4 根因排查**：12-bit 后仍失效，检查偏置 b 选择（b 过小信噪比不足、过大二次近似退化）、离焦在近似焦面处的实际响应、光斑弥散与相机增益耦合，考虑用更小注入幅度或更大孔径半径重测。
-- [ ] **设备健康**：下次上机前确认 SLM #1 驱动板首读正常（首读失败即停，避免背对背开关假死）。
+- [ ] **设备健康**：下次实验前确认 SLM #1 驱动板首读正常（首读失败即停，避免背对背开关假死）。
 
 ---
 

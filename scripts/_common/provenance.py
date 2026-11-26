@@ -531,7 +531,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/hmws_zernike_probe/hmws_zernike_probe_20261124.md": ReportProvenance(
-        script="scripts/slm/hmws_zernike_probe.py",
+        script=HANDWRITTEN,
         command=(
             "python scripts/slm/hmws_zernike_probe.py --noll 4 5 "
             "--inject-rad -0.2 0.0 0.2 --bias-rad 0.3 --radius 450 "
@@ -543,7 +543,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "12-bit 重采相机 12-bit / full_scale=4095，暗帧严格匹配 0.08 ms；分析离线 CPU"
         ),
         note=(
-            "Pathak & Jomy 2026 HMWS 五点估计真机验证：先六步光路探测 + Fresnel 焦面扫描"
+            "Pathak & Jomy 2026 HMWS 五点估计实验系统验证：先六步光路探测 + Fresnel 焦面扫描"
             "（verdict=ok，标定 ambiguous，未补偿），再对 Noll 4/5 各注入 ±0.2/0 rad、"
             "b=0.3 rad、r=450 px 采集五帧。8-bit 首采（曝光 0.06 ms）：Noll 5 线性良好"
             "（slope=1.0753，R²≈0.999996），Noll 4 失效（slope=0.3947，R²=0.9302）。"
@@ -3529,6 +3529,45 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="M5a 单元 gs_refine x cn2=2e-12 (实测 σ≈0.911 rad); 综合质量 0.279→0.593 (最优 0.623), 高 σ 无退化; 双 GIF + metrics.png",
+    ),
+    "report/shape_trials/gui_closed_loop_energy_efficiency_20261125.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command="python scripts/slm/analyze_diffraction_vs_shaping_utilization_20261126.py",
+        environment="离线分析（复用实验系统已采集 JSON，不打开 SLM / CCD / 激光）",
+        note="闭环整形完成态能量利用率 vs SLM 衍射效率 (η=E_blaze/F0 口径, 2026-11-26 修订); 正文含 UI 变更说明与三组历史数据复算; 数字表格由脚本复现, 叙述为手写",
+    ),
+    "report/shape_trials/s1e_postfix_20261126/s1e_postfix_offline_prep_20261126.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线准备 + 判读（复用冻结判读脚本；修复本身由实验系统复采核验）",
+        note="s1e 同字节探针 postfix 修复 (driver _write_to_memory 非连续相位守卫) 的离线准备报告; 手写正文, 判读复用 scripts/slm/s1e_same_bytes_probe_judge_20261126.py (冻结), 复采脚本 s1e_same_bytes_probe_capture_postfix_20261126.py",
+    ),
+    "report/shape_trials/s1e_same_bytes_probe_20261126/s1e_same_bytes_probe_20261126.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件采集（s1e 探针会话）+ 离线 CPU 判读",
+        note="s1e 同字节探针主报告; 冻结判读 scripts/slm/s1e_same_bytes_probe_judge_20261126.py, 表格见同目录 _tables.md, 采集脚本 s1e_same_bytes_probe_capture_20261124.py",
+    ),
+    "report/shape_trials/s1e_same_bytes_probe_20261126/s1e_same_bytes_probe_20261126_tables.md": ReportProvenance(
+        script="scripts/slm/s1e_same_bytes_probe_judge_20261126.py",
+        command="python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --out-dir report/shape_trials/s1e_same_bytes_probe_20261126",
+        environment="离线 CPU 判读（读采集目录, 不打开设备）",
+        note="s1e 主判读冻结表格 (--out-dir 缺省 stem)",
+    ),
+    "report/shape_trials/s1e_same_bytes_probe_20261126/s1e_arm_p_20261126.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件采集（s1e arm-p 会话 run_02）+ 离线 CPU 判读",
+        note="s1e arm-p 单元报告; 判读命令 python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --capture-dir data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_02 --out-dir report/shape_trials/s1e_same_bytes_probe_20261126 --stem s1e_arm_p_20261126; 表格见 _tables.md",
+    ),
+    "report/shape_trials/s1e_same_bytes_probe_20261126/s1e_arm_p_20261126_tables.md": ReportProvenance(
+        script="scripts/slm/s1e_same_bytes_probe_judge_20261126.py",
+        command="python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --capture-dir data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_02 --out-dir report/shape_trials/s1e_same_bytes_probe_20261126 --stem s1e_arm_p_20261126",
+        environment="离线 CPU 判读（读采集目录, 不打开设备）",
+        note="s1e arm-p 冻结表格",
+    ),
+    "report/shape_trials/s1e_same_bytes_probe_20261126/s1e_arm_p_d5_20261126_tables.md": ReportProvenance(
+        script="scripts/slm/s1e_arm_p_d5_judge_20261126.py",
+        command="python scripts/slm/s1e_arm_p_d5_judge_20261126.py",
+        environment="离线 CPU 判读（读两个变体冻结 JSON, 不打开设备）",
+        note="s1e arm-p vs d5 对比冻结表格 (缺省读 s1e_same_bytes_probe_20261126.json 与 s1e_arm_p_20261126.json)",
     ),
     "report/turbulence_shaping/matrix_20261126_m5b/report.md": ReportProvenance(
         script="scripts/slm/run_turb_shaping_matrix.py",
