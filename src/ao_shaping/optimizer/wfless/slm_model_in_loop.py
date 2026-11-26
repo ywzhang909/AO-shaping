@@ -114,7 +114,9 @@ from ao_shaping.utils.image.exposure_control import (
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
     RECORD_EPOCH,
+    RECORD_IMAGE,
 )
 
 #: Fraction of full scale at which a frame counts as saturated. The same number decides two
@@ -1673,7 +1675,8 @@ class _SimBench:
     """
 
     def __init__(
-        self, config: SlmModelInLoopConfig, *, read_noise: float = 2.0
+        self, config: SlmModelInLoopConfig, *, read_noise: float = 2.0,
+        disturbance: Any = None,
     ) -> None:
         from ao_shaping.drivers.sim.slm_shaping_bench import (
             ShapingBenchConfig,
@@ -1683,6 +1686,12 @@ class _SimBench:
         self._forward = forward_intensity
         self._config = config
         self._read_noise = float(read_noise)
+        # #253 M5b: 可选湍流通道。None (默认) 时 measure() 与接入前的输出逐字节
+        # 一致 —— 这是回归测试钉住的契约, 不是实现巧合。
+        self._disturbance = disturbance
+        #: 最近一次 measure() 返回的帧; 报告链 (_img) 只在孪生路径消费它,
+        #: 硬件 bench 无此属性, 历史行因此逐字保持原键集。
+        self.last_frame: np.ndarray | None = None
         self._rng = np.random.default_rng(int(config.seed) + 977)
         self._phase = np.zeros((config.region, config.region), dtype=np.float64)
         # The model grid spans panel_span_px panel pixels, so its physical
@@ -1743,8 +1752,33 @@ class _SimBench:
         # to whatever phase we ask for, exactly as a real misalignment would be.
         self._phase = np.asarray(phase_model, dtype=np.float64) + self._aberration
 
+    def _turbulence_on_model_grid(self) -> np.ndarray:
+        """把面板尺度的干扰屏投到模型网格: 先按光瞳裁再双线性缩。
+
+        模型网格覆盖 ``panel_span_px`` (默认 900 px) 见 pupil_center 周围,
+        干扰屏定义在整块面板 (SLM_H x SLM_W) —— 直接整屏缩到 64 会把模型
+        视场外的屏也糊进光瞳, 尺度即错。
+        """
+        from scipy.ndimage import zoom
+
+        config = self._config
+        screen = np.asarray(self._disturbance.phase(), dtype=np.float64)
+        cx, cy = (int(round(v)) for v in config.pupil_center)
+        half = int(round(float(config.panel_span_px) / 2.0))
+        h, w = screen.shape
+        y0, y1 = max(cy - half, 0), min(cy + half, h)
+        x0, x1 = max(cx - half, 0), min(cx + half, w)
+        crop = screen[y0:y1, x0:x1]
+        region = int(config.region)
+        return zoom(crop, (region / crop.shape[0], region / crop.shape[1]), order=1)
+
     def measure(self) -> np.ndarray:
-        far = self._forward(self._phase, self._cfg)
+        field = self._phase + self._aberration
+        if self._disturbance is not None:
+            # 与 spgd/square 变体同一注入平面 (SLM 场), 每次光学求值取一张新屏
+            # (dynamic) —— 时间白语义由 SimDisturbance 本身决定, 此处不重发明。
+            field = field + self._turbulence_on_model_grid()
+        far = self._forward(field, self._cfg)
         # Emulate the camera window: a fixed-size crop on the peak, which is what
         # reset_window + argmax anchoring gives on the real bench.
         side = min(self._cam_size, far.shape[0], far.shape[1])
@@ -1752,7 +1786,8 @@ class _SimBench:
         noisy = frame + self._rng.normal(0.0, self._read_noise, frame.shape)
         # 16-bit detector: half a count at a full-well peak is the pedestal that
         # a weak probe cannot clear.
-        return np.clip(noisy, 0.0, 65535.0)
+        self.last_frame = np.clip(noisy, 0.0, 65535.0)
+        return self.last_frame
 
     def close(self) -> None:
         return None
@@ -3104,6 +3139,10 @@ def _session_measure_flat(calib_records, camera_rotation_quarters, cell_scale, c
     )
     if config.cam_type != "sim":
         recorder.history[-1]["timestamp_utc"] = flat_capture_utc
+    else:
+        # #253 M5b: 孪生基线行与轮行同一 recorder 契约 (系数此刻为零向量, 帧是平场)。
+        recorder.history[-1][RECORD_COEFFS] = np.asarray(coefficients, dtype=float).copy()
+        recorder.history[-1][RECORD_IMAGE] = np.asarray(flat_frame, dtype=np.float32)
     logger.info(
         "flat baseline: score={:.4f} CV={:.4f} EE={:.4f}",
         flat_score,
@@ -3703,6 +3742,12 @@ def _milr_accept_verdict(affine_after, bench, best_accepted_cv, calibration_viol
     else:
         row_trust_state = {}
     row = _model_in_loop_round_row(applied_l2, clamp_applied, clamped, index, loss_after, loss_before, probe_count, rejection_streak, score_after, score_before, shaped_metrics, shaping_loss, step_a_iters, step_a_lr, step_l2, verdict)
+    if config.cam_type == "sim" and getattr(bench, "last_frame", None) is not None:
+        # 孪生路径补齐兄弟变体的 recorder 契约 (#253 M5b): _c=本轮承诺系数
+        # (Noll 1.. 弧度), _img=Step B 后验收帧。报告列名归一在生成器侧。
+        # 硬件行键集因此逐字不变 —— 孪生 debug pkl 在 M5b 前从不落盘, 无旧消费者。
+        row[RECORD_COEFFS] = np.asarray(clamped, dtype=float)
+        row[RECORD_IMAGE] = np.asarray(bench.last_frame, dtype=np.float32)
     if config.cam_type != "sim" or config.holdout_on_sim:
         # Recorded whenever the held-out probes were actually measured,
         # which on sim is only under the explicit opt-in. The remaining

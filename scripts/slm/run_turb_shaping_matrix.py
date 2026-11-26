@@ -31,8 +31,10 @@ sys.path.insert(0, str(ROOT))
 #: 标定 (~0.09 / ~0.40 / ~1.8 rad); 第一版网格 (distance=1) 实测 σ 仅 0.006-0.03
 #: rad, 湍流近乎名义值, 无实验区分度, 已作废重跑 (台账第 179 批)。
 #: 追加变体只增尾不插位 (slot_of 基线索引不变, 老单元种子配对永久稳定);
-#: gs_refine = M5a freeform + M5b 孪生湍流通道 (MIL 的解析孪生注入是后续批)。
-VARIANTS = ("spgd", "square", "heuristic", "gs_refine")
+#: gs_refine = M5a freeform (湍流通道免费来自 SimPibCCD 真光路);
+#: model_in_loop = M5b 解析孪生注入 (#253 后续批已落地: _SimBench disturbance,
+#: 验收语义要求准静态, 故其单元固定 turb_mode=static)。
+VARIANTS = ("spgd", "square", "heuristic", "gs_refine", "model_in_loop")
 CN2_GRID = (1e-14, 2e-13, 2e-12)
 BASE_DIST_SEED = 20261121
 
@@ -67,16 +69,19 @@ def axes(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[float, ...]]:
 #: dist_seed 槽位: 老变体复现历史 cn2-major enumerate (stride=3, m2b..m5c 全部批次:
 #: spgd@2e-12=6, square@2e-13=4, heuristic@2e-12=8), gs_refine 用独立基址段 12+
 #: (最大老槽 8, 无碰撞)。**历史槽位与 gs_refine 基址都是冻结契约** —— 改动任何
-#: 一个都会让已提交报告不可配对。MIL 解析孪生注入是后续批。
-VARIANTS = ("spgd", "square", "heuristic", "gs_refine")
+#: 一个都会让已提交报告不可配对。MIL (M5b) 用基址段 24+ (gs_refine 占 12..14, 无碰撞)。
+VARIANTS = ("spgd", "square", "heuristic", "gs_refine", "model_in_loop")
 _HISTORICAL_SLOT_STRIDE = 3
 GS_REFINE_SEED_BASE = 12
+MIL_SEED_BASE = 24
 
 
 def slot_of(variant: str, cn2: float) -> int:
     """dist_seed 槽位 (冻结契约见 ``_HISTORICAL_SLOT_STRIDE``); 与子扫掠枚举顺序无关。"""
     if variant == "gs_refine":
         return GS_REFINE_SEED_BASE + CN2_GRID.index(cn2)
+    if variant == "model_in_loop":
+        return MIL_SEED_BASE + CN2_GRID.index(cn2)
     return CN2_GRID.index(cn2) * _HISTORICAL_SLOT_STRIDE + VARIANTS.index(variant)
 
 
@@ -86,7 +91,9 @@ def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> 
         "algorithm": variant,
         "search_algorithm": "pso" if variant == "heuristic" else "ga",
         "pop_size": args.pop_size,
-        "turb_mode": "dynamic",
+        # MIL 的 Step A 拟合 + 逐轮验收假设准静态波前 (dynamic 下验收必然被
+        # 新屏翻盘, 整格只会得到"保平场"空结论) —— 静态屏才是它的适用域。
+        "turb_mode": "static" if variant == "model_in_loop" else "dynamic",
         "cn2": cn2,
         "dist_seed": BASE_DIST_SEED + slot,
         "epochs": args.epochs,
@@ -154,10 +161,11 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
         "",
         "## 口径",
         "",
-        "- dynamic 时变屏 (逐光学求值独立), 幅度**实测** (stats), 见各单元报告;",
-        "- 收敛快慢/终值对比见各单元 GIF 与 metrics.png; 本矩阵为**对比择优**,",
-        "  MIL 因解析孪生 (`_SimBench` 钉死 cn2=0) 无湍流通道暂不入列 (GS-refine",
-        "  自带孪生湍流通道已入列, 见 matrix_20261121_m5a; #253 注记);",
+        "- 屏协议: spgd/square/heuristic/gs_refine = dynamic (逐光学求值独立屏); "
+        "model_in_loop = static (Step A 拟合与逐轮验收假设准静态波前, 见 cell_plan 注);",
+        "- 幅度**实测** (stats), 收敛快慢/终值对比见各单元 GIF 与 metrics.png; "
+        "本矩阵为**对比择优**; MIL 的孪生湍流通道自 M5b 入列 (`_SimBench` "
+        "disturbance 注入; GS-refine 通道见 matrix_20261121_m5a; #253 注记);",
         f"- 种子: dist_seed = {BASE_DIST_SEED} + 冻结网格序号 "
         "(``slot_of(variant, cn2)``; 子扫掠与基线逐单元配对)。",
         "",

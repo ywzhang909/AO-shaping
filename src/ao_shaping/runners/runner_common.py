@@ -4199,6 +4199,7 @@ def save_model_in_loop_results(
             "selfcal_violated",
         ),
         img_keys=("_img",),
+        d1_keys=("_c",),
         text_keys=("timestamp_utc",),
         object_keys=(
             "step_a_trace",

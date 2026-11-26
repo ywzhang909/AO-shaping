@@ -51,11 +51,14 @@ class TurbShapingParams:
         str,
         option(
             "--algorithm",
-            type=click.Choice(["spgd", "square", "heuristic", "gs_refine"]),
+            type=click.Choice(["spgd", "square", "heuristic", "gs_refine",
+                               "model_in_loop"]),
             help=(
                 "整形变体: spgd=Zernike PIB shape 目标; square=方形综合质量分; "
                 "heuristic=黑盒搜索 (ga/pso/sa/hc/rs/cem/de, 经 --search-algorithm); "
-                "gs_refine=GS 预矫正 + 全频 freeform SPGD (M5a, 经 --phase-grid)"
+                "gs_refine=GS 预矫正 + 全频 freeform SPGD (M5a, 经 --phase-grid); "
+                "model_in_loop=物理预测模型在环 (M5b, 湍流屏经 _SimBench 注入; "
+                "quasi-static 假设下验收才可能过, 矩阵单元用 static 屏)"
             ),
         ),
     ] = "square"
@@ -176,6 +179,22 @@ def build_click_args(params: TurbShapingParams) -> list[str]:
             "--algorithm", params.search_algorithm,
             "--pop-size", str(params.pop_size),
         ]
+    if params.algorithm == "model_in_loop":
+        # MIL 孪生 (M5b): 干扰屏不进 get_system (那是 SimPibCCD 的光路), 而是由
+        # run_arm 把 _open_bench 换成带 disturbance 的 _SimBench。轮数=epochs,
+        # 拟合基=Zernike n_orders=n_max; 拒收连击保险按轮数放宽 —— 孪生里该守卫
+        # 的"保护硬件时间"语义不存在, 中止只会丢整格, streak 曲线本身是结论。
+        return [
+            "--cam-type", "sim", "--cam-id", "0",
+            "--cam-size", str(params.cam_size),
+            "--n-rounds", str(params.epochs),
+            "--n-orders", str(params.n_max),
+            "--target-shape", "square",
+            "--target-side", str(int(params.target_side)),
+            "--seed", str(params.dist_seed),
+            "--exposure-time-ms", str(params.exposure_ms),
+            "--max-rejection-streak", str(max(10, int(params.epochs))),
+        ]
     if params.algorithm == "gs_refine":
         # freeform (M5a): GS 预矫正 + 粗网格全频 SPGD; 测量走 SimPibCCD 真光路,
         # install_disturbance_system 的注入系统对它就是"带湍流的实验系统"。
@@ -211,6 +230,8 @@ def _invoke_group(click_args: list[str], *, out_dir: Path,
     """
     if command_name == "slm-gs-refine":
         from ao_shaping.runners.slm.gs_refine_runner import run as entry
+    elif command_name == "slm-model-in-loop":
+        from ao_shaping.runners.slm.model_in_loop_runner import run as entry
     else:
         from ao_shaping.runners.slm.slm_shaping_runner import run as entry
 
@@ -255,11 +276,36 @@ def run_arm(params: TurbShapingParams) -> dict:
     install_disturbance_system(disturbance, seed=SYSTEM_SEED)
 
     click_args = build_click_args(params)
-    command_name = "slm-gs-refine" if params.algorithm == "gs_refine" else "slm-pib"
+    command_name = {"gs_refine": "slm-gs-refine",
+                    "model_in_loop": "slm-model-in-loop"}.get(params.algorithm, "slm-pib")
     logger.info("{} argv: {}", command_name, click_args)
 
-    exit_code = _invoke_group(click_args, out_dir=params.out_dir,
-                              command_name=command_name)
+    if params.algorithm == "model_in_loop":
+        # MIL 的孪生不经过 get_system, install_disturbance_system 对它无效 ——
+        # 唯一注入点是 _open_bench 选 bench 的那一行。进程内替换, 用毕还原,
+        # 否则会污染同进程后续非湍流 MIL 会话 (测试 autouse 夹具同样兜底)。
+        import ao_shaping.optimizer.wfless.slm_model_in_loop as mil
+
+        saved_open = mil._open_bench
+
+        def _open_turbulent_bench(config):
+            if config.cam_type == "sim":
+                return mil._SimBench(config, disturbance=disturbance)
+            return saved_open(config)
+
+        mil._open_bench = _open_turbulent_bench
+        try:
+            exit_code = _invoke_group(click_args, out_dir=params.out_dir,
+                                      command_name=command_name)
+        finally:
+            mil._open_bench = saved_open
+    else:
+        # seed 必须显式给: 挂具若只装包装不重建系统, get_system 的惰性首建**不带**
+        # 扰动 (heuristic/spgd 走 patch_sim_pib_shaping, 它刻意不 reset —— 实测
+        # disturbance.stats().calls=0, 运行与自己的伴随清单矛盾)。
+        install_disturbance_system(disturbance, seed=SYSTEM_SEED)
+        exit_code = _invoke_group(click_args, out_dir=params.out_dir,
+                                  command_name=command_name)
     if exit_code != 0:
         logger.warning("{} runner exited with status {}", command_name, exit_code)
 
@@ -278,6 +324,8 @@ def run_arm(params: TurbShapingParams) -> dict:
         "cn2": params.cn2,
         "dist_seed": params.dist_seed,
         "epochs": params.epochs,
+        # 报告生成器 sidecar_n_max 的兜底来源 (MIL 的拟合基叫 n_orders)。
+        "n_max": params.n_max,
         "cam_type": "sim",
         "exit_code": exit_code,
     }

@@ -377,9 +377,12 @@ python src/ao_shaping/main.py slm-transfer-shapes \
 时变波前扰动跑闭环，落 recorder pkl + `disturbance.json/npz` + `run.json`，并以
 `--report`（默认开）调用离线生成器
 `scripts/slm/generate_turbulence_shaping_report.py` 产出**相位与目标光斑的动态
-演化 GIF** + 指标曲线报告。四个变体：`spgd` / `square` / `heuristic`（经 `slm-pib`
-子命令）与 `gs_refine`（GS 预矫正 + 粗网格 **freeform** 全频 SPGD，经 `slm-gs-refine`，
-M5a/M5b；相位帧直接取逐轮下发面板灰度 `_phase`）。全程 sim-only，不触碰任何硬件。
+演化 GIF** + 指标曲线报告。五个变体：`spgd` / `square` / `heuristic`（经 `slm-pib`
+子命令）、`gs_refine`（GS 预矫正 + 粗网格 **freeform** 全频 SPGD，经 `slm-gs-refine`，
+M5a；相位帧直接取逐轮下发面板灰度 `_phase`）与 `model_in_loop`（物理预测模型在环，经
+`slm-model-in-loop`，M5b：湍流屏经 `_SimBench` 的 disturbance 通道注入；Step A 拟合
+与逐轮验收假设准静态波前，矩阵单元固定 `--turb-mode static`，孪生 recorder 行补
+`_c`/`_img` 与兄弟变体同契约）。全程 sim-only，不触碰任何硬件。
 
 ```bash
 python src/ao_shaping/main.py slm-turb-shaping \
@@ -390,7 +393,7 @@ python src/ao_shaping/main.py slm-turb-shaping \
 
 | 关键 flag | 默认 | 说明 |
 |---|---|---|
-| `--algorithm` | `square` | `spgd` / `square` / `heuristic`（黑盒搜索，经 `--search-algorithm`）/ `gs_refine`（GS+freeform SPGD） |
+| `--algorithm` | `square` | `spgd` / `square` / `heuristic`（黑盒搜索，经 `--search-algorithm`）/ `gs_refine`（GS+freeform SPGD）/ `model_in_loop`（物理预测模型在环，M5b，拟合基 `n_orders`=`-n`） |
 | `--search-algorithm` | `pso` | 仅 `heuristic`：`ga/pso/sa/hc/rs/cem/de`（`--pop-size` 配种群） |
 | `--phase-grid` | `12` | 仅 `gs_refine`：coarse freeform 相位网格边长（DOF=网格²） |
 | `--turb-mode` | `dynamic` | `none` / `static`（冻结屏）/ `dynamic`（逐求值独立屏，时间白极限） |

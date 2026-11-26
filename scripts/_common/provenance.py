@@ -3530,6 +3530,54 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="M5a 单元 gs_refine x cn2=2e-12 (实测 σ≈0.911 rad); 综合质量 0.279→0.593 (最优 0.623), 高 σ 无退化; 双 GIF + metrics.png",
     ),
+    "report/turbulence_shaping/matrix_20261126_m5b/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--epochs 120 --n-max 8 --cam-size 256 --out-root data/turb_matrix_m5b "
+            "--report-root report/turbulence_shaping/matrix_20261126_m5b"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M5b 汇总 (model_in_loop 三档, static 屏): MIL 孪生湍流通道首次入列 "
+            "(`_SimBench` disturbance 注入, 孪生 pkl 行补 _c/_img); "
+            "quality 首→末 0.665→0.756 (σ≈0.071) / 0.666→0.712 最优 0.744 (σ≈0.240) / "
+            "0.667→0.721 最优 0.753 (σ≈1.227), 三档末值全部优于平场; "
+            "static 屏协议与 dynamic 各变体不可直接同表排序 (屏协议见口径); "
+            "#253 择优终判不变 (dynamic 下 n_max=8 spgd-adamod)"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261126_m5b/model_in_loop_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--epochs 120 --n-max 8 --cam-size 256 --out-root data/turb_matrix_m5b "
+            "--report-root report/turbulence_shaping/matrix_20261126_m5b"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b 单元 model_in_loop x cn2=1e-14 (实测 σ≈0.071 rad, static 屏); quality 0.665→0.756; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261126_m5b/model_in_loop_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--epochs 120 --n-max 8 --cam-size 256 --out-root data/turb_matrix_m5b "
+            "--report-root report/turbulence_shaping/matrix_20261126_m5b"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b 单元 model_in_loop x cn2=2e-13 (实测 σ≈0.240 rad, static 屏); quality 0.666→0.712 最优 0.744; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261126_m5b/model_in_loop_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--epochs 120 --n-max 8 --cam-size 256 --out-root data/turb_matrix_m5b "
+            "--report-root report/turbulence_shaping/matrix_20261126_m5b"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b 单元 model_in_loop x cn2=2e-12 (实测 σ≈1.227 rad, static 屏); quality 0.667→0.721 最优 0.753; 双 GIF + metrics.png",
+    ),
     "report/turbulence_shaping/matrix_20261121_m5c_n8p24/report.md": ReportProvenance(
         script="scripts/slm/run_turb_shaping_matrix.py",
         command=(

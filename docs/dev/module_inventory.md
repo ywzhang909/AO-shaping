@@ -331,6 +331,8 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `slm/transfer/` | `blur.py` | 用实测形状标定等效模糊/辐射度量 (带形状族验证) |
 | `slm/transfer/` | `bootstrap.py` | 由新鲜 signed-ramp 采集建未标定物理预测模型初始化检查点（冷启动，先用出厂标定值起手，未实测标定）(零设备 import) |
 | `slm/transfer/` | `capture_response.py` | 交错定相位曝光响应采集, 保留每一帧 (需显式执行旗标) |
+| `slm/transfer/` | `snapshot.py` | #254 T3 (2026-11-26 新增): 闭环采集语料 → 三层快照 v1 的离线冻结器 —— 逐文件 sha256 + root_hash, rounds 整轮同层校验, 不可覆写 (同语料重复冻结保留首次时刻幂等), `verify --root` 搬移重定位, `--plan-only` 零副作用; 不采集不训练不碰设备 |
+| `slm/transfer/` | `branch_fit.py` | #254 T4 (2026-11-26 新增): spec 预注册的 N 分支并行训练驱动 —— 预算结构性唯一 (分支只可覆盖模型旋钮白名单), validation-only 统一打分, `candidates_frozen.json` 不可覆写, `score-final` 按 candidates 哈希对封存层一次性打分 (审计拒绝二次); 分支集合是输入不是代码 |
 | `slm/transfer/` | `open_loop.py` | 开环上屏展示 (`ccd_mode="none"`, 2026-11-17 新增): 保留模型合成、丢尽所有 CCD 阶段, 逐形上屏驻留; 相机与其 SDK 全程关闭, SLM 单次打开/关闭并持 `DeviceLock`, 与 `workflow` 分离以保无设备路径可注入测试 |
 | `slm/transfer/` | `direction.py` | 已存相位上的全局模型 vs 实测锚点方向性目标比较 |
 | `slm/transfer/` | `exposure_policy.py` | 开场曝光策略 (2026-11-12 新增): 把 `--exposure-ms` 的 `auto` / `default` / 正数毫秒三态解析成采集阶梯的**种子曝光** (不是固定曝光) —— `auto` 取该相机 (backend, cam_id) 上次阶梯收敛的记录值、无记录退 `FALLBACK_EXPOSURE_MS` (0.02), `default` 干脆不传 `exposure_time_ms` (相机 SDK 当前值起手), 数字即种子; 词汇只复用 `utils/cli/exposure`, 记录文件落 `data/.cache/slm_transfer_exposure/cameras.json` (原子写、读不到即当没记录, 永不抛异常打断会话) |
