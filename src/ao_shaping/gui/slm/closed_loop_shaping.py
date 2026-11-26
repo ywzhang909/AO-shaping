@@ -59,6 +59,7 @@ __all__ = [
     "check_frame",
     "compare_to_target",
     "describe_gate",
+    "flat_zero_transfer_fraction",
     "grid_spacing_px",
     "load_slm_diffraction_efficiency",
     "promotion_decision",
@@ -350,28 +351,71 @@ def window_fraction(frame: np.ndarray, xy: np.ndarray) -> float | None:
 
 
 
+def flat_zero_transfer_fraction(energy: float, flat_zero_energy: float) -> float:
+    """能量占平相位 0 级基准的比例 ``η = E / F0``。
+
+    定义来自效率匹配实验（``docs/dev/efficiency_match_experiment_plan_20261121.md``）：
+    * 倾斜（闪耀光栅）``η_d = G1 / F0`` —— 光栅把平相位 0 级的能量送进
+      +1 级的份额，即 SLM 衍射效率；
+    * 整形 ``η_s = (S - S0) / F0`` —— 目标窗口里来自可调制分量的净能量份额。
+
+    ``energy`` 允许为负（``S - S0`` 可以为负，表示不可调制 0 级的泄漏比
+    可调制分量还多）；分母必须是正的有限数。两口径分母都是**平相位 0 级窗口
+    积分**，不是 CCD 全帧能量，也不是闪耀后三级之和。
+    """
+    numerator = float(energy)
+    denominator = float(flat_zero_energy)
+    if not np.isfinite(numerator) or not np.isfinite(denominator) or denominator <= 0:
+        raise ValueError(
+            f"平相位 0 级基准必须为正有限数，能量必须有限 ({energy}, {flat_zero_energy})"
+        )
+    return numerator / denominator
+
+
 def load_slm_diffraction_efficiency(path: str | Path) -> dict[str, Any]:
-    """从衍射效率探针的 ``summary.json`` 读 SLM 一级衍射效率。
+    """从衍射效率探针的 ``summary.json`` 读 SLM 衍射效率 ``η = E_blaze / F0``。
 
-    探针（``tools/slm/calibration/diffraction_efficiency probe``，诊断页同款）
-    用一维闪耀光栅把能量分到 0 / ±1 级，``lobe.ratios`` 是各级能量占 CCD
-    总能量之比；闪耀方向（``lobe.orders.blaze_order``）那一级就是 SLM 把光
-    送进"可用衍射级"的效率上限。整形的能量利用率与该值同量纲（都是对到达
-    CCD 的总光能的占比），因此可以直接对比。
+    定义（2026-11-26）：**SLM 衍射效率 = 从平相位 0 级能转移走的能量份额**，
+    公式 ``η = E_blaze / F0``：
 
-    返回 ``efficiency``（0–1）、``blaze_order``、``gray_depth``、
-    ``timestamp_utc``；缺键或效率非正直接报错，不静默给个 0。
+    * ``F0`` = ``relative_efficiency.baseline_zero_window_counts`` —— 平相位帧
+      零级窗口的暗减积分，即“可转移走的能量池”（与闪耀帧同一窗口、同一曝光）；
+    * ``E_blaze`` = 闪耀帧闪耀级（``--gray-max`` 那一侧）窗口能量。
+
+    探针自己算的 ``relative_efficiency.blaze_energy_share`` 就是该式，存在时
+    直接采信（与探针文档同一口径）；缺失时按上式从 ``lobe.energies`` 复算。
+    **不用** ``lobe.ratios[blaze_order]``：它的分母是闪耀后三窗之和
+    (E₀+E₊₁+E₋₁)，会把效率抬高（同一探针上 0.3978 vs 0.1927）。
+    ``lobe_share`` 仅作诊断保留，不参与效率计算。
+
+    兼容两版 schema 的闪耀级标注：``relative_efficiency.blaze_order``（新）、
+    ``lobe.orders.blaze_order``（旧）；都缺时取 ±1 级中较强者。缺键、效率非正
+    或 > 1（窗口口径不一致）直接报错，不静默给个 0。
     """
     source = Path(path)
     payload = json.loads(source.read_text(encoding="utf-8"))
     lobe = payload["lobe"]
-    blaze_order = lobe["orders"]["blaze_order"]
-    efficiency = float(lobe["ratios"][blaze_order])
-    if not np.isfinite(efficiency) or efficiency <= 0:
+    energies = lobe["energies"]
+    relative = payload["relative_efficiency"]
+    flat_zero = float(relative["baseline_zero_window_counts"])
+    blaze_order = relative.get("blaze_order") or lobe.get("orders", {}).get("blaze_order")
+    if blaze_order is None:
+        first_orders = [o for o in ("plus_one", "minus_one") if o in energies]
+        if not first_orders:
+            raise KeyError(f"探针没有 ±1 级能量，无法确定闪耀级: {source}")
+        blaze_order = max(first_orders, key=lambda o: float(energies[o]))
+    blaze_energy = float(energies[str(blaze_order)])
+    from_energies = flat_zero_transfer_fraction(blaze_energy, flat_zero)
+    reported_share = relative.get("blaze_energy_share")
+    efficiency = from_energies if reported_share is None else float(reported_share)
+    if not 0.0 < efficiency <= 1.0:
         raise ValueError(f"SLM 衍射效率非正或无效 ({efficiency}): {source}")
     return {
         "efficiency": efficiency,
         "blaze_order": str(blaze_order),
+        "blaze_energy": blaze_energy,
+        "flat_zero_energy": float(flat_zero),
+        "lobe_share": float(lobe["ratios"][str(blaze_order)]),
         "gray_depth": payload.get("config", {}).get("gray_depth"),
         "timestamp_utc": payload.get("timestamp_utc"),
     }
@@ -384,12 +428,17 @@ def shaping_efficiency_report(
 ) -> dict[str, Any]:
     """整形完成后的能量利用率报告：当前（最优）结果 vs SLM 衍射效率。
 
-    * **能量利用率** = 最优轮 ``window_fraction``：目标窗口能量 / CCD 全帧
+    * **能量利用率** = 最优轮 ``window_fraction``：目标窗口能量 / **CCD 全帧**
       能量。直接复用该轮已落账的诊断量，**不重新采集**，不在完成态再动设备。
-    * **SLM 衍射效率** = 探针实测的一级衍射效率（可选参照）；给了就算
-      ``relative_to_slm = 利用率 / 衍射效率``，即"目标窗口拿到了一级可用光
-      的几成"。该值可以超过 1（例如目标压在零级、或窗口外漏光比闪耀光栅
-      还少），因此只报数值、不设硬判定。
+    * **SLM 衍射效率** = 探针实测的 ``η = E_blaze / F0``（从平相位 0 级转移走
+      的能量份额，分母是**平相位零级窗口**），见
+      :func:`load_slm_diffraction_efficiency`。
+    * **相对 SLM 效率** = 利用率 ÷ 衍射效率。
+
+    ⚠ 两个分母不同（整帧 vs 平相位零级窗口），所以 ``relative_to_slm`` 只是
+    粗对照，不是严格的“同一池子里拿到了几成”。严格同分母的对比需要同轮平相位
+    帧（``η_s = (S - S0) / F0``），完成态不采集，因此只报数值、不设硬判定，
+    并在页面文案里注明口径。
 
     最优轮按 ``summary.best_score`` 匹配（它对应 best_phase）；缺 best_score
     时退化为实测分数最低且带 window_fraction 的轮次；没有任何有效轮次时
