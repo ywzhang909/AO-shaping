@@ -4,7 +4,9 @@
    本脚本是**忠实重建**: 原文件被并发会话删除且经核查从 git 不可恢复,
    现按文档化 CLI 契约重建 (``docs/dev/hw_capture_script_inventory_20261124.md``
    第 56 行: ``--phase-a`` / ``--phase-b`` / ``--mask-npz`` / ``--out`` /
-   ``--execute`` / ``--bit-depth`` / ``--wait-until-idle``), **实验前需重新验证**。
+   ``--execute`` / ``--bit-depth`` / ``--wait-until-idle``), **实验前需重新验证**;
+   ``--exposure-ms`` 为 2026-11-26 按冻结口径 §2 补加的显式曝光入口: 开相机后
+   经 ``set_camera_exposure_ms`` 下发, 回读生效值写进 summary, 不靠驱动默认。
 
 用途
 ----
@@ -27,7 +29,10 @@ A 臂 = 默认配置相位, B 臂 = refit 配置相位。本脚本只做回放�
    ``device_lock.json`` 写入 ``--out``; 若失败发生在建目录之前, 改写同级
    ``<out>.device_lock.json``, 绝不留下空运行目录;
 5. ``--bit-depth`` 缺省为 ``None`` = 驱动默认位深, 满量程按生效位深解析
-   (不绑帧 dtype)。
+   (不绑帧 dtype);
+6. ``--exposure-ms`` 给定时在 ``cam.open()`` 后显式下发
+   (``set_camera_exposure_ms``, 内部走 ``reset_exposure_time`` 消费滞后帧),
+   回读生效值写进 summary; 缺省 ``None`` = 驱动默认 20ms, 当前光路会饱和。
 
 证据
 ----
@@ -95,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="设备门: 只有给出它才会等待/加锁并打开 SLM+CCD")
     parser.add_argument("--bit-depth", type=int, default=None,
                         help="相机位深; 缺省 None = 驱动默认")
+    parser.add_argument("--exposure-ms", type=float, default=None,
+                        help="相机曝光 (ms); 给定时显式下发并回读生效值写进 summary; "
+                             "缺省 None = 驱动默认 20ms, 当前光路会饱和")
     parser.add_argument("--wait-until-idle", type=float, default=DEFAULT_WAIT_S,
                         help="在飞保护等待秒数 (0 = 既不等待也不加锁)")
     return parser
@@ -169,7 +177,10 @@ def _resolve_full_scale(cam: Any, frame: np.ndarray, bit_depth: int | None) -> f
 def _run_abba(args: argparse.Namespace) -> None:
     """设备体: 打开一次 SLM+CCD, 按 A→B→B→A 显示相位并逐帧采集。"""
     # 懒导入: 只有 --execute 且锁已拿到之后才触达设备模块。
-    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.ccd.common import (
+        create_camera,
+        set_camera_exposure_ms,
+    )
     from ao_shaping.drivers.slm.santec import Santec
 
     out_dir: Path = args.out
@@ -190,9 +201,17 @@ def _run_abba(args: argparse.Namespace) -> None:
     cam_open = False
     slm_open = False
     stages: list[dict[str, Any]] = []
+    exposure_effective: float | None = None
     try:
         cam.open()
         cam_open = True
+        if args.exposure_ms is not None:
+            exposure_effective = set_camera_exposure_ms(cam, float(args.exposure_ms))
+            logger.info(
+                "ABBA 相机曝光已下发: 生效 {} ms (请求 {} ms)",
+                exposure_effective,
+                args.exposure_ms,
+            )
         slm.open()
         slm_open = True
         require = getattr(slm, "require_drive_board", None)
@@ -246,6 +265,8 @@ def _run_abba(args: argparse.Namespace) -> None:
         "created_at": _utc_now(),
         "sequence": list(SEQUENCE),
         "bit_depth": args.bit_depth,
+        "exposure_ms_requested": args.exposure_ms,
+        "exposure_ms_effective": exposure_effective,
         "wait_until_idle_s": args.wait_until_idle,
         "mask_npz": str(args.mask_npz) if args.mask_npz is not None else None,
         "stages": stages,

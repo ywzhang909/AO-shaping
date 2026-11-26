@@ -14,6 +14,11 @@
 在同次效率匹配口径下 54.21%；整形在同次效率匹配口径下 **−12.46%**（目标方框内反而比
 平相位少），该次判定 `undeterminable`，只能当趋势参考。
 
+2026-11-26 追加 **A/B–ABBA 闭环实测判定**（详见对应章节）：在 0.12 ms 非饱和、同曝光口径下，
+以 `paired_decision(metric="cv")` 对 `model640`(A) vs `refit_forward`(B) 做单变量配对，
+四帧 A→B→B→A 全部未饱和，CV 改善 0.0623 > 漂移 0.0360，判 **`accepted=True`** → 采用
+`refit_forward`。这是 CCD 实测闭环收益判定，与前面的历史利用率趋势参考相互独立。
+
 ## 任务项
 
 | 项 | 状态 | 说明 |
@@ -26,6 +31,7 @@
 | 2026-11-26 公式修订 + 历史数据分析脚本 | **未提交** | 公式 2 文件 + 新分析脚本 + 本报告；等页面持有车道提交后再一并处理 |
 | 页面提交 | **挂起** | 与并行会话改动同文件 hunk 交错，整文件让渡给持有车道（见「提交状态」） |
 | 报告溯源登记 | **挂起** | `scripts/_common/provenance.py` 被另一车道整体 CRLF 改写，按整文件让渡规程不碰 |
+| A/B–ABBA 闭环实测判定（CCD） | **完成** | `model640`(A) vs `refit_forward`(B)，`paired_decision(cv)` 判定 `accepted=True`，见「A/B–ABBA 闭环实测判定」 |
 
 ## 指标定义（2026-11-26 修订）
 
@@ -125,6 +131,56 @@ S0 为平相位同框积分），`F0` 为平相位 R0=48 px 圆盘积分；级�
 少 12.5 个百分点；探针口径下倾斜的可转移份额是 19.27%（下界）。**闭环页面的利用率与这些
 效率分母不同，卡片里的「相对 SLM 效率」只作粗对照。
 
+## A/B–ABBA 闭环实测判定（CCD，2026-11-26）
+
+前面「历史数据计算」只是趋势参考，**不构成 `model640` vs `refit_forward` 的闭环收益判定**。
+按冻结口径做单变量配对 A/B–ABBA 实测，A 臂 = `model640` 闭环 best
+（`ab_validate_base/square_best.npy`），B 臂 = `refit_forward`
+（`ab_validate_refit/square_best.npy`），同一设备会话内按 **A → B → B → A** 依次回放相位、
+CCD 各采一帧，以交错序列抵消漂移。主判据为
+`paired_decision(metric="cv")`，容差严格用默认 `rel_tol=0, abs_tol=0`；
+`rel_l2` / `ee_roi` 只报告、不参与判定。
+
+**设备占用与释放**：独占 **SLM #1 + Daheng MER2-507-23GM (NIR) CCD**，段间物理冷却 60 s
+（覆盖原 ≥200 s 规则，用户确认）。回放外壳 `replay_closed_loop_abba_20261124.py` 经
+`device_lock.json` 加锁，19:59:27 开相机/19:59:28 开 SLM，19:59:35 四帧采完，`finally` 释放；
+`released.json` 记 `camera_closed=true`、`slm_closed=true`、
+`released_at=2026-11-26T11:59:35+00:00`。当前无设备进程占用。
+
+**曝光有效性**：首轮用驱动默认 20 ms，四帧 `peak=4095` 全饱和，判定作废；根因是原脚本 CLI
+无曝光入口。给回放脚本补 `--exposure-ms`，经 `set_camera_exposure_ms` 在 `cam.open()` 后显式
+下发并回读生效值。重跑 `summary.json` 记 `exposure_ms_requested=0.12`、
+`exposure_ms_effective=0.12`，四帧 `peak=2019–2138`（12-bit 满量程 4095，未饱和），判定有效。
+
+四帧实测（camera-pixel core mask `abba_core_mask_camera.npz`，shape `(1944,2592)`、1369 个
+True，与 analysis-grid decimated CV 1.2299 对齐）：
+
+| 级 | 臂 | CV | mean | peak | saturated |
+|---|---|---|---|---|---|
+| 0 | A | 1.897016 | 150.38 | 2059 | false |
+| 1 | B | 1.862118 | 151.28 | 2091 | false |
+| 2 | B | 1.843373 | 148.22 | 2019 | false |
+| 3 | A | 1.932998 | 152.11 | 2138 | false |
+
+`paired_decision(metric="cv", rel_tol=0, abs_tol=0)`（A 为基线、B 为候选，CV 越低越均匀）：
+
+| 量 | 值 | 含义 |
+|---|---|---|
+| baseline（A1/A2 均值） | 1.915007 | `model640` 闭环 |
+| candidate（B1/B2 均值） | 1.852745 | `refit_forward` |
+| drift | 0.035982 | A 两帧自身差，交错抵消后残差 |
+| tolerance | 0.0 | 严格默认容差，未放水 |
+| required = baseline − candidate | 0.062261 | B 相对 A 的 CV 改善量 |
+| drift + tolerance | 0.035982 | 需超过的门槛 |
+| **accepted** | **True** | 0.062261 > 0.035982，改善超出漂移 |
+
+**结论**：在 0.12 ms 非饱和、同曝光口径下，`refit_forward` 闭环的 core CV（1.853）低于
+`model640`（1.915），改善 0.0623 大于 ABBA 漂移 0.0360，`paired_decision(cv)` 判
+**`accepted=True`** → 采用 `refit_forward`。证据真源：
+`data/debug/slm_transfer/ab_session_20261124/ab_replay_square_retry2/{summary.json,released.json,device_lock.json}`
+及 `captures/{0_A,1_B,2_B,3_A}.npz`。注意 CV 衡量的是光斑均匀度，非能量利用率；本判定回答
+「哪个闭环更均匀」，不改写前面利用率/效率的历史趋势结论。
+
 ## 文件改动
 
 | 文件 | 车道 | 内容 |
@@ -134,7 +190,8 @@ S0 为平相位同框积分），`F0` 为平相位 R0=48 px 圆盘积分；级�
 | `src/ao_shaping/gui/slm/closed_loop_shaping_page.py` | 本任务（设计师） | 参照输入行 + `_build_efficiency_result` 卡片 + `_on_finished` 里 `_show_shaping_efficiency` + 失败/清场重置 |
 | `tests/ao_shaping/gui/slm/test_closed_loop_shaping_page.py` | 本任务（设计师） | 离屏用例；`_probe_summary` 夹具同步新 schema |
 | `scripts/slm/analyze_diffraction_vs_shaping_utilization_20261126.py` | 本任务 | 只读历史数据复算三口径（新） |
-| 本报告 | 本任务 | 定义修订 + 历史计算 |
+| `scripts/slm/replay_closed_loop_abba_20261124.py` | 本任务 | 补 `--exposure-ms` 显式曝光入口（下发 + 回读写 summary），修复默认 20ms 饱和 |
+| 本报告 | 本任务 | 定义修订 + 历史计算 + A/B–ABBA 闭环实测判定 |
 
 ## 验证结果（离线，未占设备）
 
@@ -151,7 +208,22 @@ BOM 检查                                                                   →
 此前基线（公式修订前）另有 `test_closed_loop_shaping.py` 33 passed，确认新增未破坏既有语义；
 本次公式改动限于纯函数与探针加载，页面夹具已同步，待页面车道合入后须重跑一次。
 
+ABBA 回放外壳补丁（离线门禁）与实测判读：
+
+```
+.venv\Scripts\python.exe -m ruff check scripts\slm\replay_closed_loop_abba_20261124.py → All checks passed
+.venv\Scripts\python.exe -m py_compile scripts\slm\replay_closed_loop_abba_20261124.py → exit 0
+BOM 检查（ABBA 脚本）                                                              → no-bom, LF
+无 --execute 干跑                                                                  → 拒绝开设备 (exit 2)
+实跑判读 C:\Users\zhangh\AppData\Local\Temp\opencode\abba_decide.py             → accepted=True, 四帧 unsaturated
+```
+
 ## 提交状态：首次后端已提交，公式修订与页面让渡待处理
+
+2026-11-26 追加：本报告、效率复算脚本、A/B–ABBA 判定章节以及 ABBA 回放脚本的
+`--exposure-ms` 补丁已纳入本车道提交（见下方 git 记录）；A/B 判定证据落在
+`data/debug/slm_transfer/ab_session_20261124/ab_replay_square_retry2/`（数据目录，
+不入库）。溯源登记与页面改动仍按整文件让渡规程等对方车道落地后处理。
 
 实施期间共享工作树中另一会话正在对同一模块族做大改（移除「目标保持 / target-lock」
 功能：`closed_loop_shaping.py` 约 410 行删除、页文件重写、`test_closed_loop_shaping.py`
