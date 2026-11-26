@@ -1,10 +1,10 @@
 {
   "4": {
-    "delta_rmse_rad": 0.14006924021493078,
-    "zero_inject_recovered_rad": 0.12262858063356737
+    "delta_rmse_rad": 0.28139018533067717,
+    "zero_inject_recovered_rad": 0.17922576076631877
   },
   "5": {
-    "delta_rmse_rad": 0.05355848051672577,
-    "zero_inject_recovered_rad": -0.051606173062516934
+    "delta_rmse_rad": 0.09967064425818543,
+    "zero_inject_recovered_rad": -0.12787802630890993
   }
 }

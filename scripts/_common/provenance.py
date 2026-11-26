@@ -498,19 +498,21 @@ REPORTS: dict[str, ReportProvenance] = {
         command=(
             "python scripts/slm/hmws_zernike_probe.py --noll 4 5 "
             "--inject-rad -0.2 0.0 0.2 --bias-rad 0.3 --radius 450 "
-            "--exposure-ms 0.06 --auto-exposure --wait-until-idle 600 "
+            "--bit-depth 12 --exposure-ms 0.08 --auto-exposure --wait-until-idle 600 "
             "--out data/hmws_zernike_probe"
         ),
         environment=(
             "硬件：1064 nm Santec SLM-200 #1 + Daheng MER2-507-23GM CCD；"
-            "本轮相机 8-bit / full_scale=255，暗帧 12-bit；分析离线 CPU"
+            "12-bit 重采相机 12-bit / full_scale=4095，暗帧严格匹配 0.08 ms；分析离线 CPU"
         ),
         note=(
             "Pathak & Jomy 2026 HMWS 五点估计真机验证：先六步光路探测 + Fresnel 焦面扫描"
             "（verdict=ok，标定 ambiguous，未补偿），再对 Noll 4/5 各注入 ±0.2/0 rad、"
-            "b=0.3 rad、r=450 px、曝光 0.06 ms 采集五帧。Noll 5 线性良好"
-            "（slope=1.0753，R²≈0.999996）；Noll 4 线性失效（slope=0.3947，R²=0.9302），"
-            "受 8-bit 量化与离焦弱响应限制，不作系数定标；12-bit 重采待 SLM #1 恢复。"
+            "b=0.3 rad、r=450 px 采集五帧。8-bit 首采（曝光 0.06 ms）：Noll 5 线性良好"
+            "（slope=1.0753，R²≈0.999996），Noll 4 失效（slope=0.3947，R²=0.9302）。"
+            "12-bit 重采（曝光 0.08 ms，严格匹配暗帧）：Noll 5 仍可用（slope=0.8662，"
+            "R²=0.9726），Noll 4 反而更差（slope=0.1772，R²=0.2911），位深量化假设被证伪，"
+            "失效源于离焦峰值响应本身，不作系数定标。"
         ),
         extra_scripts=(
             "scripts/slm/probe_optical_path_validity.py",
