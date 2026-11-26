@@ -5314,6 +5314,10 @@ _PRINT_CONTRACT_ALLOWLIST: dict[tuple[str, str], int] = {
     ("tools/slm/transfer/workflow.py", "_session_write_summary"): 1,
     ("tools/slm/transfer/workflow.py", "run_session"): 1,
     ("tools/slm/transfer/workflow.py", "stage"): 1,
+    # #254 T3/T4 离线 CLI: 冻结计划、候选表与复核 JSON 走 stdout (机器可读,
+    # print 即契约; 与上方 fit/parallel_fit 同一簇)。
+    ("tools/slm/transfer/snapshot.py", "main"): 4,
+    ("tools/slm/transfer/branch_fit.py", "main"): 4,
 }
 
 

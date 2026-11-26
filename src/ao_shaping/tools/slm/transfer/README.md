@@ -29,6 +29,22 @@ With `--skip-calibration`, this warm start goes straight from current-path
 capture and fitting to anchored CCD blocks. It records `gs_iterations: 0` and
 per-shape phase-transfer provenance in the validation configuration.
 
+`snapshot.py` and `branch_fit.py` implement the #254 T3/T4 offline toolchain
+(#254 T2 already lives in `splits.py` + `adaptation.validation_quality`).
+`snapshot freeze` turns recorded capture directories into an immutable,
+hash-addressed three-tier snapshot (`--plan-only` prints the pre-registration
+plan first); `snapshot verify` re-hashes every file, with `--root` to relocate
+a moved corpus. `branch_fit freeze --spec <json> --manifest <snapshot.json>`
+trains the pre-registered branches under one shared budget (only model knobs
+from `BRANCH_OVERRIDE_WHITELIST` may differ per branch), scores each branch on
+the `validation` tier only, and writes an immutable `candidates_frozen.json`;
+`branch_fit score-final` then scores the sealed `final_test` tier exactly once
+per frozen candidate (audit-logged, second attempt refused). Branch sets are
+never hardcoded here: the spec file is the pre-registration, and the plan
+document that defines it lives beside the corpus on the capture machine.
+Both modules are device-free and importable without torch at module scope;
+`branch_fit` calls into `fit.fit` and needs torch only at run time.
+
 `uncertainty.py` is an experimental, device-free diagnostic: `disagreement`
 ranks saved predictions by mean-normalised ensemble RMS spread, `select_diverse`
 adds a wrapped-command diversity constraint, and `evaluate` reports paired
