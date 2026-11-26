@@ -2651,6 +2651,13 @@ class Santec:
         if phase.ndim != 2:
             raise ValueError(f"相位数据必须是2D数组，当前维度: {phase.ndim}")
 
+        # §12.16.5 / §12.16.7 连续性门禁: 下面的 ctypes.memmove 按物理内存布局
+        # 复制字节。若 phase 非 C-contiguous (例如 H 光栅是 F-contiguous (2,2400)),
+        # 送屏字节流即列主序, 而面板按行主序解释 → 图案被转置 (128px 周期变
+        # ~80px、轴由列变行), 与 S1d 指纹一致。写入前强制 C 连续, 使送屏字节流
+        # == 逻辑 C 序 (即 digest() 的定义)。C-contiguous 输入 (B/A/flat) 零改动。
+        phase = np.ascontiguousarray(phase)
+
         height, width = phase.shape
 
         # 创建ctypes指针
