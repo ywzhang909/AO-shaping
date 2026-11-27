@@ -994,7 +994,13 @@ class OnlineTransferAdapter:
             grid_size=int(comps.old.grid_size),
             fft_size=int(comps.old.fft_size),
             pixel_samples=int(comps.old.pixel_samples),
-            registration_shift_ccd_px=float(comps.model.registration_value),
+            # registration_value 是 (dy, dx) 或 None（见 physical_forward_fit.py:223）；
+            # 适配产物可能没有配准位移，写 None 与 fit.py:574 的 schema 一致。
+            registration_shift_ccd_px=(
+                [float(v) for v in comps.model.registration_value]
+                if comps.model.registration_value is not None
+                else None
+            ),
         )
         (target / "frozen_parameters.json").write_text(
             json.dumps(parameters, indent=2), encoding="utf-8"
