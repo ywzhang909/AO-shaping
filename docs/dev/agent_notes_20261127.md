@@ -180,3 +180,29 @@ targeted `git diff --check` exit 0；真实 checkpoint 640 网格 `refine_phase`
 fit/adapt 分项因本场适配门槛未达而无数据，若要覆盖需在 `candidate_policy=manual` 或放宽
 `refit_every` 下再跑一场（本次不改他车道 runner，保持默认策略的真实性）。缺口 2 已离线重建
 补齐。缺口 3 溯源登记仍待 `scripts/_common/provenance.py` 车道提交。
+
+## 6. ② 逐帧降本上机验证（19:32–19:35，通过）
+
+用户裁定「进入 02 逐帧降本上机验证」后执行 §3 清单命令：
+
+```bash
+.venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py --hardware -v -q --import-mode=importlib
+```
+
+结果 **1 passed in 155.28 s**（默认不带 `--hardware` 为 1 skipped，门禁正常）。这是 ① 停渲染 +
+② analyze CPU 降本的组合验收：可见段 `analyze_ms_median` 非空、`render_active=True`；
+隐藏段 `render_active=False`、`analyze_calls < visible`、`cpu_per_wall < visible`、
+`trend_len > visible`（断言 289–300 全过）。闭环段 `beam_render_active=False`、
+`poll_interval_ms=1000`（降频保持），`timed_out=False`、状态含「会话完成」、
+`journal.json` / `optical_probe.json` 均存在。会话目录 `data/debug/slm_transfer/20261127_193251`。
+
+**设备占用 / 释放**：占用 19:32:29 SLM #1 + Daheng cam_id=0（页 1 真实闭环），页 0 仿真源不占
+相机；释放 19:34:59 `close_wall_s=0.518`、`beam_source=None`、`transfer_running=False`，
+证据 `data/debug/beam_quality/hidden_gate_hardware.json`（`devices_occupied` /
+`devices_released` 两段齐全），无残留 pytest/SLM 进程。开始前已过 §5 采集关闭（19:20:18）
+后 642 s 冷却。同期检测到其他在飞车道进程（`diagnose_zero_phase_exposure` /
+`test_report_provenance`），与本会话无关、未干预。
+
+说明：测试把 `visible` / `hidden` 采样用于断言而未写进证据 JSON（非本次故障），
+故 `analyze_ms_median` 的具体数值只在该次进程的断言中校验；离线合成帧的改前/改后数值对比
+见本文 §1（`analyzer.py` 已提交 `8e5116f5`）。
