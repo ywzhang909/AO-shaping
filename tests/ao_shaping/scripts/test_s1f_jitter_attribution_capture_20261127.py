@@ -290,3 +290,25 @@ def test_execute_lock_failure_returns_2_and_creates_nothing(
     )
     assert SCRIPT.execute(args, SCRIPT.build_plan()) == 2
     assert not run_dir.exists()
+
+# ---------------------------------------------------------------------------
+# §9 数据质量预检（非归因判据）
+# ---------------------------------------------------------------------------
+LIGHT_MIN_PEAK_CONTRAST = 50.0
+
+
+def test_light_preflight_rejects_no_light_session() -> None:
+    frame = np.full(NATIVE_CCD_SHAPE, 15, dtype=np.uint16)
+    frame[1, 460] = 41  # run_01 实测: 边缘噪声峰
+    assert SCRIPT.LIGHT_MIN_PEAK_CONTRAST == LIGHT_MIN_PEAK_CONTRAST
+    assert SCRIPT.light_contrast(frame) == pytest.approx(26.0)
+    with pytest.raises(RuntimeError, match="no usable light"):
+        SCRIPT.assert_light_level(frame)
+
+
+def test_light_preflight_accepts_healthy_frame() -> None:
+    frame = np.full(NATIVE_CCD_SHAPE, 15, dtype=np.uint16)
+    frame[1105, 1227] = 2524  # S1e run_05_postfix flat 实测
+    info = SCRIPT.assert_light_level(frame)
+    assert info["passed"] is True
+    assert info["contrast_px"] == pytest.approx(2509.0)

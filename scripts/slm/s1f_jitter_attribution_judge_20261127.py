@@ -66,6 +66,8 @@ MIN_DIST_PX = 15.0
 RATIO_V1_MAX = 1.3
 RATIO_V2_MIN = 2.0
 DRIFT_MATERIAL_PX = 1.0
+#: §9 数据质量门禁（非归因判据），与采集脚本同名常量同值；无光会话直接拒绝判读。
+LIGHT_MIN_PEAK_CONTRAST = 50.0
 #: §3.4 交叉核对基准：S1e `run_05_postfix` 同写屏两帧质心差（仅佐证）。
 RUN_05_INTRA_UPLOAD_REF_PX: tuple[float, float] = (1.68, 1.85)
 
@@ -292,6 +294,24 @@ def judge(capture_dir: Path) -> dict[str, Any]:
     capture_dir = Path(capture_dir)
     journal = read_journal(capture_dir)
     frames = discover_frames(capture_dir, journal)
+
+    # §9 数据质量门禁：先于任何 locate/归因，避免对纯噪声帧给出伪裁定。
+    for pattern_id in (
+        FLAT_PATTERNS[0],
+        ARM_PATTERNS["A"][0],
+        ARM_PATTERNS["B"][0],
+    ):
+        paths = frames.get(pattern_id, ())
+        if not paths:
+            continue
+        frame = load_frame(paths[0])
+        contrast = float(np.max(frame)) - float(np.median(frame))
+        if contrast < LIGHT_MIN_PEAK_CONTRAST:
+            raise JudgmentError(
+                f"no usable light in {pattern_id}: peak-median {contrast:.1f} < "
+                f"{LIGHT_MIN_PEAK_CONTRAST:.0f}; capture invalid, do not judge "
+                "(see prereg §9)"
+            )
 
     shapes: set[tuple[int, ...]] = set()
 

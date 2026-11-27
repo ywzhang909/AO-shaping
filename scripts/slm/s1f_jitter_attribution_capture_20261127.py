@@ -72,6 +72,9 @@ FLAT_FRAMES = 16
 SETTLE_S = 0.8
 DEFAULT_EXPOSURE_MS = 0.05
 SATURATION_FRACTION = 0.9
+#: 数据质量预检（预注册 §9），**不是归因判据**：满量程 4095、曝光 0.05 ms 下，
+#: 无光会话的 flat 帧 peak-median 约 26，S1e run_05_postfix 为约 2500。
+LIGHT_MIN_PEAK_CONTRAST = 50.0
 DEFAULT_WAIT_IDLE_S = 1800.0
 DEFAULT_SLM_NUMBER = 1
 DEFAULT_CAM_ID = 0
@@ -125,6 +128,31 @@ def physical_digest(array: np.ndarray) -> str:
     return hashlib.sha256(
         np.ascontiguousarray(array).tobytes(order="A")
     ).hexdigest()
+
+
+def light_contrast(frame: np.ndarray) -> float:
+    """Peak-over-background contrast; data-quality preflight only (§9)."""
+    return float(np.max(frame)) - float(np.median(frame))
+
+
+def assert_light_level(frame: np.ndarray) -> dict[str, Any]:
+    """Abort before wasting a session if the bench has no usable light."""
+    peak = int(np.max(frame))
+    median = float(np.median(frame))
+    contrast = peak - median
+    if contrast < LIGHT_MIN_PEAK_CONTRAST:
+        raise RuntimeError(
+            f"no usable light: first frame peak {peak}, median {median:.1f}, "
+            f"contrast {contrast:.1f} < {LIGHT_MIN_PEAK_CONTRAST:.0f}; "
+            "check laser emission / shutter before re-running"
+        )
+    return {
+        "peak": peak,
+        "median": median,
+        "contrast_px": contrast,
+        "min_contrast": LIGHT_MIN_PEAK_CONTRAST,
+        "passed": True,
+    }
 
 
 def assert_frozen_h_bytes(gray: np.ndarray) -> None:
@@ -328,6 +356,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     exposure_ms: float | None = None
     actual_bits: int | None = None
     full_scale: float | None = None
+    light_preflight: dict[str, Any] | None = None
     release: dict[str, Any] = {
         "schema": RELEASE_SCHEMA,
         "slm_closed": False,
@@ -435,6 +464,8 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                     )
                 peak = int(np.max(frame))
                 median = float(np.median(frame))
+                if not frame_records:
+                    light_preflight = assert_light_level(frame)
                 saturated_count = int(
                     np.count_nonzero(frame >= saturation_threshold)
                 )
@@ -537,6 +568,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 "full_scale": full_scale,
                 "n_frames_saved": len(frame_records),
                 "n_uploads": len(upload_records),
+                "light_preflight": light_preflight,
             }
             write_json(out / "summary.json", summary)
     return exit_code

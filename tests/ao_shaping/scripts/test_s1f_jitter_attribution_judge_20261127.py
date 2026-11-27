@@ -381,3 +381,15 @@ def test_main_writes_json_and_tables(tmp_path: Path) -> None:
     payload = json.loads((out_dir / "probe.json").read_text(encoding="utf-8"))
     assert payload["schema"] == SCRIPT.JUDGMENT_SCHEMA
     assert "S1f" in (out_dir / "probe_tables.md").read_text(encoding="utf-8")
+
+# ---------------------------------------------------------------------------
+# §9 数据质量门禁（非归因判据）
+# ---------------------------------------------------------------------------
+def test_judge_rejects_no_light_capture(tmp_path: Path) -> None:
+    capture_dir = write_capture(tmp_path / "run_no_light")
+    for path in (capture_dir / "frames").glob("*.npy"):
+        frame = np.full(FRAME_SHAPE, 15, dtype=np.uint16)
+        frame[0, 0] = 41  # 无光: 对比度 26 < 50
+        np.save(path, frame)
+    with pytest.raises(SCRIPT.JudgmentError, match="no usable light"):
+        SCRIPT.judge(capture_dir)
