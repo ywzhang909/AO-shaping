@@ -256,3 +256,42 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
 都能重拟合且适配耗时仅约 1.5 s；但 60 s 量级的 fit 成本与"promotion 不等于实测改善"是新的
 主瓶颈。下一步建议：① 以实测均匀性（而非内部 validation loss）作为 promotion 判据或加
 早停，避免 r04 之后连续劣化；② 在确认判据前不再把 `refit_every=1` 当生产默认值。
+
+## 8. beam quality 连通域索引复用与直接拟合（离线，上机待批）
+
+提交 `0f32562896d56076cd6e3f192266ef15787d3730`；只改
+`src/ao_shaping/gui/ccd/beam_quality/analyzer.py` 与
+`tests/ao_shaping/gui/ccd/test_beam_quality.py`。
+
+**算法改进**：
+
+1. `_largest_component` 直接返回最大连通域的 `(ys, xs)`，`_ellipse_from_mask`
+   与 `_box_centroid` 复用同一组坐标；去掉两处对全幅布尔图的重复 `np.nonzero`。
+2. `fit_profile` 从 `curve_fit` 改为等价的有界 `least_squares`，保留解析雅可比、
+   `max_nfev=4000`、失败返回 `None` 的口径。
+
+**实验流程改进**：
+
+1. 新增四步 OpenChamber 计划与临时交错计时脚本；每次变体都对六类输入逐字段对账：
+   640×480、1344×760、平场、饱和、极小帧、多连通域。
+2. 上下机门禁分开：本轮只做 CPU 离线验证，未占用 SLM #1、Daheng cam_id=0、激光或 GPU。
+
+**离线证据**：
+
+- 六类输入的 `FrameMetrics` 全部逐字段相同；`least_squares` 的拟合参数与 `curve_fit`
+  相同。
+- 15 轮 AB/BA 交错计时、每轮 15 次中位数：640×480 为 15.010 → 12.514 ms，
+  节省 2.496 ms（16.6%，配对中位数 2.465 ms）；1344×760 为 17.347 → 13.550 ms，
+  节省 3.797 ms（21.9%，配对中位数 4.095 ms）。绝对耗时随机器负载浮动，
+  以同进程配对差值为准。
+- `pytest tests/ao_shaping/gui/ccd -q --import-mode=importlib`：
+  `102 passed, 1 skipped`；`ruff check` 与 `git diff --check` 均通过。
+
+**未采用的候选**：mean/std 改 `np.einsum` 在代表帧上单独少 0.36–0.51 ms，但端到端
+配对收益在 -1.042 ms 到 +0.777 ms 间摆动，16-bit 满量程的最大统计差为
+0.00390625 counts；不引入该行为变化，也不新增对应容差测试。GPU 批量仍按 §2 不采用。
+
+**上机申请（待用户批准，未开始）**：运行
+`.venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py -q --hardware -v --import-mode=importlib`；
+预计占用 SLM #1 + Daheng cam_id=0 约 3 分钟，结束前报告锁获取/释放与 SLM 关闭状态，
+并保存硬件 pytest JSON。当前会话尚未占用或释放任何设备。
