@@ -539,6 +539,48 @@ def test_runner_registers_training_samples_only_from_accepted_rounds() -> None:
     assert spy.added[0]["full_scale"] == pytest.approx(255.0)
 
 
+def test_runner_registers_gate_passed_rejected_rounds_when_enabled() -> None:
+    """开关打开后，门禁通过但被拒的轮次也登记；下发仍回滚到已确认相位。"""
+
+    class _SpyAdapter:
+        def __init__(self) -> None:
+            self.added: list[dict] = []
+
+        def ready(self) -> bool:
+            return False
+
+        def refit(self):  # pragma: no cover - ready() 恒 False
+            raise AssertionError("adapter must not refit while not ready")
+
+        def add_round(self, **kwargs):
+            self.added.append(kwargs)
+            return "sample_0000.npz"
+
+        def forward(self, xy):
+            return None
+
+    spy = _SpyAdapter()
+    bench = _Bench(lambda n: _embed(_blob()) if n in {1, 3} else _embed(_good()))
+    runner = ClosedLoopRunner(
+        bench,
+        config=_config(
+            max_rounds=2,
+            validation_every=0,
+            register_rejected_samples=True,
+        ),
+        forward=_SquareForward(_target()),
+        adapter=spy,
+    )
+    summary = runner.run()
+
+    assert [r.decision for r in summary.rounds[1:]] == ["auto", "reject"]
+    assert [row["label"] for row in spy.added] == ["round_01", "rejected_round_02"]
+    assert all(row["split"] == "train" for row in spy.added)
+    assert np.allclose(bench.applied[-1], summary.applied_phase)
+
+
+
+
 def test_export_checkpoint_handles_missing_registration(tmp_path: Path) -> None:
     """适配产物可能没有配准位移；写出 None 而不是 float(None) 抛错。
 

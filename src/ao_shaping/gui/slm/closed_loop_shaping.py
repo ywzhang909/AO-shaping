@@ -1144,6 +1144,10 @@ class ClosedLoopConfig:
     adapt: bool = True
     exposure_ms: float | None = None
     validation_every: int = 3
+    #: 门禁通过但被拒绝的候选轮也登记为适配样本（默认关闭，旧行为逐位不变）。
+    #: 被拒只说明"没比当前相位更好"，并不否定这一帧是 (候选相位, 实测帧) 的
+    #: 可信观测；开启后能避免训练行只来自被接受轮次而卡住 ready()。
+    register_rejected_samples: bool = False
     thresholds: GateThresholds = GateThresholds()
     #: 漂移反馈：hold 模式下用 Jacobian + P 控制器把实测质心拉回基线位置。
     #: 默认关闭 —— 关闭时既不计算 Jacobian，也不改写下发相位，旧行为逐位不变。
@@ -1428,6 +1432,24 @@ class ClosedLoopRunner:
                         except Exception as exc:  # 落盘失败不该毁掉闭环
                             record.note = f"{record.note}（样本登记失败：{exc}）".strip()
                 else:
+                        # 门禁已通过：被拒的是"没比当前相位更好"，不是"没有可用观测"。
+                        # 候选相位与这一帧严格对应，登记后下发仍回滚到已确认相位。
+                        holdout = (
+                            config.validation_every > 0
+                            and index % int(config.validation_every) == 0
+                        )
+                        try:
+                            self.adapter.add_round(
+                                phase=proposal.phase,
+                                frame=self._last_frame,
+                                exposure_ms=record.exposure_ms,
+                                spot_xy=record.gate.centroid_xy or (0.0, 0.0),
+                                label=f"rejected_round_{index:02d}",
+                                split="validation" if holdout else "train",
+                                full_scale=record.gate.full_scale,
+                            )
+                        except Exception as exc:  # 落盘失败不该毁掉闭环
+                            record.note = f"{record.note}（样本登记失败：{exc}）".strip()
                     # 回滚 = 重新下发最后确认过的相位；候选从未成为"当前相位"。
                     self.bench.apply_phase(self.summary.applied_phase)
                     since_improvement += 1
