@@ -138,6 +138,8 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
     try:
         shell = DesktopShellApp()
         shell.show()
+        # 外壳可能恢复上次选中的页；可见段必须显式回到页 0。
+        shell.select_page(0)
         _pump(app, 0.5)
         beam = shell._beam_app
 

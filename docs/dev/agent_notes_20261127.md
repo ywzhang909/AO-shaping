@@ -291,7 +291,24 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
 配对收益在 -1.042 ms 到 +0.777 ms 间摆动，16-bit 满量程的最大统计差为
 0.00390625 counts；不引入该行为变化，也不新增对应容差测试。GPU 批量仍按 §2 不采用。
 
-**上机申请（待用户批准，未开始）**：运行
-`.venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py -q --hardware -v --import-mode=importlib`；
-预计占用 SLM #1 + Daheng cam_id=0 约 3 分钟，结束前报告锁获取/释放与 SLM 关闭状态，
-并保存硬件 pytest JSON。当前会话尚未占用或释放任何设备。
+**上机申请与执行**：用户批准后运行
+`.venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py -q --hardware -v --import-mode=importlib`。
+
+1. 第一场 `21:39:49–21:41:56`：`1 failed in 131.58 s`，失败项为
+   `visible["render_active"] is True`；闭环会话本身完成。根因是 `DesktopShellApp`
+   恢复了上一场遗留的页 1 选中态，页 0 实际处于隐藏状态。测试中显式
+   `shell.select_page(0)` 后消除该前置依赖。释放耗时 0.523 s，
+   `beam_source=None`、`transfer_running=False`。
+2. 第二场 `21:43:44–21:45:53`：`1 passed in 134.32 s`。页 1 会话完成，
+   `journal.json` 与 `optical_probe.json` 均存在；页 0 可见段/隐藏段门禁通过。
+   释放耗时 0.535 s，`beam_source=None`、`transfer_running=False`，
+   `shell.close()` 正常关闭各页面。两场均未并行启动其他设备进程。
+
+**设备占用 / 释放**：两场均占用 `SLM #1` + `Daheng cam_id=0`；页 0 用
+`SimBeamSource`，不占相机。第二场证据
+`data/debug/beam_quality/hidden_gate_hardware_20261127_optimize_v2.json`，
+会话 `data/debug/slm_transfer/20261127_214406`。
+
+**硬件阶段两栏结论**：算法改进为「无」——设备阶段不再改算法；实验流程改进是
+硬件测试显式切回页 0，消除了对持久化工件当前页的依赖。下一步无需再次上机；
+如果调整 promotion 判据或 mean/std 口径，再按新改动单独申请。
