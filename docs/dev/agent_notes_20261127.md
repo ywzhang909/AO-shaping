@@ -126,3 +126,57 @@ tests/ao_shaping/scripts/test_reconstruct_debug_weights_20261127.py -q --import-
 6. 收尾：确认 `lock.released=true`、`release_error=null`，SLM 恢复正常平相位、CCD 关闭，
    日志末次「成功关闭SLM #1」时间戳；失败时先看 `session.json.reason` 与 gate 原因，
    不重复启动第二个占设备的进程。
+
+### 5.1 光路探针（18:50，通过）
+
+`.venv\Scripts\python.exe scripts/slm/probe_optical_path_validity.py --session closed_loop_timing_gate_20261127 --exposures 0.05,0.12,0.2,0.5,1 --defocus-amps 0,0.5,1.0,-1.0 --bit-depth 8 --no-reference --no-plot --wait-until-idle 300`
+判定 ok：8-bit Mono8，曝光 0.05/0.12 ms 可用，SLM 离焦峰值变化 29.0%、宽度 24.8%
+（确认真在调制），光斑质心 (1228,1107)；0.05 ms 峰值约 117（远低于 0.7×255=178），
+0.12 ms 峰值 197 已超阈——故生产曝光锁定 0.05 ms。证据
+`data/debug/optical_path_probe/closed_loop_timing_gate_20261127/20261127_105051Z/optical_path_probe.json`；
+18:52:17 成功关闭 SLM #1。
+
+### 5.2 采集执行：两次失败根因与修复（均已提交）
+
+- 第 1 次（19:01，`data/debug/closed_loop_timing_20261127/`，`ff657cf1` 前）：baseline r00
+  gate_ok、score=1.0126，第 1 轮候选生成时 fault：
+  `The size of tensor a (128) must match ... b (640) at dimension 2`。根因：采集器
+  `--grid-size` 默认 128 生成 128×128 start_phase，但冻结 checkpoint
+  `refit_forward/frozen_parameters.json` 的 `grid_size=640`，`FrozenDefocusForward` 按 640
+  建 panel_grid，`forward.predict` 严格要 640×640。修复 `9434408`：新增 `checkpoint_grid_size()`
+  从 checkpoint 读 `grid_size` 自动对齐 start_phase，`--grid-size` 退化为无检查点兜底；
+  plan_doc 上报 `grid_size=640`（生效）与 `grid_size_cli=128`（原输入）。`ff657cf1` 另把
+  `source_dataset` 目录契约（须含 `manifest.json`）、`reference_start` 与负 ramp 校验前移到
+  占设备之前，避免占机后才抛 `missing negative ramp`。
+- 第 2 次（19:14，`data/debug/closed_loop_timing_20261127_rerun/`）：shape 失配已解，baseline
+  正常下发 640×640 相位，但第 1 轮候选报 device 失配 `cuda:0 and cpu`。根因：runner 的
+  `refine_phase` 调用点不传 device（init/target 在 CPU），而 standalone 采集器构造
+  `OnlineTransferAdapter` 未传 device → `FrozenDefocusForward` 默认 cuda。修复 `ff20cc1`：
+  采集器 adapter 工厂显式 `device="cpu"`（与离线端到端验证组合一致），plan_doc 记录该值。
+  两次均确认 `lock.released=true`、`release_error=null`、SLM 正常关闭、无残留硬件进程。
+
+离线门禁（修复后）：ruff 两文件 exit 0；`pytest ... -q --import-mode=importlib` **15 passed**；
+targeted `git diff --check` exit 0；真实 checkpoint 640 网格 `refine_phase` dry-run exit 0；
+真实 adapter(device=cpu)+真实 forward+假光斑 bench 端到端 4 轮 state=stopped（固化进测试）。
+
+### 5.3 采集执行：第 3 次成功（19:18–19:20）
+
+命令同 §5 上机清单、输出目录改为 `data/debug/closed_loop_timing_20261127_rerun2/`。
+`session.json`：`state=stopped`、`reason=连续 5 轮候选未被接受，已停止`、`exit_code=0`、
+`rounds_recorded=7`（baseline r00 + 6 轮候选）；`lock.acquired=11:18:52Z`、`released=11:20:18Z`、
+`held_s=85.256`、`released=true`、`release_error=null`；19:20:18 成功关闭 SLM #1，无残留进程。
+`config` 生效值：`grid_size=640`（自动对齐）、`exposure_ms=0.05`、`centre_xy=(1228,1107)`、
+`candidate_policy=auto`、`step_iterations=60`。
+
+`rounds.jsonl` 判读：7 轮全部 `gate_ok=true`（无饱和/低信号）；`capture_ms` 约 750–1573 ms
+（其中 `ccd_capture_ms` 291–326 ms）；`apply_phase_ms` 约 459–1281 ms；6 轮 `candidate_ms`
+均有值（r01 12426.9 ms 含首次适配构建，r02–r06 约 5.8–8.4 s）。**`fit_ms` / `adapt_ms` /
+`adaptation` 全为 null 是真实语义**：`auto` 策略下仅 r01 被接受（measured 1.168 < applied
+1.260），`_pending_since_refit=1 < refit_every=2`，`adapter.ready()` 为假 → 全程未触发
+`适配重拟合` 事件，无对应事件对可拆；不是采集缺字段。baseline score=1.2605，末轮 1.2145，
+连续 5 轮（r02–r06）实测未改善被拒。
+
+**§5 缺口收敛**：缺口 1（逐轮 capture/candidate 分项）已由本场多轮 rounds.jsonl 补齐；
+fit/adapt 分项因本场适配门槛未达而无数据，若要覆盖需在 `candidate_policy=manual` 或放宽
+`refit_every` 下再跑一场（本次不改他车道 runner，保持默认策略的真实性）。缺口 2 已离线重建
+补齐。缺口 3 溯源登记仍待 `scripts/_common/provenance.py` 车道提交。
