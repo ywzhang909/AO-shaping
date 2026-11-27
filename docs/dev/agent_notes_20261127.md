@@ -112,11 +112,14 @@ tests/ao_shaping/scripts/test_reconstruct_debug_weights_20261127.py -q --import-
 4. 再执行（占设备）：
 
    ```bash
-   .venv\Scripts\python.exe scripts/slm/collect_closed_loop_timing_20261127.py --out data/debug/closed_loop_timing_20261127 --execute --checkpoint data/debug/slm_transfer/ab_session_20261124/refit_forward/frozen_parameters.json --session-dir data/debug/closed_loop_timing_20261127 --source-dataset data/debug/slm_transfer/ab_session_20261124/capture --max-rounds 8 --step-iterations 60 --exposure-ms 0.12
+   .venv\Scripts\python.exe scripts/slm/collect_closed_loop_timing_20261127.py --out data/debug/closed_loop_timing_20261127 --execute --checkpoint data/debug/slm_transfer/ab_session_20261124/refit_forward/frozen_parameters.json --session-dir data/debug/closed_loop_timing_20261127 --source-dataset data/debug/slm_transfer/ab_session_20261124/capture --max-rounds 8 --step-iterations 60 --exposure-ms 0.05 --centre-x 1228 --centre-y 1107
    ```
 
-   注意：闭环分析窗口 `span=4`、中心 (500,500) 与 `--centre-*` 默认值对应页面默认；
-   曝光 0.12 ms 沿用当天 01 上机通过值，若门禁 `low_signal` 先检查光路/曝光，不盲目放大。
+   注意：`analysis_grid` 直接在原始 CCD 帧上采样，中心必须是光斑质心，不能用页面
+   GUI 默认的 (500,500)（那是 capture_grid 缩放坐标）。已据 18:50 光路探针实测质心
+   (1228,1107) 与 frozen origin (1229.20,1106.23) 把 `--centre-*` 默认值改为质心；
+   默认曝光由 20 ms 改为探针建议的 0.05 ms（8-bit 峰值约 117，0.12 ms 时 197 已超
+   0.7×满量程 178、暖机有饱和风险）。若门禁 `low_signal` 先查光路/曝光，不盲目放大。
 5. 证据：`data/debug/closed_loop_timing_20261127/session.json`（锁、设备回读、时间线、
    退出码）与 `rounds.jsonl`（每轮 `fit_ms` / `adapt_ms` / `candidate_ms` /
    `apply_phase_ms` / `ccd_capture_ms` / `capture_ms` / gate / 分数 / 决策）。

@@ -154,6 +154,9 @@ def test_gate_fail_round_is_persisted(tmp_path: Path) -> None:
             "0",
             "--grid-size",
             "8",
+            # 合成帧曝光 20 ms，显式匹配，确保 gate 失败来自 low_signal 而非曝光失配
+            "--exposure-ms",
+            "20",
         ],
         bench_factory=DarkBench,
     )
@@ -318,6 +321,13 @@ def test_execute_with_fake_devices_writes_multiple_rounds(tmp_path: Path) -> Non
             "2",
             "--grid-size",
             "8",
+            # 合成光斑造在 (500,500)、帧曝光 20 ms，显式覆盖生产默认质心/曝光，保持测试自洽
+            "--centre-x",
+            "500",
+            "--centre-y",
+            "500",
+            "--exposure-ms",
+            "20",
         ],
         bench_factory=_SpotBench,
         adapter_factory=lambda _grid: _FakeAdapter(shape),
@@ -348,3 +358,17 @@ def test_execute_with_fake_devices_writes_multiple_rounds(tmp_path: Path) -> Non
     assert session["state"].upper() == "STOPPED"
     assert "最大轮数" in session["reason"]
     assert any(item["note"] == "适配重拟合" for item in session["timeline"])
+
+
+def test_production_defaults_match_probe_geometry() -> None:
+    """生产默认值必须落在探针实测光斑上，且曝光不顶满量程。"""
+    args = SCRIPT.build_parser().parse_args(["--out", "x"])
+    # 与 18:50 光路探针质心 (1228,1107) / frozen origin (1229.20,1106.23) 一致
+    assert args.centre_x == 1228.0
+    assert args.centre_y == 1107.0
+    # 8-bit Mono8：探针 0.05 ms 峰值约 117，远低于 0.7×255 饱和线
+    assert args.exposure_ms == 0.05
+    # 分析窗口必须真的落在光斑上（原始帧坐标，无缩放）
+    xy = SCRIPT.analysis_grid((args.centre_x, args.centre_y), args.span)
+    assert int(round(xy[..., 0].mean())) == 1228
+    assert int(round(xy[..., 1].mean())) == 1107

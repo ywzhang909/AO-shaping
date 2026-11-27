@@ -423,9 +423,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", required=True, help="证据目录（--execute 时创建）")
     parser.add_argument("--execute", action="store_true", help="真正占用 SLM/CCD 运行")
     parser.add_argument("--max-rounds", type=int, default=8)
-    parser.add_argument("--exposure-ms", type=float, default=20.0)
-    parser.add_argument("--centre-x", type=float, default=500.0)
-    parser.add_argument("--centre-y", type=float, default=500.0)
+    # 默认曝光取探针验证过的 0.05 ms（8-bit 峰值约 117，留足饱和裕度）；
+    # 20 ms 在 8-bit 下会顶满量程，gate 会因过曝失效。
+    parser.add_argument("--exposure-ms", type=float, default=0.05)
+    # 默认中心取光路探针实测质心 / frozen origin（原始 CCD 帧像素坐标）。
+    # analysis_grid 直接在原始帧采样，若用 (500,500) 窗口会落在空白区、分数失真。
+    parser.add_argument("--centre-x", type=float, default=1228.0)
+    parser.add_argument("--centre-y", type=float, default=1107.0)
     parser.add_argument("--span", type=int, default=4)
     parser.add_argument("--half-width", type=float, default=2.0)
     parser.add_argument("--half-height", type=float, default=2.0)
