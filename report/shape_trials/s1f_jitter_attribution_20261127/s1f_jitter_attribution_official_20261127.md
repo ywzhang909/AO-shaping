@@ -8,7 +8,8 @@
 > **采集数据**: `data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_02`（`run_01` 无光作废，见 §2.1）
 > **判读产物**: `s1f_jitter_attribution_judgment.json` / `_tables.md`（同目录）
 > **复现命令**: `python scripts/slm/s1f_jitter_attribution_judge_20261127.py --capture-dir data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_02 --out report/shape_trials/s1f_jitter_attribution_20261127`
-> **前序 commit**: 预注册/采集/判读/测试 `aca0b987`；无光作废与光强预检 `540aeb83`。本报告与判读产物随本次判读提交落库。
+> **前序 commit**: 预注册/采集/判读/测试 `aca0b987`；无光作废与光强预检 `540aeb83`。
+> **本报告与判读产物 commit**: `cb2ac1da`（判读产物与报告正文落库）。
 > **运行环境**: 采集占用 SLM #1 + Daheng cam0（见 §2.2）；判读为离线（只读 run 帧与 journal，未占设备、未操作激光）。
 <!-- provenance:end -->
 
