@@ -1,0 +1,13 @@
+{
+  "candidates_sha256": "2801c2fa3a4e04dbb0a42a40afca3ddf13bf8520671629e5710d180e897aecc1",
+  "final_test_quality": {
+    "correlation": 0.9996833656454144,
+    "cv_abs_error": 0.27770423889160156,
+    "relative_l2": 0.12143925577402115,
+    "score": 0.12175589012860677
+  },
+  "monotonic_ns": 2175913879550657,
+  "spec_sha256": "91efb42297d227dd6c5bfe097bc124051fa9ad06389e76b3ec57723e3032b27c",
+  "timestamp_utc": "2026-11-27T14:19:37.806284+00:00",
+  "winner": "B_psf"
+}

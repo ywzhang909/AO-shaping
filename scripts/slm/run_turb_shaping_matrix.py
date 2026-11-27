@@ -47,6 +47,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--target-side", type=float, default=120.0)
     ap.add_argument("--pop-size", type=int, default=12,
                     help="heuristic 变体种群规模 (M5c: 种群须随维度配平)")
+    ap.add_argument("--turb-mode", default=None,
+                    choices=("none", "static", "dynamic"),
+                    help="覆盖屏协议 (缺省按变体协议: model_in_loop=static, 其余=dynamic; "
+                         "M5b 边界实验用 --turb-mode dynamic 单扫 MIL)")
     ap.add_argument("--out-root", type=Path, default=Path("data/turb_matrix"))
     ap.add_argument(
         "--report-root", type=Path, default=None,
@@ -93,7 +97,9 @@ def cell_plan(args: argparse.Namespace, variant: str, cn2: float, slot: int) -> 
         "pop_size": args.pop_size,
         # MIL 的 Step A 拟合 + 逐轮验收假设准静态波前 (dynamic 下验收必然被
         # 新屏翻盘, 整格只会得到"保平场"空结论) —— 静态屏才是它的适用域。
-        "turb_mode": "static" if variant == "model_in_loop" else "dynamic",
+        # --turb-mode 显式覆盖时以覆盖为准 (边界实验, 如 M5b dynamic 三格)。
+        "turb_mode": args.turb_mode or (
+            "static" if variant == "model_in_loop" else "dynamic"),
         "cn2": cn2,
         "dist_seed": BASE_DIST_SEED + slot,
         "epochs": args.epochs,
@@ -135,6 +141,7 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
         rows.append({
             "variant": res["variant"],
             "cn2": res["cn2"],
+            "turb_mode": res["turb_mode"],
             "sigma_total_rad": res["measured"]["sigma_total_rad"],
             "evals": int(res["measured"]["calls"]),
             # 链接相对**汇总表自身所在目录** (report_root) 解析, 不是其父目录
@@ -157,12 +164,13 @@ def report_matrix(results: list[dict], report_root: Path, args: argparse.Namespa
             f"| {row['variant']} | {row['cn2']:g} | {row['sigma_total_rad']:.4f} "
             f"| {row['evals']} | [{Path(row['report']).name}]({row['report']}) |"
         )
+    mode_by_variant = {r["variant"]: r["turb_mode"] for r in rows}
+    protocol = ", ".join(f"{v}=`{m}`" for v, m in mode_by_variant.items())
     lines += [
         "",
         "## 口径",
         "",
-        "- 屏协议: spgd/square/heuristic/gs_refine = dynamic (逐光学求值独立屏); "
-        "model_in_loop = static (Step A 拟合与逐轮验收假设准静态波前, 见 cell_plan 注);",
+        f"- 屏协议 (本次实跑逐变体取值, 缺省协议见 cell_plan, `--turb-mode` 可覆盖): {protocol};",
         "- 幅度**实测** (stats), 收敛快慢/终值对比见各单元 GIF 与 metrics.png; "
         "本矩阵为**对比择优**; MIL 的孪生湍流通道自 M5b 入列 (`_SimBench` "
         "disturbance 注入; GS-refine 通道见 matrix_20261121_m5a; #253 注记);",

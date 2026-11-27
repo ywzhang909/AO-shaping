@@ -3641,6 +3641,70 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线 CPU 判读（读两个变体冻结 JSON, 不打开设备）",
         note="s1e arm-p vs d5 对比冻结表格 (缺省读 s1e_same_bytes_probe_20261126.json 与 s1e_arm_p_20261126.json)",
     ),
+    "report/shape_trials/transfer_twin_snapshot_demo_20261127/report.md": ReportProvenance(
+        script="scripts/slm/run_transfer_twin_snapshot_demo.py",
+        command="python scripts/slm/run_transfer_twin_snapshot_demo.py",
+        environment="离线（数字孪生语料 generate_dataset, 无需 SLM / CCD / 激光）",
+        note=(
+            "#254 T3/T4 数字孪生首验: v1-twin 快照 (calibration 30 / train 18 / "
+            "validation 11 / final_test 1, root_hash 60dac86018f1d2fa…) → 四分支"
+            "预注册 spec (基线/+PSF/+几何/+两者, 孪生预演非正式预注册) 统一预算训练 "
+            "→ selection 打分 winner B_psf (score 0.0772, C_geometry 与基线并列 "
+            "0.0866 无增益, 与 11-24 几何证伪同向) → final_test 一次性打分 "
+            "(corr 0.9997); 机制与产物链验证, 非硬件结论; 真实 v1 在采集侧同一命令执行"
+        ),
+    ),
+    "report/turbulence_shaping/matrix_20261127_m5b_dynamic/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--turb-mode dynamic --epochs 120 --n-max 8 --cam-size 256 "
+            "--out-root data/turb_matrix_m5b_dyn "
+            "--report-root report/turbulence_shaping/matrix_20261127_m5b_dynamic"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note=(
+            "M5b dynamic 边界三格 (--turb-mode 覆盖轴): MIL 在时变屏下仍收敛出优于平场的"
+            "终值 (终局对比择优三档 0.729/0.752/0.732 胜 0.665/0.666/0.667), 但逐轮验收"
+            "大面积翻盘 —— accepted 2-4/120 (static 同槽 5-8/120), streak 峰值 78-110 贴"
+            "放宽保险; dynamic 单元指标本身逐屏抽样, 与 static 数字不可跨协议直比。"
+            "适用域结论: 准静态屏是 MIL 工作域, dynamic 为其验收边界; 终判维持"
+        ),
+        extra_scripts=("scripts/slm/generate_turbulence_shaping_report.py",),
+    ),
+    "report/turbulence_shaping/matrix_20261127_m5b_dynamic/model_in_loop_cn21e-14/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--turb-mode dynamic --epochs 120 --n-max 8 --cam-size 256 "
+            "--out-root data/turb_matrix_m5b_dyn "
+            "--report-root report/turbulence_shaping/matrix_20261127_m5b_dynamic"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b dynamic 单元 model_in_loop x cn2=1e-14; accepted 2/120; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261127_m5b_dynamic/model_in_loop_cn22e-13/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--turb-mode dynamic --epochs 120 --n-max 8 --cam-size 256 "
+            "--out-root data/turb_matrix_m5b_dyn "
+            "--report-root report/turbulence_shaping/matrix_20261127_m5b_dynamic"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b dynamic 单元 model_in_loop x cn2=2e-13; accepted 3/120; 双 GIF + metrics.png",
+    ),
+    "report/turbulence_shaping/matrix_20261127_m5b_dynamic/model_in_loop_cn22e-12/report.md": ReportProvenance(
+        script="scripts/slm/run_turb_shaping_matrix.py",
+        command=(
+            "python scripts/slm/run_turb_shaping_matrix.py --variants model_in_loop "
+            "--turb-mode dynamic --epochs 120 --n-max 8 --cam-size 256 "
+            "--out-root data/turb_matrix_m5b_dyn "
+            "--report-root report/turbulence_shaping/matrix_20261127_m5b_dynamic"
+        ),
+        environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
+        note="M5b dynamic 单元 model_in_loop x cn2=2e-12; accepted 4/120; 双 GIF + metrics.png",
+    ),
     "report/turbulence_shaping/matrix_20261126_m5b/report.md": ReportProvenance(
         script="scripts/slm/run_turb_shaping_matrix.py",
         command=(

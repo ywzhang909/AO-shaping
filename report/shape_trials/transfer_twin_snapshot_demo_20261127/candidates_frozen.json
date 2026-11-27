@@ -1,0 +1,86 @@
+{
+  "branches": [
+    {
+      "fit_seconds": 18.687,
+      "manifest_sha256": "bb07375a4b442c943de9fb90044510ee5b1a73d5c3fe8c01a09677501651fead",
+      "name": "B_psf",
+      "out": "/workspace/data/twin_snapshot_demo/run/branches/B_psf",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_psf": true
+      },
+      "quality": {
+        "correlation": 0.9995546691613538,
+        "cv_abs_error": 0.1378060687672008,
+        "relative_l2": 0.07673804428089749,
+        "score": 0.07718337511954367
+      }
+    },
+    {
+      "fit_seconds": 18.291,
+      "manifest_sha256": "bb07375a4b442c943de9fb90044510ee5b1a73d5c3fe8c01a09677501651fead",
+      "name": "D_psf_geometry",
+      "out": "/workspace/data/twin_snapshot_demo/run/branches/D_psf_geometry",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_geometry": true,
+        "learn_psf": true
+      },
+      "quality": {
+        "correlation": 0.9995383257199012,
+        "cv_abs_error": 0.13772071491588245,
+        "relative_l2": 0.07724017616022717,
+        "score": 0.07770185044032597
+      }
+    },
+    {
+      "fit_seconds": 5.73,
+      "manifest_sha256": "bb07375a4b442c943de9fb90044510ee5b1a73d5c3fe8c01a09677501651fead",
+      "name": "A_baseline",
+      "out": "/workspace/data/twin_snapshot_demo/run/branches/A_baseline",
+      "overrides": {
+        "adaptation": "alignment"
+      },
+      "quality": {
+        "correlation": 0.9989356949226014,
+        "cv_abs_error": 0.1488438519564542,
+        "relative_l2": 0.08551426705988971,
+        "score": 0.08657857213728834
+      }
+    },
+    {
+      "fit_seconds": 2.807,
+      "manifest_sha256": "bb07375a4b442c943de9fb90044510ee5b1a73d5c3fe8c01a09677501651fead",
+      "name": "C_geometry",
+      "out": "/workspace/data/twin_snapshot_demo/run/branches/C_geometry",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_geometry": true
+      },
+      "quality": {
+        "correlation": 0.9989356949226014,
+        "cv_abs_error": 0.1488438519564542,
+        "relative_l2": 0.08551426705988971,
+        "score": 0.08657857213728834
+      }
+    }
+  ],
+  "budget": {
+    "checkpoint": "/workspace/data/twin_snapshot_demo/corpus/cap_a/nominal.json",
+    "device": "cpu",
+    "iterations": 150,
+    "span": 120
+  },
+  "dataset_manifest_sha256": "bb07375a4b442c943de9fb90044510ee5b1a73d5c3fe8c01a09677501651fead",
+  "final_test": null,
+  "jobs": 1,
+  "monotonic_ns": 2175894569481107,
+  "pre_registered_utc": "2026-11-27T14:18:32+00:00",
+  "schema": "transfer-candidates-v1",
+  "snapshot_id": "v1-twin",
+  "snapshot_root_hash": "60dac86018f1d2fa2ea5c71b457be2f0f25d88cac8d8000fa6f27aa113b6a41e",
+  "spec_path": "/workspace/report/shape_trials/transfer_twin_snapshot_demo_20261127/spec.json",
+  "spec_sha256": "91efb42297d227dd6c5bfe097bc124051fa9ad06389e76b3ec57723e3032b27c",
+  "timestamp_utc": "2026-11-27T14:19:18.496214+00:00",
+  "winner": "B_psf"
+}

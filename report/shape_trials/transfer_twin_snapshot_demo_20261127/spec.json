@@ -1,0 +1,41 @@
+{
+  "schema": "transfer-branch-spec-v1",
+  "snapshot_id": "v1-twin",
+  "pre_registered_utc": "2026-11-27T14:18:32+00:00",
+  "budget": {
+    "checkpoint": "/workspace/data/twin_snapshot_demo/corpus/cap_a/nominal.json",
+    "iterations": 150,
+    "span": 120,
+    "device": "cpu"
+  },
+  "branches": [
+    {
+      "name": "A_baseline",
+      "overrides": {
+        "adaptation": "alignment"
+      }
+    },
+    {
+      "name": "B_psf",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_psf": true
+      }
+    },
+    {
+      "name": "C_geometry",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_geometry": true
+      }
+    },
+    {
+      "name": "D_psf_geometry",
+      "overrides": {
+        "adaptation": "alignment",
+        "learn_psf": true,
+        "learn_geometry": true
+      }
+    }
+  ]
+}

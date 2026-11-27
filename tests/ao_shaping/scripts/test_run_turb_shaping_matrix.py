@@ -88,3 +88,21 @@ def test_dry_run_prints_plan_and_writes_nothing(matrix, tmp_path: Path, capsys, 
     payload = json.loads(capsys.readouterr().out)
     assert len(payload["cells"]) == 15
     assert not (tmp_path / "nope").exists()
+
+
+def test_turb_mode_override_flips_mil_to_dynamic_for_boundary_runs(matrix) -> None:
+    """缺省协议是变体绑定的 (MIL=static); --turb-mode 显式覆盖时以覆盖为准 ——
+    M5b 的 dynamic 边界三格就是这条轴跑出来的。"""
+    args = matrix.parse_args(["--dry-run"])
+    plan_default = matrix.cell_plan(args, "model_in_loop", 2e-13,
+                                    matrix.slot_of("model_in_loop", 2e-13))
+    assert plan_default["turb_mode"] == "static"
+    over = matrix.parse_args(["--dry-run", "--turb-mode", "dynamic"])
+    plan_dyn = matrix.cell_plan(over, "model_in_loop", 2e-13,
+                                matrix.slot_of("model_in_loop", 2e-13))
+    assert plan_dyn["turb_mode"] == "dynamic"
+    # 覆盖同样作用于其余变体 (它们缺省本就是 dynamic, 覆盖为 static 也得生效)
+    plan_static = matrix.cell_plan(matrix.parse_args(
+        ["--dry-run", "--turb-mode", "static"]), "spgd", 2e-13,
+        matrix.slot_of("spgd", 2e-13))
+    assert plan_static["turb_mode"] == "static"

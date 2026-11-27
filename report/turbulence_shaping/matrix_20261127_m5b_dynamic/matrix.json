@@ -1,0 +1,26 @@
+[
+  {
+    "variant": "model_in_loop",
+    "cn2": 1e-14,
+    "turb_mode": "dynamic",
+    "sigma_total_rad": 0.06347707407391191,
+    "evals": 2013,
+    "report": "model_in_loop_cn21e-14/report.md"
+  },
+  {
+    "variant": "model_in_loop",
+    "cn2": 2e-13,
+    "turb_mode": "dynamic",
+    "sigma_total_rad": 0.28318353345196806,
+    "evals": 2021,
+    "report": "model_in_loop_cn22e-13/report.md"
+  },
+  {
+    "variant": "model_in_loop",
+    "cn2": 2e-12,
+    "turb_mode": "dynamic",
+    "sigma_total_rad": 0.8941639335328245,
+    "evals": 1997,
+    "report": "model_in_loop_cn22e-12/report.md"
+  }
+]
