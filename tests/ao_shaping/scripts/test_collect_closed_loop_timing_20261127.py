@@ -170,19 +170,66 @@ def test_gate_fail_round_is_persisted(tmp_path: Path) -> None:
     assert rows[0]["ccd_capture_ms"] is not None
 
 
-def test_adapter_inputs_validated_before_devices(tmp_path: Path) -> None:
-    args = SCRIPT.build_parser().parse_args(
+def _adapter_args(tmp_path: Path, dataset: Path) -> object:
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text("{}", encoding="utf-8")
+    return SCRIPT.build_parser().parse_args(
         [
             "--out",
             str(tmp_path / "run"),
             "--execute",
             "--checkpoint",
-            str(tmp_path / "missing.json"),
+            str(checkpoint),
+            "--session-dir",
+            str(tmp_path / "session"),
             "--source-dataset",
-            str(tmp_path / "missing.npz"),
+            str(dataset),
         ]
     )
-    assert SCRIPT.adapter_inputs_error(args) is not None
+
+
+def _write_manifest(dataset: Path, labels: list[str]) -> Path:
+    dataset.mkdir(parents=True, exist_ok=True)
+    rows = [{"label": label, "file": f"{label}.npz"} for label in labels]
+    manifest = dataset / "manifest.json"
+    manifest.write_text(json.dumps(rows), encoding="utf-8")
+    return manifest
+
+
+def test_adapter_inputs_validated_before_devices(tmp_path: Path) -> None:
+    # source_dataset 必须是目录（seed_from_source 读 <dir>/manifest.json）
+    assert SCRIPT.adapter_inputs_error(_adapter_args(tmp_path, tmp_path / "missing")) is not None
+
+    # 目录存在但缺 manifest.json
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert SCRIPT.adapter_inputs_error(_adapter_args(tmp_path, empty)) is not None
+
+    # 有 manifest 但缺 reference_start
+    no_ref = _write_manifest(
+        tmp_path / "no_ref", ["ramp_x_128_1", "ramp_x_128_-1", "ramp_y_128_1", "ramp_y_128_-1"]
+    )
+    assert SCRIPT.adapter_inputs_error(_adapter_args(tmp_path, no_ref.parent)) is not None
+
+    # 有 reference_start 但缺负 ramp（fit.geometry 会在占设备后抛，须提前挡住）
+    no_negative = _write_manifest(
+        tmp_path / "no_negative", ["reference_start", "ramp_x_128_1", "ramp_y_128_1"]
+    )
+    assert SCRIPT.adapter_inputs_error(_adapter_args(tmp_path, no_negative.parent)) is not None
+
+    # 完整合法目录应通过离线校验
+    full = _write_manifest(
+        tmp_path / "full",
+        [
+            "reference_start",
+            "reference_end",
+            "ramp_x_128_1",
+            "ramp_x_128_-1",
+            "ramp_y_128_1",
+            "ramp_y_128_-1",
+        ],
+    )
+    assert SCRIPT.adapter_inputs_error(_adapter_args(tmp_path, full.parent)) is None
 
 
 def _spot_frame() -> object:

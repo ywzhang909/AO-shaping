@@ -284,9 +284,28 @@ def adapter_inputs_error(args: argparse.Namespace) -> str | None:
     checkpoint = Path(args.checkpoint).expanduser()
     if not checkpoint.exists():
         return f"checkpoint 不存在：{checkpoint}"
+    # seed_from_source() 读 <source>/manifest.json，source 必须是目录，不是 npz 文件。
     dataset = Path(args.source_dataset).expanduser()
-    if not dataset.is_file():
-        return f"source_dataset 不存在：{dataset}"
+    if not dataset.is_dir():
+        return f"source_dataset 不是目录（应含 manifest.json）：{dataset}"
+    manifest = dataset / "manifest.json"
+    if not manifest.is_file():
+        return f"source_dataset 缺 manifest.json：{manifest}"
+    try:
+        rows = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return f"manifest.json 解析失败：{exc}"
+    labels = {str(row.get("label")) for row in rows}
+    if "reference_start" not in labels:
+        return "source_dataset 缺 reference_start 标定行"
+    # 与 fit.geometry() 对齐：每个正 ramp 都要有同周期的负 ramp，否则适配会在
+    # 占设备后的 refit 处抛 "missing negative ramp"。提前到离线阶段挡住。
+    for label in labels:
+        parts = label.split("_")
+        if len(parts) == 4 and parts[0] == "ramp" and parts[3] == "1":
+            negative = f"ramp_{parts[1]}_{parts[2]}_-1"
+            if negative not in labels:
+                return f"source_dataset 缺负 ramp：{negative}"
     return None
 
 
