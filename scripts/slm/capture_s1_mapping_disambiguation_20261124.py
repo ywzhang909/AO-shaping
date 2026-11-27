@@ -69,6 +69,21 @@ PREFLIGHT_DISCARD_FRAMES = 3
 PREFLIGHT_MEASURE_FRAMES = 1
 SATURATION_FRACTION = 0.9
 LOCK_POLL_S = 1.0
+
+# 判据① 的 0 级质心测量（2026-11-27 修订，v2 口径）。
+# 原实现用全帧中位数作基线的**无掩模**质心：全帧 5,038,848 像素里光斑只占约 1400 像素，
+# 背景噪声正尾每像素约 0.4 counts，合计权重与光斑同量级（实测占 61–72%），
+# 于是质心被拉向帧几何中心约 100 px（11-26 与 11-27 四帧合成残差均 0.0000 px）。
+# 现改为信号掩模质心：只有 >= median + SIGNAL_SIGMA * sigma_robust 的像素参与加权。
+# sigma_robust = 1.4826 * MAD（对亮斑稳健）。纯噪声帧几乎无像素越过该门，
+# 此时返回几何中心并标记 centroid_is_fallback，由 has_signal 判"没测到光斑"。
+SIGNAL_SIGMA = 6.0
+SIGNAL_PEAK_SNR_MIN = 50.0
+SIGNAL_MIN_PIXELS = 4
+SIGNAL_MIN_WEIGHT = 2000.0
+#: 12-bit CCD 的量化下限：背景完全均匀时 MAD=0，仍需给峰 SNR 一个有限分母，
+#: 否则"零背景 + 孤立亮点"会被误判为无信号。1 count 是量化台阶，不是可调阈值。
+SIGNAL_SIGMA_FLOOR_COUNTS = 1.0
 PREREG_SECTION = "§12.11.5"
 DESIGN_SOURCE = "issue247 跨会话复现预注册 §12.11.5"
 DESIGN_SOURCE_NOTE = (
@@ -355,20 +370,91 @@ def _panel_shape_from(slm: Any) -> tuple[int, int]:
     return int(panel[1]), int(panel[0])
 
 
-def _centroid_px(frame: np.ndarray) -> list[float]:
-    """Baseline-subtracted centroid; uniform/blank frame -> geometric centre."""
-    rows, cols = int(frame.shape[0]), int(frame.shape[1])
-    data = frame.astype(np.float64)
-    weights = data - np.median(data)
-    weights[weights < 0.0] = 0.0
-    total = float(weights.sum())
+def _robust_sigma(data: np.ndarray) -> float:
+    """MAD-based sigma (1.4826 * median |x - median|); 0 for a uniform frame."""
+    median = float(np.median(data))
+    return 1.4826 * float(np.median(np.abs(data - median)))
+
+
+def _weighted_centroid(
+    weights: np.ndarray, total: float
+) -> list[float] | None:
+    """Centroid (row, col) of a non-negative weight map; None when total <= 0."""
     if total <= 0.0:
-        return [(rows - 1) / 2.0, (cols - 1) / 2.0]
+        return None
+    rows, cols = int(weights.shape[0]), int(weights.shape[1])
     row_idx = np.arange(rows, dtype=np.float64)
     col_idx = np.arange(cols, dtype=np.float64)
     row = float((weights.sum(axis=1) * row_idx).sum() / total)
     col = float((weights.sum(axis=0) * col_idx).sum() / total)
     return [row, col]
+
+
+def _geometric_centre(frame: np.ndarray) -> list[float]:
+    rows, cols = int(frame.shape[0]), int(frame.shape[1])
+    return [(rows - 1) / 2.0, (cols - 1) / 2.0]
+
+
+def flat_signal_measurement(frame: np.ndarray) -> dict[str, Any]:
+    """Signal-masked measurement of the flat 0-order, with a no-signal gate.
+
+    判据① 只关心**光斑**位置，所以权重必须只落在光斑上，见 ``SIGNAL_SIGMA`` 注释。
+    返回 ``centroid_px`` / ``centroid_is_fallback`` / ``has_signal`` 及诊断量，
+    调用方须先看 ``has_signal``：为 False 时质心是几何中心，**不是测量值**。
+    """
+    data = frame.astype(np.float64)
+    median = float(np.median(data))
+    sigma = max(_robust_sigma(data), SIGNAL_SIGMA_FLOOR_COUNTS)
+    peak = float(data.max()) if data.size else 0.0
+    peak_excess = peak - median
+    peak_snr = peak_excess / sigma if sigma > 0.0 else 0.0
+    threshold = median + SIGNAL_SIGMA * sigma
+
+    excess = data - median
+    mask = data >= threshold
+    weights = np.where(mask, np.maximum(excess, 0.0), 0.0)
+    total = float(weights.sum())
+    n_pixels = int(np.count_nonzero(mask))
+
+    centroid = _weighted_centroid(weights, total)
+    has_signal = bool(
+        peak_snr >= SIGNAL_PEAK_SNR_MIN
+        and n_pixels >= SIGNAL_MIN_PIXELS
+        and total >= SIGNAL_MIN_WEIGHT
+    )
+    # 没测到光斑时**不给**掩模噪声簇的位置（它看起来像真测量）：直接退回几何中心并标记，
+    # 调用方必须先看 ``has_signal``；真正的掩模结果留在 ``masked_centroid_px`` 里。
+    return {
+        "centroid_px": (
+            list(centroid) if has_signal and centroid is not None
+            else _geometric_centre(frame)
+        ),
+        "masked_centroid_px": centroid,
+        "centroid_is_fallback": not has_signal,
+        "has_signal": has_signal,
+        "median_counts": median,
+        "sigma_counts": sigma,
+        "sigma_is_floor": _robust_sigma(data) < SIGNAL_SIGMA_FLOOR_COUNTS,
+        "peak_counts": peak,
+        "peak_snr": peak_snr,
+        "signal_threshold_counts": threshold,
+        "signal_pixels": n_pixels,
+        "signal_weight_counts": total,
+        "signal_sigma": SIGNAL_SIGMA,
+        "signal_peak_snr_min": SIGNAL_PEAK_SNR_MIN,
+        "signal_min_pixels": SIGNAL_MIN_PIXELS,
+        "signal_min_weight_counts": SIGNAL_MIN_WEIGHT,
+    }
+
+
+def _centroid_px(frame: np.ndarray) -> list[float]:
+    """Signal-masked centroid of the flat 0-order; blank frame -> geometric centre.
+
+    保留原签名（对齐探针与判据① 都按它取点）。判"有没有测到光斑"必须用
+    ``flat_signal_measurement``，本函数只是取点快捷方式。
+    """
+    return flat_signal_measurement(frame)["centroid_px"]
+
 
 
 def run_preflight(cam: Any, full_scale: float, journal: Any) -> dict[str, Any]:
@@ -416,6 +502,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     exit_code = 1
     preflight_record: dict[str, Any] | None = None
     flat_centroid: list[float] | None = None
+    flat_measurement: dict[str, Any] | None = None
     release: dict[str, Any] = {
         "schema": RELEASE_SCHEMA,
         "slm_closed": False,
@@ -522,7 +609,28 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 raw_path = out / "raw" / f"{index:02d}_{item['id']}.npy"
                 np.save(raw_path, frame)
                 if item["id"] == "flat_scale993":
-                    flat_centroid = _centroid_px(frame)
+                    flat_measurement = flat_signal_measurement(frame)
+                    # 冻结 summary 契约：该字段恒为取点结果；无信号时取点是几何中心占位。
+                    # 判据① 是否有效必须看 flat_zero_order_criterion.measured。
+                    flat_centroid = list(flat_measurement["centroid_px"])
+                    if not flat_measurement["has_signal"]:
+                        logger.error(
+                            "判据①：flat_scale993 无可用 0 级信号 "
+                            "(peak_snr={:.1f} < {:.0f}, signal_pixels={} < {}, "
+                            "signal_weight={:.0f} < {:.0f}) ⇒ 质心是几何中心占位，"
+                            "本帧不构成判据①测量",
+                            flat_measurement["peak_snr"],
+                            flat_measurement["signal_peak_snr_min"],
+                            flat_measurement["signal_pixels"],
+                            flat_measurement["signal_min_pixels"],
+                            flat_measurement["signal_weight_counts"],
+                            flat_measurement["signal_min_weight_counts"],
+                        )
+                    _journal(
+                        journal,
+                        "flat_zero_order_measurement",
+                        **flat_measurement,
+                    )
                 row: dict[str, Any] = {
                     "index": index,
                     "pattern_id": item["id"],
@@ -600,6 +708,23 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                     flat_centroid[0] - ZERO_ORDER_REFERENCE_PX["row"],
                     flat_centroid[1] - ZERO_ORDER_REFERENCE_PX["col"],
                 ]
+            criterion_1: dict[str, Any] = {
+                "reference_px": dict(ZERO_ORDER_REFERENCE_PX),
+                "tolerance_px": ZERO_ORDER_REFERENCE_TOLERANCE_PX,
+                "measured": flat_measurement is not None
+                and bool(flat_measurement["has_signal"]),
+                "dist_px": None,
+                "within_tolerance": None,
+                "estimator": "signal_masked_centroid",
+                "estimator_revision": "v2",
+                "measurement": flat_measurement,
+            }
+            if offset is not None:
+                dist = float(np.hypot(offset[0], offset[1]))
+                criterion_1["dist_px"] = dist
+                criterion_1["within_tolerance"] = bool(
+                    dist <= ZERO_ORDER_REFERENCE_TOLERANCE_PX
+                )
             summary: dict[str, Any] = {
                 "schema": SUMMARY_SCHEMA,
                 "status": status,
@@ -609,6 +734,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 "saturation_count": sum(bool(r["saturated"]) for r in frame_records),
                 "same_session_flat_centroid_px": flat_centroid,
                 "flat_centroid_offset_px": offset,
+                "flat_zero_order_criterion": criterion_1,
                 "preflight": preflight_record,
                 "focus_compensation": focus,
                 "acquisition": dict(plan["acquisition"]),

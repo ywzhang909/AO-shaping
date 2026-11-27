@@ -3658,6 +3658,19 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（数字孪生 sim 设备，无需 SLM / CCD / 激光）",
         note="M5c 单元 heuristic(PSO) x cn2=2e-12 (实测 σ≈0.897 rad, n_max=11/pop=36/120ep, 4360 求值; 首-1.3575/末-0.8253/最优-0.7022); 相位/光斑双 GIF + metrics.png",
     ),
+    "report/shape_trials/s1_offline_judge_20261127/judgment.md": ReportProvenance(
+        script="scripts/slm/judge_s1_criteria_offline_20261127.py",
+        command="python scripts/slm/judge_s1_criteria_offline_20261127.py",
+        environment="离线（只读 2026-11-26 六帧，无 SLM / CCD / 激光）",
+        note=(
+            "§12.11.5 判据②–⑥ 离线判读：②/④ 已证实无效，③/⑥ 已证实有效，⑤ 因冻结文本缺容差证据不足；"
+            "判据① 不重判，0 级位移原点用 v2 噪声掩膜质心。"
+        ),
+        extra_scripts=(
+            "scripts/slm/capture_s1_mapping_disambiguation_20261124.py",
+            "scripts/slm/issue247_axis_map_solve_20261121.py",
+        ),
+    ),
 }
 
 
