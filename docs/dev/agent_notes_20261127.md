@@ -206,3 +206,53 @@ fit/adapt 分项因本场适配门槛未达而无数据，若要覆盖需在 `ca
 说明：测试把 `visible` / `hidden` 采样用于断言而未写进证据 JSON（非本次故障），
 故 `analyze_ms_median` 的具体数值只在该次进程的断言中校验；离线合成帧的改前/改后数值对比
 见本文 §1（`analyzer.py` 已提交 `8e5116f5`）。
+
+## 7. A+B：在线重拟合与拒轮样本登记（20:01–20:23）
+
+用户裁定「A + B 都做（先 A 验证再 B 深化）」。A = 采集器暴露 `--refit-every` 触发在线重拟合；
+B = 门禁通过但被拒的候选轮也登记为适配样本（runner 增默认关闭开关）。
+
+### 7.1 实现与离线门禁
+
+- `acfabbc6`：采集器 `--refit-every` + `AdaptationPolicy`，plan_doc 上报。
+- `ac883106`：补 `test_export_checkpoint_handles_missing_registration`（提交时误吞他车道 224 行
+  删除，已用临时 index 重建提交修正，他车道删除仍是 worktree dirty）。
+- `97f8f46d`：`_export_checkpoint` 中 `registration_value` 是 `(dy, dx) | None`，原
+  `float(...)` 在 `None` 时抛 TypeError；改为按 `fit.py:574` schema 写 list 或 None。
+  仅提交 1 个 hunk，他车道 runner 18 处 dirty 未并吞。
+- `66f37e4`：`--register-rejected-samples` 采集器 CLI + plan/config 透传。
+- `da2c22b1`：runner `ClosedLoopConfig.register_rejected_samples=False` 默认关闭；开启后在
+  reject 分支把 (候选相位, 该轮实测帧) 登记为适配样本，下发仍回滚到已确认相位。
+  仅提交 3 个纯新增 hunk，他车道 runner/test 的 dirty 删除仍留 worktree。
+
+离线门禁：两轮 `pytest tests/ao_shaping/gui/slm/test_closed_loop_shaping.py
+tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import-mode=importlib`
+分别 47 passed / 49 passed；ruff 与定向 `git diff --check` 均 exit 0；plan-only 显示
+`refit_every=1`、`register_rejected_samples=true`。
+
+### 7.2 三次上机判读
+
+1. 19:51–19:53（`data/debug/closed_loop_timing_20261127_refit1/`）：`--refit-every 1`
+   第 2 轮触发适配，但 40 s 后 `state=fault`：`float() argument ... not 'NoneType'`。
+   根因即 §7.1 的 `registration_value=None`；写完空目录 `promoted_0015` 后抛错。
+   `lock.released=true`、`release_error=null`，SLM 19:53:17 关闭。
+2. 20:02–20:03（`..._refit1_rerun/`）：修复后 `state=stopped`、`exit_code=0`、9 轮，但
+   **7 个 fit/adapt 字段仍全 null**：首个被接受轮 r03 恰是 `validation_every=3` 的验证留一，
+   seed 只有 3 行 train（`min_train_rows=4`），`ready()` 始终为假；B 正是针对该饥饿。
+   `lock.released=true`，SLM 20:03:44 关闭。
+3. 20:13–20:22（`..._refit1b/`，`--refit-every 1 --register-rejected-samples`）：
+   `state=stopped`、`exit_code=0`、9 轮；manifest 22 行，含 `rejected_round_02/04/05/06/07/08`；
+   **7 次 `适配重拟合` → `adaptation=promoted`**，生成 `promoted_0015`…`promoted_0021`。
+   `fit_ms` 38.6–77.8 s（均值 60.2 s），`adapt_ms` 1.23–1.74 s（均值 1.51 s）。
+   baseline 1.1906；最佳 r03 1.1035（-7.3%）；但 r04–r08 实测回升到 1.3513（+13.5%），
+   说明**内部验证晋级没有跟上实测均匀性**：连续 promotion 后预测模型反而把相位带偏。
+   `lock.acquired=12:13:44Z`、`released=12:22:40Z`、`held_s=536.287`、
+   `released=true`、`release_error=null`，SLM 20:22:40 正常关闭。
+
+**设备占用 / 释放**：§7 三场均为 SLM #1 + Daheng cam_id=0，页 0 仿真源不占相机；三场均
+确认锁释放、无残留采集进程。上机前已核无在飞 `.venv` Python 进程、锁文件时间陈旧。
+
+**结论与下一步**：A+B 的机制已跑通——拒轮登记解开了训练行饥饿，`refit_every=1` 使每轮
+都能重拟合且适配耗时仅约 1.5 s；但 60 s 量级的 fit 成本与"promotion 不等于实测改善"是新的
+主瓶颈。下一步建议：① 以实测均匀性（而非内部 validation loss）作为 promotion 判据或加
+早停，避免 r04 之后连续劣化；② 在确认判据前不再把 `refit_every=1` 当生产默认值。
