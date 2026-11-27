@@ -1100,7 +1100,9 @@ def test_largest_component_crop_matches_full_label() -> None:
     assert num == 2
     got = _largest_component(mask)
     assert got is not None
-    assert np.array_equal(got, expected)
+    expected_y, expected_x = np.nonzero(expected)
+    assert np.array_equal(got[0], expected_y)
+    assert np.array_equal(got[1], expected_x)
     assert _largest_component(np.zeros_like(mask)) is None
 
 

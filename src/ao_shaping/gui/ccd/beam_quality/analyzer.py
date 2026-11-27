@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from loguru import logger
 from scipy import ndimage
-from scipy.optimize import curve_fit
+from scipy.optimize import least_squares
 
 # 半高阈值对应的半轴/高斯 sigma 之比 sqrt(2*ln2)
 HALF_MAX_TO_SIGMA = float(np.sqrt(2.0 * np.log(2.0)))
@@ -241,18 +241,19 @@ def fit_profile(x: np.ndarray, y: np.ndarray) -> GaussianFit | None:
     if x_max <= x_min:
         return None
     try:
-        popt, _pcov = curve_fit(
-            gaussian_1d,
-            x,
-            y,
-            p0=[amplitude0, center0, sigma0, offset0],
+        result = least_squares(
+            lambda p: gaussian_1d(x, *p) - y,
+            [amplitude0, center0, sigma0, offset0],
             bounds=(
                 [0.0, x_min, 1e-3, -np.inf],
                 [np.inf, x_max, max(1e-3, (x_max - x_min)), np.inf],
             ),
-            maxfev=4000,
-            jac=_gaussian_1d_jac,
+            max_nfev=4000,
+            jac=lambda p: _gaussian_1d_jac(x, *p),
         )
+        if not result.success:
+            raise RuntimeError(result.message)
+        popt = result.x
     # policy: 拟合失败 = 本次没有该测量值, 返回 None 让上层隐藏标签, 而不是中断整个分析
     except Exception as exc:
         logger.debug("高斯拟合失败: {}", exc)
@@ -292,11 +293,11 @@ def _background_estimate(arr: np.ndarray) -> float:
     return float(np.median(arr))
 
 
-def _largest_component(mask: np.ndarray) -> np.ndarray | None:
-    """返回最大连通域的布尔掩码; 无前景返回 ``None``。
+def _largest_component(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """返回最大连通域的 ``(ys, xs)`` 坐标; 无前景返回 ``None``。
 
     只在非零像素的包围盒内做 ``ndimage.label``: 盒外全为背景, 连通关系与全幅
-    标注完全一致; 输出仍恢复成全幅布尔图, 下游坐标口径不变。
+    标注完全一致; 坐标顺序与对全幅布尔图调用 ``np.nonzero`` 一致。
     """
     ys, xs = np.nonzero(mask)
     if ys.size == 0:
@@ -312,16 +313,17 @@ def _largest_component(mask: np.ndarray) -> np.ndarray | None:
     idx = int(np.argmax(counts))
     if idx == 0 or counts[idx] == 0:
         return None
-    out = np.zeros(mask.shape, dtype=bool)
-    out[y0:y1, x0:x1] = labeled == idx
-    return out
+    component_y, component_x = np.nonzero(labeled == idx)
+    return component_y + y0, component_x + x0
 
 
-def _ellipse_from_mask(mask: np.ndarray | None) -> EllipseParams | None:
-    """由二值连通域的二阶矩求半高边界椭圆。"""
-    if mask is None:
+def _ellipse_from_mask(
+    component: tuple[np.ndarray, np.ndarray] | None,
+) -> EllipseParams | None:
+    """由最大连通域的 ``(ys, xs)`` 坐标求半高边界椭圆。"""
+    if component is None:
         return None
-    ys, xs = np.nonzero(mask)
+    ys, xs = component
     if xs.size < 9:
         return None
     x = xs.astype(np.float64)
@@ -378,12 +380,12 @@ def _validate_center_method(method: str) -> None:
 
 def _box_centroid(
     weight: np.ndarray | None,
-    component: np.ndarray | None,
+    component: tuple[np.ndarray, np.ndarray] | None,
 ) -> tuple[float, float] | None:
     """半高最大连通域外接框内的一阶矩; 无框/无权重返回 ``None``。"""
     if weight is None or component is None:
         return None
-    ys, xs = np.nonzero(component)
+    ys, xs = component
     if xs.size == 0:
         return None
     y0, y1 = int(ys.min()), int(ys.max()) + 1
