@@ -1,0 +1,166 @@
+# S1e 修复后重采·正式判读报告（2026-11-27）
+
+<!-- provenance:start -->
+> **预注册**: [`docs/dev/s1e_postfix_prereg_20261126.md`](../../../docs/dev/s1e_postfix_prereg_20261126.md)（冻结口径，blob 不变）
+> **设计源**: [`docs/dev/hw_window_20261123_attribution_prereg.md`](../../../docs/dev/hw_window_20261123_attribution_prereg.md) §12.16
+> **修复脚本**: [`src/ao_shaping/drivers/slm/santec/driver.py`](../../../src/ao_shaping/drivers/slm/santec/driver.py)（`_write_to_memory` 连续性守卫）
+> **采集脚本**: [`scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py)
+> **判读脚本（冻结，复用）**: [`scripts/slm/s1e_same_bytes_probe_judge_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
+> **采集数据**: `data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_05_postfix`（`run_03/run_04` 为饱和中止，见 §2.2）
+> **判读产物**: `s1e_postfix_official_20261127.json` / `_tables.md` / `_fig1.png`（同目录）
+> **复现命令**: `python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --capture-dir data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_05_postfix --out-dir report/shape_trials/s1e_postfix_20261126 --stem s1e_postfix_official_20261127`
+> **前序 commit**: 修复/采集脚本/测试/预注册 `d273544754d19cccf790b398c2351369ffe3d88c`；溯源绑定 `020e706afb9ab21c534c03dc2cfaf96c71b728c2`。本报告判读产物随判读提交落库。
+> **运行环境**: 采集占用 SLM #1 + Daheng cam 0（见 §2.2）；判读为离线（只读 run 帧与 journal，未占设备）。
+<!-- provenance:end -->
+
+## 摘要
+
+- **目标**：在 `non_contiguous_memmove_transpose` 根因修复后，按冻结 §12.16 口径重采 S1e「同一字节流 ⇒ 同一远场」探针，检验 D1 是否由 `D-fail` 翻转为 D-pass——这是 S1 从 `BLOCKED` 解锁的唯一技术路径。
+- **设备与采集**：共三次上机（run_03/run_04/run_05）。前两次在第 0 帧平场因 0 级真实饱和（15 / 20 px ≥ 3686）由饱和门禁主动中止；用户回调激光功率后仍不一致（flat 峰 3990 vs run_02 基线 2322，1.72×），经用户选择按 `hw_window` G3「饱和即降曝光重拍该档」以 **0.05 ms** 重采 run_05，**24/24 帧全采、0 饱和、`status=ok`**。三次占用均四释放标志全 `true`、`error=null`，设备正常关闭。判读口径 D1–D6 与阈值未变，仅曝光偏离冻结 0.087 ms（见 §2.3 偏离登记）。
+- **判读结论**：**D1 = inconclusive**（H 有效上传 4 < 门 5，最大两两距离 1.665 px > 门 1.5），E 分支 `undetermined`；**未达 D-pass，S1 维持 `BLOCKED`**。
+- **关键区分**：修复**消除了系统性轴转置**（H 由修复前的 `col-type` ~94 px 转置态恢复为 `row-type` ~58 px 正常态；H 物理送屏字节由 F 序裸 buffer `b98be9a6…` 变为逻辑 C 序 `7276d9da…`，与 B/flat 一致），但 **D1 判据度量的是同一图样多次上传的随机抖动**，该抖动不受连续性修复影响，仍停在 1.665 px。即：**确定性错误已修复，随机性误差未改善**。这是本轮最重要的结果，见 §5。
+
+---
+
+## 1. 背景与判据链
+
+| 阶段 | 结论 |
+|---|---|
+| S1b | `insufficient_consistency`（内容轴 2×2 一致性不足） |
+| S1d | `delivery_nondeterministic_same_bytes`（同字节流落点不一致，J1 不过） |
+| S1e（修复前 run_01/run_02） | 同字节仍 `D-fail`；定位到根因 `non_contiguous_memmove_transpose`：F-contiguous 的 H `(2,2400)` 被裸 `ctypes.memmove` 拷入面板，面板按列优先解读 ⇒ 远场周期 128→≈80 px、`128/80=1.6=1920/1200`，H 落在 `col-type` ~94 px 的转置态 |
+| 本轮（修复后 run_05） | 连续性守卫 `np.ascontiguousarray` 使 H 按逻辑 C 序送屏，轴转置消除；但残余随机抖动使 D1 仍 `inconclusive` |
+
+冻结判据（§12.16.3–12.16.7，阈值来自冻结采集脚本 `FROZEN_CRITERIA`，本轮未重定义）：
+
+| 判据 | 阈值 |
+|---|---|
+| `intra_upload_max_dist_px` | 1.5 |
+| D1 | H 有效上传 ≥ 5 且两两最大距离 ≤ 1.5 px |
+| D2 | `axis_ratio_min=1.5`；`col_dist_px=[90,102]`；`row_dist_px=[52,64]` |
+| D4 | `weak_peak_fraction=0.10` |
+| D6 | 零异常槽位组 |
+
+补充量（0 级漂移、漂移校正散布、谐波比）仅作佐证，**不参与任何判决**。
+
+---
+
+## 2. 采集执行记录
+
+### 2.1 设备声明
+
+占用 **SLM #1（驱动板 `22030108`）+ Daheng cam 0**，视频模式 0（memory 写屏），1064 nm，Mono12 / 满量程 4095。不采 dark、不操作激光、全程无并行占用；采集期间不作判读。
+
+| run | 本机时段 | 曝光 | 结果 | 释放 |
+|---|---|---|---|---|
+| run_03_postfix | 2026-11-26 21:54:59→21:55:03 | 0.087 ms | 第 0 帧 flat 饱和（15 px），主动中止 | 四标志 `true`，`error=null` |
+| run_04_postfix | 2026-11-27 09:03:31→09:03:36 | 0.087 ms | 用户回调功率后第 0 帧仍饱和（20 px），主动中止 | 四标志 `true`，`error=null` |
+| **run_05_postfix** | 2026-11-27 09:07:12→09:07:35 | **0.05 ms** | **24/24 帧全采，0 饱和，`status=ok`** | 四标志 `true`，`error=null` |
+
+`--wait-until-idle 1800`；每次启动前 SLm 冷却均 >200 s、bench 锁 `holder=none`。PowerShell 的 `NativeCommandError` 来自 loguru 向 stderr 输出 DEBUG，非真实错误（以 `EXITCODE` 与 summary 为准）。
+
+### 2.2 饱和归因与降曝光决策
+
+平场帧 0 级峰值对比（冻结 0.087 ms）：
+
+| run | flat 峰 | 饱和 px | 占满量程 |
+|---|---|---|---|
+| run_02（修复前基线） | 2322 | 0 | 56.7% |
+| run_03_postfix | 3910 | 15 | 95.5% |
+| run_04_postfix（功率回调后） | 3990 | 20 | 97.4% |
+
+饱和是位于 `rows 1103–1108, cols 1226–1231` 的紧凑 5×5 0 级光斑，背景中位 15 / p99 17 与 run_02 一致——是 0 级亮度真实上升，非全局曝光或热像素问题，与字节序修复无关（flat 前后均为 C-contiguous、字节不变）。用户回调功率后峰值仍为 run_02 的 1.72×，印证「激光功率无法精确回调」。
+
+经用户在规则冲突（`hw_window` G3「饱和即降曝光重拍该档」vs 预注册冻结 0.087 ms「时序参数不变」）中选择**降曝光 0.05 ms 重采**：按峰值线性，0.05 ms 把 flat 峰压回 2344–2841（run_02 量级），距饱和门余量约 23%，24 帧 0 饱和。
+
+### 2.3 偏离登记
+
+| 参数 | 冻结值 | 本轮值 | 依据 |
+|---|---|---|---|
+| 曝光 | 0.087 ms | **0.05 ms** | 用户裁决 + `hw_window` G3（饱和即降曝重拍该档）；0.087 ms 两次饱和中止 |
+| settle / 波长 / 位深 / `G_REF` / `focus_d_m1` / 图样顺序 / 判据 | 冻结值 | 不变 | — |
+
+判读 D1–D6 为几何量与相对量（`harmonics`、`i_over_i0` 仅佐证），线性降曝光**不改变落点、轴型与两两距离**，故不改变判决口径；曝光偏离仅影响峰值/SNR，已在 §4 讨论其对有效上传数的间接作用。
+
+---
+
+## 3. 判读结果
+
+冻结 judge 输出（`s1e_postfix_official_20261127.json`）；逐图样明细见同目录 `_tables.md`，远场定位图见 `_fig1.png`。
+
+| 图样 | 数组 | 帧内差 px | dr | dc | dist px | 轴型 | 峰值 | 有效 |
+|---|---|---|---|---|---|---|---|---|
+| `s1e_a1` | H | 0.95 | +57.52 | +2.63 | 57.58 | row-type | 358 | 是 |
+| `s1e_a2` | H | **1.85** | +58.89 | +0.78 | 58.89 | row-type | 306 | **否** |
+| `s1e_b1` | B | 0.95 | +1.60 | +60.72 | 60.74 | other | 517 | 是 |
+| `s1e_a3` | H | 0.82 | +58.95 | +1.89 | 58.98 | row-type | 340 | 是 |
+| `s1e_b2` | B | 0.94 | −0.73 | −58.24 | 58.25 | other | 536 | 是 |
+| `s1e_a4` | H | 0.69 | +58.99 | +1.84 | 59.02 | row-type | 362 | 是 |
+| `s1e_a5` | H | **1.68** | +59.39 | +0.79 | 59.39 | row-type | 306 | **否** |
+| `s1e_b3` | B | 0.36 | +2.44 | +59.91 | 59.96 | other | 520 | 是 |
+| `s1e_a6` | H | 0.39 | +58.00 | +1.39 | 58.01 | row-type | 334 | 是 |
+
+D 判据与 E 分支：
+
+| 项 | 结果 | 判决 |
+|---|---|---|
+| **D1**（H 同字节多次上传） | 有效 4（<5），两两最大 **1.665 px**（>1.5） | **inconclusive** |
+| D2（轴型/周期） | H 全 `row-type`、dist 57.6–59.4 px；B 全 `other`、dist 58.2–60.7 px | 轴转置已消除（对照 §5） |
+| D3（前驱分组） | `zero_exception=true`、H 臂单一轴型（判别力 False） | not_applicable → 取 E2 |
+| D4（B 弱峰） | B 有效 3（<5） | inconclusive |
+| D5（掉电臂 P） | 本轮未执行 arm P | not_applicable |
+| D6（槽位零例外） | `zero_exception=true` | not_applicable |
+| **E 分支** | — | **undetermined** |
+
+> 说明：冻结 D1 规则要求 ≥5 个有效上传；H 的 6 次上传中 `s1e_a2`(1.85) 与 `s1e_a5`(1.68) 帧内差超 `intra_upload_max_dist_px=1.5` 被标记无效，仅余 4 个有效上传。故即便两两距离 1.665 px 已超门，判据仍为 `inconclusive` 而非 `D-fail`——两者都不满足 D-pass。
+
+---
+
+## 4. 佐证（不参与判决）
+
+- **0 级参考稳定**：`flat` (1104.86, 1227.58)、`flat_mid` 偏移 0.575 px、`flat_post` 偏移 1.225 px，行程内光路参考漂移 < 1.3 px，非大尺度光路漂移所致。
+- **漂移校正散布**（佐证）：H 2.014 px（> 冻结 D1 门），B 119.1 px。B 的 119 px 来自 ±1 级两侧对称落点（b1/b3 在 +dc、b2 在 −dc），属轴型 `other` 的镜像分布，不是 B 的失稳。
+- **谐波比**：H 的 h3/h1 ≈ 0.20–0.25、h5/h1 ≈ 0.09–0.11，光栅衍射行为正常。
+- **降曝对 SNR 的间接作用**：0.05 ms 下 H 峰 306–362（run_02 0.087 ms 下 654–692），峰值约减半。`s1e_a2`/`a5` 帧内差 1.85/1.68 偏大，与低峰下质心提取噪声上升一致；但这是**辅因**——即便按 6 次全算，run_02（高峰、0.087 ms）的 H 两两距离也是 1.585 px 同样超门（见 §5），说明抖动在修复前就存在、与本轮曝光无关。
+
+---
+
+## 5. 修复到底改善了什么（修复前 / 后对照）
+
+用**同一冻结 judge** 对修复前 run_02（0.087 ms）与修复后 run_05（0.05 ms）离线判读，物理送屏字节取各自 journal：
+
+| 维度 | 修复前 run_02 | 修复后 run_05 | 变化 |
+|---|---|---|---|
+| H 物理送屏 digest | `b98be9a6…`（F 序裸 buffer ≠ 逻辑 C 序） | `7276d9da…`（= 逻辑 C 序，与 B/flat 同类） | **修复生效**：送屏字节 = 逻辑字节 |
+| H 轴型 | `col-type`（六次全） | `row-type`（六次全） | **轴转置消除**（确定性错误修复） |
+| H 远场 dist | ~94 px（col 轴，≈128/1.6 的转置周期） | ~58 px（row 轴，正常） | 周期回到设计值 |
+| B 轴型 / dist | `other` / ~59 px | `other` / ~59 px | 不受影响（C-contiguous） |
+| D1 H | `D-fail`，两两 1.585 px，n=6 | `inconclusive`，两两 1.665 px，n=4 | **未改善**：随机抖动仍在 |
+
+**结论**：根因修复把 H 从「每次都错在同一方向的系统性轴转置」纠正为「方向正确但各次上传位置仍有约 1.6 px 随机抖动」。D1 判据同时约束轴型一致性与位置抖动；前者已解决，后者未解决。因此 D1 从 `D-fail`（确定性错误主导）变为 `inconclusive`（随机抖动主导 + 有效样本不足），**但未达到 D-pass**。
+
+这意味着 S1e 探针揭示的「同字节流 ⇒ 同一远场」失败包含**两层成因**：
+
+1. **确定性层**（已修复）：F-contiguous 数组的裸 memmove 转置——本轮已闭环。
+2. **随机层**（未修复）：同一字节流反复上传的亚像素抖动（~1.6 px），修复前后均在，来源待查（可能涉及驱动写屏时序、面板寻址随机性或光路微扰），不属于本次连续性修复的范围。
+
+---
+
+## 6. 任务项与后续
+
+| 项 | 状态 / 建议 |
+|---|---|
+| S1 结论 | **维持 `BLOCKED`**：D1 `inconclusive` 未达 D-pass，预注册 §摘要规定仅 D-pass 可解锁；本轮不升格 S1、不做 D bracket、G1/G3/G4 继续暂缓、冻结测试集不动 |
+| 确定性根因（memmove 转置） | **已闭环**：守卫在 driver 提交 `d2735447`，本轮上机证据（H `col`→`row`、digest `b98…`→`727…`）确认现场生效 |
+| 随机抖动（~1.6 px） | **待新归因线**：建议另开探针，固定 0.05 ms、只重复同一 H 图样 ≥6 次并多次会话，分离驱动写屏随机性与光路微扰；是否属于 J1/内容无关失稳需新预注册裁定，不在本轮口径内 |
+| 曝光口径 | 本轮 0.05 ms 为 G3 合规偏离；后续若需与 run_02 严格同曝光对比，须先解决激光功率稳定性或接受 0.087 ms 的 0 级饱和（可加轻微离焦/倾斜降低 0 级峰，但会改变图样，须新预注册） |
+| provenance 登记 | 判读产物为脚本生成的 JSON/图/表，不适用 `REPORTS` 报告映射；`provenance.py` 处于并行会话改动态，本轮不触碰 |
+
+---
+
+## 附：数据完整性
+
+- run_05 `summary.json`：`status=ok`、`n_frames=24=expected`、`exposure_ms=0.05`、`error=null`、`closed_normally=true`。
+- `released.json`：四标志全 `true`，`released_at_utc=2026-11-27T01:07:35Z`（本机 09:07:35）。
+- `capture_journal.jsonl`：H 物理 digest 唯一值 `7276d9da3b2a…`，B 唯一值 `c8d937cedb29…`，各 12/6 条上传一致。
+- 冻结 blob（判读脚本/冻结判据/冻结测试集）本轮未改；变体 A/P 原始记录未重写。

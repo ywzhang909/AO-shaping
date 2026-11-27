@@ -1,0 +1,556 @@
+{
+ "schema": "issue247-s1e-same-bytes-probe-judgment/v1",
+ "capture_dir": "data\\experiments\\attribution_20261123\\s1\\s1e_same_bytes_probe_20261124\\run_05_postfix",
+ "criteria": {
+  "intra_upload_max_dist_px": 1.5,
+  "D1": {
+   "min_effective_uploads": 5,
+   "max_pairwise_dist_px": 1.5
+  },
+  "D2": {
+   "axis_ratio_min": 1.5,
+   "col_dist_px": [
+    90.0,
+    102.0
+   ],
+   "row_dist_px": [
+    52.0,
+    64.0
+   ]
+  },
+  "D4": {
+   "weak_peak_fraction": 0.1
+  },
+  "D6": {
+   "zero_exception_groups_required": true
+  }
+ },
+ "zero_order_reference": {
+  "row": 1104.86,
+  "col": 1227.581,
+  "flat_peak": 2524.0
+ },
+ "uploads": {
+  "s1e_a1": {
+   "array": "H",
+   "predecessor": "flat",
+   "intra_upload_dist_px": 0.946,
+   "row": 1162.38,
+   "col": 1230.207,
+   "dr": 57.52,
+   "dc": 2.626,
+   "dist_px": 57.58,
+   "axis_type": "row-type",
+   "peak": 358.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a2": {
+   "array": "H",
+   "predecessor": "H",
+   "intra_upload_dist_px": 1.846,
+   "row": 1163.749,
+   "col": 1228.363,
+   "dr": 58.889,
+   "dc": 0.782,
+   "dist_px": 58.894,
+   "axis_type": "row-type",
+   "peak": 305.5,
+   "weak": false,
+   "valid": false
+  },
+  "s1e_b1": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.953,
+   "row": 1106.458,
+   "col": 1288.302,
+   "dr": 1.598,
+   "dc": 60.72,
+   "dist_px": 60.741,
+   "axis_type": "other",
+   "peak": 517.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a3": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.821,
+   "row": 1163.808,
+   "col": 1229.466,
+   "dr": 58.948,
+   "dc": 1.885,
+   "dist_px": 58.978,
+   "axis_type": "row-type",
+   "peak": 340.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_b2": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.936,
+   "row": 1104.125,
+   "col": 1169.338,
+   "dr": -0.735,
+   "dc": -58.243,
+   "dist_px": 58.247,
+   "axis_type": "other",
+   "peak": 536.0,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a4": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.692,
+   "row": 1163.846,
+   "col": 1229.417,
+   "dr": 58.986,
+   "dc": 1.836,
+   "dist_px": 59.015,
+   "axis_type": "row-type",
+   "peak": 361.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a5": {
+   "array": "H",
+   "predecessor": "flat_mid",
+   "intra_upload_dist_px": 1.677,
+   "row": 1164.246,
+   "col": 1228.372,
+   "dr": 59.386,
+   "dc": 0.791,
+   "dist_px": 59.391,
+   "axis_type": "row-type",
+   "peak": 306.0,
+   "weak": false,
+   "valid": false
+  },
+  "s1e_b3": {
+   "array": "B",
+   "predecessor": "H",
+   "intra_upload_dist_px": 0.358,
+   "row": 1107.302,
+   "col": 1287.496,
+   "dr": 2.442,
+   "dc": 59.914,
+   "dist_px": 59.964,
+   "axis_type": "other",
+   "peak": 520.5,
+   "weak": false,
+   "valid": true
+  },
+  "s1e_a6": {
+   "array": "H",
+   "predecessor": "B",
+   "intra_upload_dist_px": 0.385,
+   "row": 1162.857,
+   "col": 1228.974,
+   "dr": 57.997,
+   "dc": 1.393,
+   "dist_px": 58.013,
+   "axis_type": "row-type",
+   "peak": 333.5,
+   "weak": false,
+   "valid": true
+  }
+ },
+ "arms": {
+  "H": {
+   "array": "H",
+   "n_effective": 4,
+   "max_pairwise_dist_px": 1.665,
+   "threshold_px": 1.5,
+   "verdict": "inconclusive",
+   "axis_types": [
+    "row-type",
+    "row-type",
+    "row-type",
+    "row-type"
+   ]
+  },
+  "B": {
+   "array": "B",
+   "n_effective": 3,
+   "max_pairwise_dist_px": 118.986,
+   "threshold_px": 1.5,
+   "verdict": "inconclusive",
+   "axis_types": [
+    "other",
+    "other",
+    "other"
+   ]
+  }
+ },
+ "D1": {
+  "array": "H",
+  "verdict": "inconclusive",
+  "max_pairwise_dist_px": 1.665,
+  "n_effective": 4
+ },
+ "D2": {
+  "H": [
+   "row-type",
+   "row-type",
+   "row-type",
+   "row-type",
+   "row-type",
+   "row-type"
+  ],
+  "B": [
+   "other",
+   "other",
+   "other"
+  ],
+  "H_dist_px": [
+   57.58,
+   58.894,
+   58.978,
+   59.015,
+   59.391,
+   58.013
+  ],
+  "B_dist_px": [
+   60.741,
+   58.247,
+   59.964
+  ]
+ },
+ "D3": {
+  "verdict": "not_applicable",
+  "predecessor_groups": {
+   "flat": [
+    "row-type"
+   ],
+   "H": [
+    "other",
+    "other",
+    "other"
+   ],
+   "B": [
+    "row-type",
+    "row-type",
+    "row-type"
+   ]
+  },
+  "predecessor_groups_H": {
+   "flat": [
+    "row-type"
+   ],
+   "B": [
+    "row-type",
+    "row-type",
+    "row-type"
+   ]
+  },
+  "predecessor_groups_B": {
+   "H": [
+    "other",
+    "other",
+    "other"
+   ]
+  },
+  "zero_exception": true,
+  "zero_exception_H": true,
+  "degenerate_H_single_axis_type": true,
+  "discriminating": false,
+  "note": "行程内 H 臂六次上传全为同一轴型，无法按轴型区分历史效应——D-fail 是位置抖动而非轴型翻转；全量前驱分组出现例外仅因 B 上传（本身即 other）跟随 H，属数组身份混杂，非历史依赖。故 E3 不适用，取 E2。",
+  "degenerate_single_axis_type": false
+ },
+ "E_branch": "undetermined",
+ "D4": {
+  "verdict": "inconclusive",
+  "note": "B has 3 uploads; the frozen D1 rule needs 5 effective uploads. Supplementary: B also jitters, so it is not demonstrated stable.",
+  "n_effective": 3,
+  "max_pairwise_dist_px": 118.986,
+  "axis_types": [
+   "other",
+   "other",
+   "other"
+  ]
+ },
+ "D5": {
+  "verdict": "not_applicable",
+  "note": "arm P (power cycle) not executed"
+ },
+ "D6": {
+  "verdict": "not_applicable",
+  "slot_groups": {
+   "5": [
+    "row-type"
+   ],
+   "7": [
+    "other"
+   ],
+   "8": [
+    "row-type"
+   ],
+   "9": [
+    "other"
+   ],
+   "10": [
+    "row-type"
+   ],
+   "13": [
+    "other"
+   ],
+   "14": [
+    "row-type"
+   ]
+  },
+  "zero_exception": true,
+  "degenerate_single_axis_type": false
+ },
+ "delivery_uniformity": {
+  "H": {
+   "n_distinct_physical_digest": 1,
+   "physical_sha256": [
+    "7276d9da3b2a5ea536d56ea944adcfdcb38c98ad1dd01c1433d1b2219ac8218e"
+   ]
+  },
+  "B": {
+   "n_distinct_physical_digest": 1,
+   "physical_sha256": [
+    "c8d937cedb294339fa385f9ffa65cebd0ff3471ff62009cef42d7637bf590a73"
+   ]
+  }
+ },
+ "harmonics_supporting": {
+  "s1e_a1": {
+   "array": "H",
+   "fundamental_dist_px": 57.58,
+   "fundamental_peak": 364.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 178.71,
+     "dist_ratio": 3.104,
+     "peak": 71.0,
+     "i_over_i0": 0.195
+    },
+    "h5": null
+   }
+  },
+  "s1e_a3": {
+   "array": "H",
+   "fundamental_dist_px": 58.71,
+   "fundamental_peak": 358.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 176.24,
+     "dist_ratio": 3.002,
+     "peak": 79.0,
+     "i_over_i0": 0.221
+    },
+    "h5": {
+     "dist_px": 296.52,
+     "dist_ratio": 5.051,
+     "peak": 32.0,
+     "i_over_i0": 0.089
+    }
+   }
+  },
+  "s1e_a5": {
+   "array": "H",
+   "fundamental_dist_px": 59.45,
+   "fundamental_peak": 285.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 176.76,
+     "dist_ratio": 2.973,
+     "peak": 70.0,
+     "i_over_i0": 0.246
+    },
+    "h5": {
+     "dist_px": 297.44,
+     "dist_ratio": 5.003,
+     "peak": 30.0,
+     "i_over_i0": 0.105
+    }
+   }
+  },
+  "s1e_a6": {
+   "array": "H",
+   "fundamental_dist_px": 58.18,
+   "fundamental_peak": 364.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 178.48,
+     "dist_ratio": 3.068,
+     "peak": 86.0,
+     "i_over_i0": 0.236
+    },
+    "h5": {
+     "dist_px": 296.64,
+     "dist_ratio": 5.098,
+     "peak": 36.0,
+     "i_over_i0": 0.099
+    }
+   }
+  },
+  "s1e_b1": {
+   "array": "B",
+   "fundamental_dist_px": 60.56,
+   "fundamental_peak": 546.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 180.99,
+     "dist_ratio": 2.989,
+     "peak": 71.0,
+     "i_over_i0": 0.13
+    },
+    "h5": {
+     "dist_px": 301.08,
+     "dist_ratio": 4.972,
+     "peak": 36.0,
+     "i_over_i0": 0.066
+    }
+   }
+  },
+  "s1e_b2": {
+   "array": "B",
+   "fundamental_dist_px": 58.21,
+   "fundamental_peak": 584.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 177.92,
+     "dist_ratio": 3.057,
+     "peak": 76.0,
+     "i_over_i0": 0.13
+    },
+    "h5": {
+     "dist_px": 299.36,
+     "dist_ratio": 5.143,
+     "peak": 38.0,
+     "i_over_i0": 0.065
+    }
+   }
+  },
+  "s1e_b3": {
+   "array": "B",
+   "fundamental_dist_px": 59.95,
+   "fundamental_peak": 536.0,
+   "harmonics": {
+    "h3": {
+     "dist_px": 180.89,
+     "dist_ratio": 3.017,
+     "peak": 74.0,
+     "i_over_i0": 0.138
+    },
+    "h5": {
+     "dist_px": 297.79,
+     "dist_ratio": 4.967,
+     "peak": 32.0,
+     "i_over_i0": 0.06
+    }
+   }
+  }
+ },
+ "supplementary": {
+  "flat_reference_track": {
+   "flat": [
+    {
+     "frame": "0000_flat.npy",
+     "row": 1104.86,
+     "col": 1227.581,
+     "peak": 2524
+    },
+    {
+     "frame": "0001_flat.npy",
+     "row": 1105.062,
+     "col": 1228.538,
+     "peak": 2344
+    }
+   ],
+   "flat_mid": [
+    {
+     "frame": "0014_flat_mid.npy",
+     "row": 1105.17,
+     "col": 1228.897,
+     "peak": 2756
+    },
+    {
+     "frame": "0015_flat_mid.npy",
+     "row": 1104.997,
+     "col": 1228.345,
+     "peak": 2431
+    }
+   ],
+   "flat_post": [
+    {
+     "frame": "0022_flat_post.npy",
+     "row": 1103.4,
+     "col": 1228.496,
+     "peak": 2841
+    },
+    {
+     "frame": "0023_flat_post.npy",
+     "row": 1104.192,
+     "col": 1228.382,
+     "peak": 2644
+    }
+   ],
+   "flat_offset": {
+    "drow": 0.0,
+    "dcol": 0.0,
+    "dist_px": 0.0
+   },
+   "flat_mid_offset": {
+    "drow": 0.123,
+    "dcol": 0.562,
+    "dist_px": 0.575
+   },
+   "flat_post_offset": {
+    "drow": -1.165,
+    "dcol": 0.38,
+    "dist_px": 1.225
+   }
+  },
+  "drift_corrected_spread": {
+   "H": {
+    "array": "H",
+    "max_pairwise_dist_px": 2.014,
+    "positions": {
+     "s1e_a1": {
+      "dr": 57.41,
+      "dc": 2.107
+     },
+     "s1e_a3": {
+      "dr": 58.786,
+      "dc": 1.126
+     },
+     "s1e_a4": {
+      "dr": 58.789,
+      "dc": 0.916
+     },
+     "s1e_a6": {
+      "dr": 58.578,
+      "dc": 0.467
+     }
+    },
+    "note": "supplementary: not part of the frozen verdict"
+   },
+   "B": {
+    "array": "B",
+    "max_pairwise_dist_px": 119.148,
+    "positions": {
+     "s1e_b1": {
+      "dr": 1.453,
+      "dc": 60.042
+     },
+     "s1e_b2": {
+      "dr": -0.915,
+      "dc": -59.082
+     },
+     "s1e_b3": {
+      "dr": 2.701,
+      "dc": 58.943
+     }
+    },
+    "note": "supplementary: not part of the frozen verdict"
+   }
+  }
+ }
+}
