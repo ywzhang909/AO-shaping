@@ -302,6 +302,7 @@ def plan_doc(args: argparse.Namespace, config: ClosedLoopConfig) -> dict[str, An
             "checkpoint": args.checkpoint,
             "session_dir": args.session_dir,
             "source_dataset": args.source_dataset,
+            "device": "cpu",
         },
         "wait_until_idle_s": args.wait_until_idle,
         "note": "plan-only：未导入设备模块、未加锁、未创建输出目录。",
@@ -528,6 +529,9 @@ def main(
                 session_dir=args.session_dir,
                 span=int(args.span),
                 source_dataset=args.source_dataset,
+                # refine_phase 的 init/target 在 CPU（runner 调用点不传 device），
+                # forward 必须同设备，否则 cuda/cpu 混算报 device 失配。
+                device="cpu",
             )
 
     lock_record: dict[str, Any] = {

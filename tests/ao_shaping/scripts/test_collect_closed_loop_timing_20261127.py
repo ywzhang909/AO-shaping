@@ -17,6 +17,9 @@ import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 SCRIPT = importlib.import_module("scripts.slm.collect_closed_loop_timing_20261127")
 
@@ -401,3 +404,56 @@ def test_start_phase_aligns_to_checkpoint_grid_size(tmp_path: Path) -> None:
     args2 = SCRIPT.build_parser().parse_args(["--out", "x", "--grid-size", "8"])
     config2, _ = SCRIPT.build_config(args2)
     assert config2.start_phase.shape == (8, 8)
+
+
+def test_plan_doc_records_cpu_adapter_device() -> None:
+    """生产 adapter 必须显式 CPU，避免与 refine_phase 的 CPU init 混设备。"""
+    args = SCRIPT.build_parser().parse_args(["--out", "x"])
+    assert SCRIPT.plan_doc(args, SCRIPT.build_config(args)[0])["adapter"]["device"] == "cpu"
+
+
+_REAL_CKPT = (
+    SCRIPT.ROOT / "data/debug/slm_transfer/ab_session_20261124/refit_forward/frozen_parameters.json"
+)
+_REAL_SOURCE = SCRIPT.ROOT / "data/debug/slm_transfer/ab_session_20261124/capture"
+
+
+@pytest.mark.skipif(
+    not (_REAL_CKPT.is_file() and (_REAL_SOURCE / "manifest.json").is_file()),
+    reason="真实 transfer 检查点/标定数据集不在本机",
+)
+def test_e2e_real_adapter_cpu_advances_multiple_rounds(tmp_path: Path) -> None:
+    """真实 adapter(device=cpu) + 真实 forward 能跨过多轮候选，不再 cuda/cpu 失配。
+
+    2026-11-27 第二次上机失败根因：forward 在 cuda、refine_phase 的 init 在 CPU，
+    第一轮候选报 "Expected all tensors on the same device, but found cuda:0 and cpu"。
+    """
+    from ao_shaping.gui.slm.closed_loop_shaping import OnlineTransferAdapter
+
+    ckpt, source = str(_REAL_CKPT), str(_REAL_SOURCE)
+    session_dir = tmp_path / "session"
+
+    def real_adapter(grid: object) -> Any:
+        return OnlineTransferAdapter(
+            checkpoint=ckpt, session_dir=session_dir, span=4,
+            source_dataset=source, device="cpu",
+        )
+
+    out = tmp_path / "run"
+    exit_code = SCRIPT.main(
+        [
+            "--out", str(out), "--execute", "--wait-until-idle", "0",
+            "--max-rounds", "2", "--step-iterations", "2",
+            "--centre-x", "500", "--centre-y", "500", "--exposure-ms", "20",
+            "--checkpoint", ckpt, "--session-dir", str(session_dir),
+            "--source-dataset", source,
+        ],
+        bench_factory=_SpotBench,
+        adapter_factory=real_adapter,
+    )
+    assert exit_code == 0
+    session = json.loads((out / "session.json").read_text(encoding="utf-8"))
+    assert session["state"].upper() == "STOPPED"
+    assert session["rounds_recorded"] == 3  # baseline + 2 轮
+    rows = [json.loads(line) for line in (out / "rounds.jsonl").read_text().splitlines()]
+    assert all(row["candidate_ms"] is not None for row in rows[1:])
