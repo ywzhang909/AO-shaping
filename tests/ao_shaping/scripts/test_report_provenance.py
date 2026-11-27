@@ -65,6 +65,95 @@ _LINKABLE = re.compile(
 #: reason)``. Each needs a justification, because an unexplained baseline is just
 #: a suppressed failure.
 _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
+    "report/shape_trials/energy_utilization_20261126/energy_utilization_20261126.md": {
+        "figures/bw_w01_speed_fps.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w02_speed_timing.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w03_ideal_overview.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w04_ideal_lens.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w05_online_round.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w06_online_iteration.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w07_s1e_arm_a.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w08_s1e_arm_p.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w09_psf_validation.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w10_psf_independent.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w11_geometry_validation.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w12_geometry_holdout.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w13_hmws_linearity.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w14_hmws_focus.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w15_tsne_anchored.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w16_tsne_fit.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/bw_w17_kaxis.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig10_real_col_profile.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig11_real_metric_windows.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig12_real_abba_profiles.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig1_eta_compare.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig2_f0_breakdown.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig3_efficiency_match.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig4_pib.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig5_abba_cv.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig6_real_efficiency_match.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig7_real_abba_frames.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig8_real_square_shaping.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+        "figures/fig9_real_lobe_profile.png": (
+            "figures were rendered locally in the authoring pass of upstream commit 2d9b1dea but never committed, and no in-repo script emits them; the report still cites them. Registered as debt in TODO.md batch 190 (2026-11-27) pending back-fill or a generator entry."
+        ),
+    },
     "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": {
         "artifacts/physical_forward_rows_20261022.csv": (
             "per-phase metrics CSV, which .gitignore:7 (`*.csv`) keeps out of "

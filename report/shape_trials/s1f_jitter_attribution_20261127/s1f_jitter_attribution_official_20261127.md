@@ -1,8 +1,7 @@
 # S1f 随机抖动归因正式判读报告（2026-11-27）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/s1f_jitter_attribution_judge_20261127.py`](../../../scripts/slm/s1f_jitter_attribution_judge_20261127.py)
-> **复现命令**: `python scripts/slm/s1f_jitter_attribution_judge_20261127.py --capture-dir data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_02 --out report/shape_trials/s1f_jitter_attribution_20261127`
+> **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/s1f_jitter_attribution_capture_20261127.py`](../../../scripts/slm/s1f_jitter_attribution_capture_20261127.py)
 > **运行环境**: 硬件采集 run_02（SLM #1 + Daheng cam0）+ 离线判读；未操作激光
 > **说明**: S1f 随机抖动归因正式判读报告（2026-11-27）。预注册 docs/dev/s1f_jitter_attribution_prereg_20261127.md（含 §9 光强预检修订），设计源 docs/dev/hw_window_20261123_attribution_prereg.md §12.16。run_01 全场无光已作废（证据见 invalid_run01_no_light/）；run_02 有效：ratio=B/A=1.165 ≤ 1.3 → V1读取/提取主导（85.8%），write_screen_rms=0.136 px，drift=0.254 px 不材料。前序 commit aca0b987 / 540aeb83；判读产物与报告 cb2ac1da，回填 33639637。S1 维持 BLOCKED。

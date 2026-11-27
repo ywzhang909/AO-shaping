@@ -1,6 +1,6 @@
 # Agent 当日记录 2026-11-27（beam quality 整形链路降本，离线）
 
-本轮**未占用硬件**；上机验证清单见文末，须用户确认后再执行。
+本轮**未占用硬件**；实验验证清单见文末，须用户确认后再执行。
 ①「隐藏页停渲染」已提交 `f43b4bc8`，其硬件 pytest 固化见 `19e88928`。
 
 ## 1. ② 逐帧计算降本（离线已改并自检）
@@ -46,7 +46,7 @@
   原始基准脚本与日志留在临时目录
   `C:\Users\zhangh\AppData\Local\Temp\opencode\gpu_batch_bench\`。
 
-## 3. 上机清单（待用户确认，本轮未执行）
+## 3. 实验清单（待用户确认，本轮未执行）
 
 1. 设备：占用 SLM #1 + 大恒 CCD cam 0（页 1 真实闭环）；页 0 仿真源不占相机。
    开始前、结束后须在回复中明确报告占用与释放。
@@ -64,7 +64,7 @@
    `data/debug/slm_transfer/<时间戳>/`。
 5. 若失败：先看 `current_problems()` 与运行按钮状态，不要重复启动第二个占设备的进程。
 
-## 4. §5 数据缺口：采集/重建代码已离线备好（未上机）
+## 4. §5 数据缺口：采集/重建代码已离线备好（未实验）
 
 来源：`report/shape_trials/closed_loop_speed_tsne_20261125/closed_loop_speed_analysis_20261125.md` §5。
 
@@ -94,7 +94,7 @@ tests/ao_shaping/scripts/test_reconstruct_debug_weights_20261127.py -q --import-
 **11 passed**（含 fake bench 端到端多轮落盘、gate-fail 兜底落盘、plan-only 不建目录）；
 针对四个新文件 `git diff --check` exit 0。
 
-## 5. §5 采集器上机清单（待用户确认，本轮未执行）
+## 5. §5 采集器实验清单（待用户确认，本轮未执行）
 
 1. 设备：SLM #1 + 大恒 CCD cam 0；开始前、结束后在回复中明确报告占用与释放。
    上次成功关闭 SLM #1 为 2026-11-27 16:02:14，当前已过 >200 s 冷却余量，
@@ -161,7 +161,7 @@ targeted `git diff --check` exit 0；真实 checkpoint 640 网格 `refine_phase`
 
 ### 5.3 采集执行：第 3 次成功（19:18–19:20）
 
-命令同 §5 上机清单、输出目录改为 `data/debug/closed_loop_timing_20261127_rerun2/`。
+命令同 §5 实验清单、输出目录改为 `data/debug/closed_loop_timing_20261127_rerun2/`。
 `session.json`：`state=stopped`、`reason=连续 5 轮候选未被接受，已停止`、`exit_code=0`、
 `rounds_recorded=7`（baseline r00 + 6 轮候选）；`lock.acquired=11:18:52Z`、`released=11:20:18Z`、
 `held_s=85.256`、`released=true`、`release_error=null`；19:20:18 成功关闭 SLM #1，无残留进程。
@@ -181,9 +181,9 @@ fit/adapt 分项因本场适配门槛未达而无数据，若要覆盖需在 `ca
 `refit_every` 下再跑一场（本次不改他车道 runner，保持默认策略的真实性）。缺口 2 已离线重建
 补齐。缺口 3 溯源登记仍待 `scripts/_common/provenance.py` 车道提交。
 
-## 6. ② 逐帧降本上机验证（19:32–19:35，通过）
+## 6. ② 逐帧降本实验验证（19:32–19:35，通过）
 
-用户裁定「进入 02 逐帧降本上机验证」后执行 §3 清单命令：
+用户裁定「进入 02 逐帧降本实验验证」后执行 §3 清单命令：
 
 ```bash
 .venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py --hardware -v -q --import-mode=importlib
@@ -230,7 +230,7 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
 分别 47 passed / 49 passed；ruff 与定向 `git diff --check` 均 exit 0；plan-only 显示
 `refit_every=1`、`register_rejected_samples=true`。
 
-### 7.2 三次上机判读
+### 7.2 三次实验判读
 
 1. 19:51–19:53（`data/debug/closed_loop_timing_20261127_refit1/`）：`--refit-every 1`
    第 2 轮触发适配，但 40 s 后 `state=fault`：`float() argument ... not 'NoneType'`。
@@ -245,19 +245,19 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
    **7 次 `适配重拟合` → `adaptation=promoted`**，生成 `promoted_0015`…`promoted_0021`。
    `fit_ms` 38.6–77.8 s（均值 60.2 s），`adapt_ms` 1.23–1.74 s（均值 1.51 s）。
    baseline 1.1906；最佳 r03 1.1035（-7.3%）；但 r04–r08 实测回升到 1.3513（+13.5%），
-   说明**内部验证晋级没有跟上实测均匀性**：连续 promotion 后预测模型反而把相位带偏。
+   说明**内部验证晋级没有跟上实测均匀度**：连续 promotion 后预测模型反而把相位带偏。
    `lock.acquired=12:13:44Z`、`released=12:22:40Z`、`held_s=536.287`、
    `released=true`、`release_error=null`，SLM 20:22:40 正常关闭。
 
 **设备占用 / 释放**：§7 三场均为 SLM #1 + Daheng cam_id=0，页 0 仿真源不占相机；三场均
-确认锁释放、无残留采集进程。上机前已核无在飞 `.venv` Python 进程、锁文件时间陈旧。
+确认锁释放、无残留采集进程。实验前已核无在飞 `.venv` Python 进程、锁文件时间陈旧。
 
-**结论与下一步**：A+B 的机制已跑通——拒轮登记解开了训练行饥饿，`refit_every=1` 使每轮
+**结论与下一步**：A+B 的机制已在线实现——拒轮登记解开了训练行饥饿，`refit_every=1` 使每轮
 都能重拟合且适配耗时仅约 1.5 s；但 60 s 量级的 fit 成本与"promotion 不等于实测改善"是新的
-主瓶颈。下一步建议：① 以实测均匀性（而非内部 validation loss）作为 promotion 判据或加
+主瓶颈。下一步建议：① 以实测均匀度（而非内部 validation loss）作为 promotion 判据或加
 早停，避免 r04 之后连续劣化；② 在确认判据前不再把 `refit_every=1` 当生产默认值。
 
-## 8. beam quality 连通域索引复用与直接拟合（离线，上机待批）
+## 8. beam quality 连通域索引复用与直接拟合（离线，实验待批）
 
 提交 `0f32562896d56076cd6e3f192266ef15787d3730`；只改
 `src/ao_shaping/gui/ccd/beam_quality/analyzer.py` 与
@@ -291,7 +291,7 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
 配对收益在 -1.042 ms 到 +0.777 ms 间摆动，16-bit 满量程的最大统计差为
 0.00390625 counts；不引入该行为变化，也不新增对应容差测试。GPU 批量仍按 §2 不采用。
 
-**上机申请与执行**：用户批准后运行
+**实验申请与执行**：用户批准后运行
 `.venv\Scripts\python.exe -m pytest tests/ao_shaping/gui/ccd/test_beam_quality_hardware.py -q --hardware -v --import-mode=importlib`。
 
 1. 第一场 `21:39:49–21:41:56`：`1 failed in 131.58 s`，失败项为
@@ -310,5 +310,5 @@ tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py -q --import
 会话 `data/debug/slm_transfer/20261127_214406`。
 
 **硬件阶段两栏结论**：算法改进为「无」——设备阶段不再改算法；实验流程改进是
-硬件测试显式切回页 0，消除了对持久化工件当前页的依赖。下一步无需再次上机；
+硬件测试显式切回页 0，消除了对持久化工件当前页的依赖。下一步无需再次实验；
 如果调整 promotion 判据或 mean/std 口径，再按新改动单独申请。

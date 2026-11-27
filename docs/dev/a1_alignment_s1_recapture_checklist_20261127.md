@@ -273,14 +273,14 @@ python scripts/slm/capture_s1_mapping_disambiguation_20261124.py \
 
 - 总体裁定：**已证实无效**（②、④ 越窗/越容差）。这是预注册判据口径下的结论，
   不是"算法预测指标改善"，也不因该结论声称任何整形收益。②/④ 的失败量级远超噪声，
-  现有帧足以判死，**不据此重新上机重采**。
+  现有帧足以判死，**不据此重新实验重采**。
 - 门禁：`judge --self-test` EXITCODE=0；真实判读 EXITCODE=0；`ruff check --extend-select RUF100 <新脚本>` EXITCODE=0；
   冻结测试 11 passed EXITCODE=0；`py_compile` / 术语门禁 / BOM / LF 均过。报告溯源登记后
   `sync_report_provenance.py` 仅新增本报告头与索引行（其余未注册报告属既有状态）。
 
 ---
 
-Done — 判据① 已按用户裁定的 v2 掩膜质心口径修正并备案；既有 11-26 六帧②–⑥ 已纯离线判读完毕，未重新上机。
+Done — 判据① 已按用户裁定的 v2 掩膜质心口径修正并备案；既有 11-26 六帧②–⑥ 已纯离线判读完毕，未重新实验。
 Verified — ① v2 dist 1.26 px（<=5）；②/④ 已证实无效，③/⑥ 已证实有效，⑤ 证据不足；36 项相关 pytest + 11 项复跑均过，ruff/术语/溯源/BOM/LF 全过；本轮 SLM / CCD / 激光未占用，台面锁为 0。
 Remaining — 判据②冻结窗 56–59 px 与 x 光栅实测约 93–95 px 冲突；判据⑤缺冻结容差；探针无信号 fail-closed 门未授权。
 Needs — 用户对判据②窗口冲突和判据⑤容差的裁定；未获授权不 push，不自行改冻结文本或阈值。

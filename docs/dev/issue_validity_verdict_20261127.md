@@ -171,7 +171,7 @@ sinθ = 1.064/1024 = 1.039e-3 → Δ ≈ 125 mm × 1.039e-3 = 129.9 µm → **59
 | 项 | 结果 | 可判定范围 |
 |---|---|---|
 | A `panel_state_dump` | 只读得到 `wavelength_info=[1064,993]`、序列号 / 显示名 / 固件版本、`video_mode=0`、`get_displayed_memory_number=15`；温度在 1412Z 窗口读取失败（`SLM_Ctrl_ReadT` 绑定 `argtypes` 声明 LPDWORD，脚本原传 `c_float` 出参抛 `ArgumentError`），改走驱动 `temperature` 属性后在 22:35Z 窗口读得 `[47.8, 60.3]` °C（驱动板 / 选板）。 | **不能闭合 #247 根因**：现有驱动只读入口没有 `SLM_Disp_Data` 面板旋转/寻址态字段，只能记录波长、内存槽、灰度、固件版本与视频模式。 |
-| B `dark_signal_pair` | 1412Z 单窗口采样**作废**：暗场帧 `raw_peak_counts=2265`、`has_signal=true`（中位 15，SNR≈1517.6），信号帧 `2344`、`has_signal=true`，两帧无暗/亮差别 ⇒ 熄灯/遮挡未落实。改为双窗口后配对成功，见 §4.2。 | 1412Z 帧不可作 #238/#236 强度门基线。脚本已加 `--b-frame dark|signal` 与 `--confirm-lights-off` / `--confirm-lights-on`、`dark_not_dark` fail-closed。 |
+| B `dark_signal_pair` | 1412Z 单窗口采样**作废**：暗场帧 `raw_peak_counts=2265`、`has_signal=true`（中位 15，SNR≈1517.6），信号帧 `2344`、`has_signal=true`，两帧无暗/亮差别 ⇒ 熄灯/遮挡未落实。改为双窗口后配对成功，见 §4.2。 | 1412Z 帧不可作 #238/#236 强度门基线。脚本已加 `--b-frame dark\|signal` 与 `--confirm-lights-off` / `--confirm-lights-on`、`dark_not_dark` fail-closed。 |
 | C `direction_geometry_probe` | 有效：3 探针 × 2 帧，全部 `has_signal=true` 且未饱和。0 级位于 (行 1105.1, 列 1228.3)；`ramp_x`（gray SHA-256 `bc0c5613…`，与 S1 `grating_x` 字节相同）两阶在行 1046.1 / 1164.6（相对 0 级 −59.0 / +59.5 px，列 1231/1227）；`ramp_y` 两阶在列 1169.6 / 1288.3（相对 0 级 −58.6 / +60.1 px，行 1104/1106）；`blaze2d` 主阶在 (1047.5, 1269.2)。 | 面板 x（列向）相位斜坡 → CCD **行向**位移，面板 y（行向）→ CCD **列向**位移，与拟合 `A` 的「px→列、py→行」互为转置；pitch≈59 px 与 NEW 的 59.3128 / 58.8159 px 一致，与 S1 `grating_x` 的 95 px 不一致，且 gray 字节相同 ⇒ 再次支持 95 px 为 S1 异常/误配，不作 ②修正。仅补 #234/#236 的**方向几何**，强度门仍缺有效暗场。 |
 
 **结论边界**：本窗口补上 §4 的方向几何一项；A 只采到可读寄存器、仍缺面板旋转/寻址态字段，

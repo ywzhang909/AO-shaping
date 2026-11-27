@@ -23,7 +23,7 @@
 存档的 ``phase_initial.npy``, 焦面补偿直接复用存档 ``focus`` 的结果 ——
 **本脚本不做 focus sweep**, 因此与历史 lr=0.05 那次 run 同口径。
 
-🔴 **默认 dry-run; ``--execute`` 才会动设备; 上机前需用户授权。**
+🔴 **默认 dry-run; ``--execute`` 才会动设备; 实验前需用户授权。**
 
 不给 ``--execute`` 时本脚本:
 
@@ -637,7 +637,7 @@ def print_plan(plan: dict[str, Any], inputs: ModelInputs) -> None:
         "counts/centroid/fwhm/loss (flat 行的 lr 为 null)"
     )
     logger.info(bar)
-    logger.info("上机前提 (--execute): ")
+    logger.info("实验前提 (--execute): ")
     logger.info("  · SLM 与 CCD 的 USB 句柄独占 —— 开跑前确认没有别的会话在跑硬件 sweep")
     logger.info("  · 曝光继承 {} ms; 若饱和只降不升, 下限 {} ms",
                 plan["exposure_ms_start"], MIN_EXPOSURE_MS)

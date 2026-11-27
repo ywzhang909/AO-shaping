@@ -248,7 +248,7 @@ def build_config(args: argparse.Namespace) -> tuple[ClosedLoopConfig, np.ndarray
     )
     # start_phase 尺寸必须与 checkpoint 的 SLM 控制网格一致；--grid-size 只是
     # 无检查点时的兜底。自动对齐避免用户手填失配（plan-only 不构造 forward，
-    # 手填错误要到占设备后的第一轮候选才暴露，曾致 2026-11-27 上机失败）。
+    # 手填错误要到占设备后的第一轮候选才暴露，曾致 2026-11-27 实验失败）。
     grid_size = int(args.grid_size)
     ckpt_grid = checkpoint_grid_size(args.checkpoint)
     if ckpt_grid is not None and ckpt_grid != grid_size:

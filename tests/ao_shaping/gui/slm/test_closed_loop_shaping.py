@@ -584,7 +584,7 @@ def test_runner_registers_gate_passed_rejected_rounds_when_enabled() -> None:
 def test_export_checkpoint_handles_missing_registration(tmp_path: Path) -> None:
     """适配产物可能没有配准位移；写出 None 而不是 float(None) 抛错。
 
-    2026-11-27 上机：适配晋级后 ``registration_value=None``，原实现
+    2026-11-27 实验：适配晋级后 ``registration_value=None``，原实现
     ``float(...)`` 在写完空目录后抛 TypeError，整场闭环进入 FAULT。
     """
     adapter = OnlineTransferAdapter(

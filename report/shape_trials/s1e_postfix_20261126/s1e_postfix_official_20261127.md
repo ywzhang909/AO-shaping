@@ -1,22 +1,15 @@
 # S1e 修复后重采·正式判读报告（2026-11-27）
 
 <!-- provenance:start -->
-> **预注册**: [`docs/dev/s1e_postfix_prereg_20261126.md`](../../../docs/dev/s1e_postfix_prereg_20261126.md)（冻结口径，blob 不变）
-> **设计源**: [`docs/dev/hw_window_20261123_attribution_prereg.md`](../../../docs/dev/hw_window_20261123_attribution_prereg.md) §12.16
-> **修复脚本**: [`src/ao_shaping/drivers/slm/santec/driver.py`](../../../src/ao_shaping/drivers/slm/santec/driver.py)（`_write_to_memory` 连续性守卫）
-> **采集脚本**: [`scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_capture_postfix_20261126.py)
-> **判读脚本（冻结，复用）**: [`scripts/slm/s1e_same_bytes_probe_judge_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
-> **采集数据**: `data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_05_postfix`（`run_03/run_04` 为饱和中止，见 §2.2）
-> **判读产物**: `s1e_postfix_official_20261127.json` / `_tables.md` / `_fig1.png`（同目录）
-> **复现命令**: `python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --capture-dir data/experiments/attribution_20261123/s1/s1e_same_bytes_probe_20261124/run_05_postfix --out-dir report/shape_trials/s1e_postfix_20261126 --stem s1e_postfix_official_20261127`
-> **前序 commit**: 修复/采集脚本/测试/预注册 `d273544754d19cccf790b398c2351369ffe3d88c`；溯源绑定 `020e706afb9ab21c534c03dc2cfaf96c71b728c2`。本报告判读产物随判读提交落库。
-> **运行环境**: 采集占用 SLM #1 + Daheng cam 0（见 §2.2）；判读为离线（只读 run 帧与 journal，未占设备）。
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件复采（postfix 会话, 驱动守卫修复后）+ 离线 CPU 判读
+> **说明**: s1e postfix 正式判读主体; 表格见同目录 _tables.md (冻结判读脚本产出); 修复守卫 src/ao_shaping/drivers/slm/santec/driver.py _write_to_memory
 <!-- provenance:end -->
 
 ## 摘要
 
 - **目标**：在 `non_contiguous_memmove_transpose` 根因修复后，按冻结 §12.16 口径重采 S1e「同一字节流 ⇒ 同一远场」探针，检验 D1 是否由 `D-fail` 翻转为 D-pass——这是 S1 从 `BLOCKED` 解锁的唯一技术路径。
-- **设备与采集**：共三次上机（run_03/run_04/run_05）。前两次在第 0 帧平场因 0 级真实饱和（15 / 20 px ≥ 3686）由饱和门禁主动中止；用户回调激光功率后仍不一致（flat 峰 3990 vs run_02 基线 2322，1.72×），经用户选择按 `hw_window` G3「饱和即降曝光重拍该档」以 **0.05 ms** 重采 run_05，**24/24 帧全采、0 饱和、`status=ok`**。三次占用均四释放标志全 `true`、`error=null`，设备正常关闭。判读口径 D1–D6 与阈值未变，仅曝光偏离冻结 0.087 ms（见 §2.3 偏离登记）。
+- **设备与采集**：共三次实验（run_03/run_04/run_05）。前两次在第 0 帧平场因 0 级真实饱和（15 / 20 px ≥ 3686）由饱和门禁主动中止；用户回调激光功率后仍不一致（flat 峰 3990 vs run_02 基线 2322，1.72×），经用户选择按 `hw_window` G3「饱和即降曝光重拍该档」以 **0.05 ms** 重采 run_05，**24/24 帧全采、0 饱和、`status=ok`**。三次占用均四释放标志全 `true`、`error=null`，设备正常关闭。判读口径 D1–D6 与阈值未变，仅曝光偏离冻结 0.087 ms（见 §2.3 偏离登记）。
 - **判读结论**：**D1 = inconclusive**（H 有效上传 4 < 门 5，最大两两距离 1.665 px > 门 1.5），E 分支 `undetermined`；**未达 D-pass，S1 维持 `BLOCKED`**。
 - **关键区分**：修复**消除了系统性轴转置**（H 由修复前的 `col-type` ~94 px 转置态恢复为 `row-type` ~58 px 正常态；H 物理送屏字节由 F 序裸 buffer `b98be9a6…` 变为逻辑 C 序 `7276d9da…`，与 B/flat 一致），但 **D1 判据度量的是同一图样多次上传的随机抖动**，该抖动不受连续性修复影响，仍停在 1.665 px。即：**确定性错误已修复，随机性误差未改善**。这是本轮最重要的结果，见 §5。
 
@@ -106,9 +99,9 @@ D 判据与 E 分支：
 |---|---|---|
 | **D1**（H 同字节多次上传） | 有效 4（<5），两两最大 **1.665 px**（>1.5） | **inconclusive** |
 | D2（轴型/周期） | H 全 `row-type`、dist 57.6–59.4 px；B 全 `other`、dist 58.2–60.7 px | 轴转置已消除（对照 §5） |
-| D3（前驱分组） | `zero_exception=true`、H 臂单一轴型（判别力 False） | not_applicable → 取 E2 |
+| D3（前驱分组） | `zero_exception=true`、H 变体单一轴型（判别力 False） | not_applicable → 取 E2 |
 | D4（B 弱峰） | B 有效 3（<5） | inconclusive |
-| D5（掉电臂 P） | 本轮未执行 arm P | not_applicable |
+| D5（掉电变体 P） | 本轮未执行 arm P | not_applicable |
 | D6（槽位零例外） | `zero_exception=true` | not_applicable |
 | **E 分支** | — | **undetermined** |
 
@@ -151,7 +144,7 @@ D 判据与 E 分支：
 | 项 | 状态 / 建议 |
 |---|---|
 | S1 结论 | **维持 `BLOCKED`**：D1 `inconclusive` 未达 D-pass，预注册 §摘要规定仅 D-pass 可解锁；本轮不升格 S1、不做 D bracket、G1/G3/G4 继续暂缓、冻结测试集不动 |
-| 确定性根因（memmove 转置） | **已闭环**：守卫在 driver 提交 `d2735447`，本轮上机证据（H `col`→`row`、digest `b98…`→`727…`）确认现场生效 |
+| 确定性根因（memmove 转置） | **已闭环**：守卫在 driver 提交 `d2735447`，本轮实验证据（H `col`→`row`、digest `b98…`→`727…`）确认现场生效 |
 | 随机抖动（~1.6 px） | **待新归因线**：建议另开探针，固定 0.05 ms、只重复同一 H 图样 ≥6 次并多次会话，分离驱动写屏随机性与光路微扰；是否属于 J1/内容无关失稳需新预注册裁定，不在本轮口径内 |
 | 曝光口径 | 本轮 0.05 ms 为 G3 合规偏离；后续若需与 run_02 严格同曝光对比，须先解决激光功率稳定性或接受 0.087 ms 的 0 级饱和（可加轻微离焦/倾斜降低 0 级峰，但会改变图样，须新预注册） |
 | provenance 登记 | 判读产物为脚本生成的 JSON/图/表，不适用 `REPORTS` 报告映射；`provenance.py` 处于并行会话改动态，本轮不触碰 |

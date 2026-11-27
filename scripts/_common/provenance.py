@@ -88,7 +88,7 @@ class ReportProvenance:
 REPORTS: dict[str, ReportProvenance] = {
 
     "report/shape_trials/s1f_jitter_attribution_20261127/s1f_jitter_attribution_official_20261127.md": ReportProvenance(
-        script="scripts/slm/s1f_jitter_attribution_judge_20261127.py",
+        script=HANDWRITTEN,
         command=(
             "python scripts/slm/s1f_jitter_attribution_judge_20261127.py "
             "--capture-dir data/experiments/attribution_20261123/s1/"
@@ -3640,6 +3640,27 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/s1e_arm_p_d5_judge_20261126.py",
         environment="离线 CPU 判读（读两个变体冻结 JSON, 不打开设备）",
         note="s1e arm-p vs d5 对比冻结表格 (缺省读 s1e_same_bytes_probe_20261126.json 与 s1e_arm_p_20261126.json)",
+    ),
+    "report/shape_trials/energy_utilization_20261126/energy_utilization_20261126.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线分析（复用实验系统已采集 JSON/CSV）+ 本地渲染图（未入库, 见链接债务登记）",
+        note="能量利用率修订报告 (P32 四档 lr sweep 追加页, 2d9b1dea); 29 张引用图为编写期本地渲染未入库, 已在 test_report_provenance._PREEXISTING_BROKEN 挂账 (第 190 批)",
+    ),
+    "report/shape_trials/s1e_postfix_20261126/s1e_postfix_official_20261127.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件复采（postfix 会话, 驱动守卫修复后）+ 离线 CPU 判读",
+        note="s1e postfix 正式判读主体; 表格见同目录 _tables.md (冻结判读脚本产出); 修复守卫 src/ao_shaping/drivers/slm/santec/driver.py _write_to_memory",
+    ),
+    "report/shape_trials/s1e_postfix_20261126/s1e_postfix_official_20261127_tables.md": ReportProvenance(
+        script="scripts/slm/s1e_same_bytes_probe_judge_20261126.py",
+        command=(
+            "python scripts/slm/s1e_same_bytes_probe_judge_20261126.py "
+            "--capture-dir data/debug/slm_transfer/<s1e_postfix_run> "
+            "--out-dir report/shape_trials/s1e_postfix_20261126 "
+            "--stem s1e_postfix_official_20261127"
+        ),
+        environment="离线 CPU 判读（读采集目录, 不打开设备）",
+        note="s1e postfix 冻结表格 (--stem s1e_postfix_official_20261127)",
     ),
     "report/shape_trials/transfer_twin_snapshot_demo_20261127/report.md": ReportProvenance(
         script="scripts/slm/run_transfer_twin_snapshot_demo.py",

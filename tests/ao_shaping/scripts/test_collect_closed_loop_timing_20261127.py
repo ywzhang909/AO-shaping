@@ -380,7 +380,7 @@ def test_production_defaults_match_probe_geometry() -> None:
 def test_start_phase_aligns_to_checkpoint_grid_size(tmp_path: Path) -> None:
     """start_phase 必须从 checkpoint 的 grid_size 对齐，否则候选生成 shape 失配。
 
-    2026-11-27 上机失败根因：--grid-size 默认 128，但 checkpoint grid_size=640，
+    2026-11-27 实验失败根因：--grid-size 默认 128，但 checkpoint grid_size=640，
     forward.predict 收到 128×128 phase 在 dimension 2 崩 "128 vs 640"。
     """
     ckpt = tmp_path / "frozen_parameters.json"
@@ -425,7 +425,7 @@ _REAL_SOURCE = SCRIPT.ROOT / "data/debug/slm_transfer/ab_session_20261124/captur
 def test_e2e_real_adapter_cpu_advances_multiple_rounds(tmp_path: Path) -> None:
     """真实 adapter(device=cpu) + 真实 forward 能跨过多轮候选，不再 cuda/cpu 失配。
 
-    2026-11-27 第二次上机失败根因：forward 在 cuda、refine_phase 的 init 在 CPU，
+    2026-11-27 第二次实验失败根因：forward 在 cuda、refine_phase 的 init 在 CPU，
     第一轮候选报 "Expected all tensors on the same device, but found cuda:0 and cpu"。
     """
     from ao_shaping.gui.slm.closed_loop_shaping import OnlineTransferAdapter

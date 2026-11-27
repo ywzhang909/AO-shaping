@@ -1432,6 +1432,7 @@ class ClosedLoopRunner:
                         except Exception as exc:  # 落盘失败不该毁掉闭环
                             record.note = f"{record.note}（样本登记失败：{exc}）".strip()
                 else:
+                    if config.register_rejected_samples and self.adapter is not None:
                         # 门禁已通过：被拒的是"没比当前相位更好"，不是"没有可用观测"。
                         # 候选相位与这一帧严格对应，登记后下发仍回滚到已确认相位。
                         holdout = (

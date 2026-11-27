@@ -187,7 +187,7 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
         hidden = sample("hidden", SAMPLE_SECONDS)
 
         page = shell._transfer_page
-        # 页 0 的 sim 源会被 get_opened_camera() 误种到页 1；显式改回真机后端。
+        # 页 0 的 sim 源会被 get_opened_camera() 误种到页 1；显式改回实验系统后端。
         page.set_camera("daheng")
         _pump(app, 0.3)
         result["before_run"] = {

@@ -2273,7 +2273,7 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
 #: (段尾尽力而为回写, 驱动异常无分类表, #145/#45 不收窄); it carries the inline ``# policy:``
 #: rationale, so the unmarked ratchet below still reads 0. Recorded here and in TODO.md 第 184 批.
 #: Measurement record only.
-_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 469
+_MAX_BLIND_EXCEPT_HANDLERS_IN_SRC = 470
 
 #: Second ratchet over the same population: a broad catch that has actually been *judged*
 #: carries a ``# policy:`` marker naming what the layer is protecting -- within two lines

@@ -759,7 +759,7 @@ def _one_line_criterion(index: str, item: dict[str, Any]) -> str:
     if index == "2":
         orders = item.get("evidence", {}).get("orders", [])
         detail = "; ".join(
-            f"{o['order']}: |dc|={o['abs_dc_px']}px (窗 92–97), |dr|={abs(o['dr_residual_px'])}px (≤3)"
+            f"{o['order']}: \\|dc\\|={o['abs_dc_px']}px (窗 92–97), \\|dr\\|={abs(o['dr_residual_px'])}px (≤3)"
             for o in orders
         ) or "未成对检出 ±1 斑"
     elif index == "3":
