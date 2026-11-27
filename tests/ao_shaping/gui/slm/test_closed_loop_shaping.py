@@ -13,8 +13,10 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -535,6 +537,33 @@ def test_runner_registers_training_samples_only_from_accepted_rounds() -> None:
     assert spy.added[0]["split"] == "train"
     assert spy.added[0]["label"] == "round_01"
     assert spy.added[0]["full_scale"] == pytest.approx(255.0)
+
+
+def test_export_checkpoint_handles_missing_registration(tmp_path: Path) -> None:
+    """适配产物可能没有配准位移；写出 None 而不是 float(None) 抛错。
+
+    2026-11-27 上机：适配晋级后 ``registration_value=None``，原实现
+    ``float(...)`` 在写完空目录后抛 TypeError，整场闭环进入 FAULT。
+    """
+    adapter = OnlineTransferAdapter(
+        checkpoint=tmp_path / "original",
+        session_dir=tmp_path / "session",
+        span=4,
+        device="cpu",
+    )
+    comps = SimpleNamespace(
+        matrix=np.zeros((2, 2)),
+        old=SimpleNamespace(grid_size=2, fft_size=1024, pixel_samples=1),
+        model=SimpleNamespace(registration_value=None),
+    )
+    entry = {"parameters": {}}
+
+    path = adapter._export_checkpoint(entry, comps) / "frozen_parameters.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["registration_shift_ccd_px"] is None
+
+    comps.model.registration_value = (1.5, -2.5)
+    path = adapter._export_checkpoint(entry, comps) / "frozen_parameters.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["registration_shift_ccd_px"] == [1.5, -2.5]
 
 
 def test_runner_reserves_declared_validation_rounds() -> None:
