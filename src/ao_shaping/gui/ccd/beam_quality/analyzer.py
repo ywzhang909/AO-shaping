@@ -36,6 +36,11 @@ HALF_MAX_TO_SIGMA = float(np.sqrt(2.0 * np.log(2.0)))
 # 全宽 (FWHM) / sigma
 FWHM_TO_SIGMA = 2.0 * HALF_MAX_TO_SIGMA
 
+#: 逐帧分析降本: 大帧的中值背景用 4 像素步进抽样 (全幅 median 的 partition
+#: 是 UI 线程热点); 小帧 (< 20 万像素) 仍走精确全幅中值, 保持既有测试口径。
+MEDIAN_STRIDE_MIN_PIXELS = 200_000
+MEDIAN_STRIDE = 4
+
 #: 可选的中心计算方法: (键, 界面显示名)。
 #: 默认 ``"ellipse"`` (椭圆拟合中心, 与 0 级中心默认口径一致); 其余为操作员
 #: 可选的替代口径。四者都来自本模块的纯 numpy/scipy 计算 —— ``utils/image``
@@ -200,6 +205,22 @@ def gaussian_1d(
     return amplitude * np.exp(-((x - center) ** 2) / (2.0 * sigma**2)) + offset
 
 
+def _gaussian_1d_jac(
+    x: np.ndarray, amplitude: float, center: float, sigma: float, offset: float
+) -> np.ndarray:
+    """``gaussian_1d`` 对四个参数的解析雅可比 (避免最小二乘的 4 次数值差分)。"""
+    d = x - center
+    base = np.exp(-(d**2) / (2.0 * sigma**2))
+    return np.column_stack(
+        (
+            base,
+            amplitude * base * d / sigma**2,
+            amplitude * base * d**2 / sigma**3,
+            np.ones_like(x),
+        )
+    )
+
+
 def fit_profile(x: np.ndarray, y: np.ndarray) -> GaussianFit | None:
     """对一条剖面做高斯拟合; 失败返回 ``None``, 不抛异常。"""
     x = np.asarray(x, dtype=np.float64)
@@ -230,6 +251,7 @@ def fit_profile(x: np.ndarray, y: np.ndarray) -> GaussianFit | None:
                 [np.inf, x_max, max(1e-3, (x_max - x_min)), np.inf],
             ),
             maxfev=4000,
+            jac=_gaussian_1d_jac,
         )
     # policy: 拟合失败 = 本次没有该测量值, 返回 None 让上层隐藏标签, 而不是中断整个分析
     except Exception as exc:
@@ -263,9 +285,25 @@ def _as_2d(img: np.ndarray) -> np.ndarray:
     return arr
 
 
+def _background_estimate(arr: np.ndarray) -> float:
+    """背景中值: 大帧抽样, 小帧精确。抽样只影响亚 count 级背景估计。"""
+    if arr.size >= MEDIAN_STRIDE_MIN_PIXELS:
+        return float(np.median(arr[::MEDIAN_STRIDE, ::MEDIAN_STRIDE]))
+    return float(np.median(arr))
+
+
 def _largest_component(mask: np.ndarray) -> np.ndarray | None:
-    """返回最大连通域的布尔掩码; 无前景返回 ``None``。"""
-    labeled, num = ndimage.label(mask)
+    """返回最大连通域的布尔掩码; 无前景返回 ``None``。
+
+    只在非零像素的包围盒内做 ``ndimage.label``: 盒外全为背景, 连通关系与全幅
+    标注完全一致; 输出仍恢复成全幅布尔图, 下游坐标口径不变。
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0:
+        return None
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    labeled, num = ndimage.label(mask[y0:y1, x0:x1])
     if num == 0:
         return None
     counts = np.bincount(labeled.ravel())
@@ -274,7 +312,9 @@ def _largest_component(mask: np.ndarray) -> np.ndarray | None:
     idx = int(np.argmax(counts))
     if idx == 0 or counts[idx] == 0:
         return None
-    return labeled == idx
+    out = np.zeros(mask.shape, dtype=bool)
+    out[y0:y1, x0:x1] = labeled == idx
+    return out
 
 
 def _ellipse_from_mask(mask: np.ndarray | None) -> EllipseParams | None:
@@ -424,7 +464,7 @@ def analyze_frame(
         float(np.count_nonzero(arr >= sat_threshold) / arr.size) if arr.size else 0.0
     )
 
-    bg = float(np.median(arr)) if background is None else float(background)
+    bg = _background_estimate(arr) if background is None else float(background)
 
     # --- 最大值口径; 保持原有 argmax 展平索引约定 ---
     flat = int(np.argmax(arr)) if arr.size else 0

@@ -29,6 +29,8 @@ from typing import Any
 
 import pytest
 
+import numpy as np
+
 from ao_shaping.utils.io.file import ROOT_DIR
 
 EVIDENCE_PATH = Path(
@@ -74,6 +76,7 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     result: dict = {
         "test": "hidden_page_render_gate",
+        "optimization": "① hide gate + ② analyze_frame CPU 降本",
         "started_at": started_at,
         "sample_seconds": SAMPLE_SECONDS,
         "qt_qpa_platform": os.environ.get("QT_QPA_PLATFORM", "<unset>"),
@@ -93,6 +96,8 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
     during_run_early: dict = {}
     run: dict = {}
     cleanup: dict = {}
+    analyze_times: list[float] = []
+    original_analyze = None
 
     shell: Any = None
     beam: Any = None
@@ -103,9 +108,11 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
         wall0 = time.monotonic()
         cpu0 = time.process_time()
         n0 = beam._processed
+        analyze0 = len(analyze_times)
         _pump(app, seconds)
         wall = time.monotonic() - wall0
         cpu = time.process_time() - cpu0
+        segment = analyze_times[analyze0:]
         return {
             "label": label,
             "wall_s": round(wall, 3),
@@ -116,6 +123,10 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
             "render_active": beam._render_active,
             "poll_interval_ms": beam._poll_timer.interval(),
             "trend_len": len(beam._buffer),
+            "analyze_calls": len(segment),
+            "analyze_ms_median": (
+                round(float(np.median(segment)), 3) if segment else None
+            ),
         }
 
     print(
@@ -129,6 +140,18 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
         shell.show()
         _pump(app, 0.5)
         beam = shell._beam_app
+
+        # ② 的耗时证据: 只包一层实例方法, 不改算法口径; 结束时还原。
+        original_analyze = beam._analyze
+
+        def timed_analyze(frame):
+            t0 = time.perf_counter()
+            try:
+                return original_analyze(frame)
+            finally:
+                analyze_times.append((time.perf_counter() - t0) * 1000.0)
+
+        beam._analyze = timed_analyze
 
         kinds = [kind for _label, kind in SOURCE_KINDS]
         beam._source_combo.setCurrentIndex(kinds.index("sim"))
@@ -226,6 +249,8 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
         }
         result["run"] = run
     finally:
+        if beam is not None and original_analyze is not None:
+            beam._analyze = original_analyze
         # 失败路径同样归还设备：先停闭环，再关外壳。
         if page is not None and getattr(page, "_running", False):
             page.stop_button().click()
@@ -264,9 +289,12 @@ def test_hidden_page_stops_rendering_during_slm_closed_loop() -> None:
     assert visible["render_active"] is True
     assert visible["poll_interval_ms"] == BeamQualityApp.POLL_INTERVAL_MS
     assert visible["processed_delta"] > 0
+    assert visible["analyze_calls"] > 0
+    assert visible["analyze_ms_median"] is not None
     assert hidden["render_active"] is False
     assert hidden["poll_interval_ms"] == BeamQualityApp.HIDDEN_POLL_INTERVAL_MS
     assert hidden["processed_delta"] > 0
+    assert hidden["analyze_calls"] < visible["analyze_calls"]
     assert hidden["trend_len"] > visible["trend_len"]
     assert hidden["cpu_per_wall"] < visible["cpu_per_wall"]
     assert hidden["processed_per_wall"] < visible["processed_per_wall"]

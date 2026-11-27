@@ -20,8 +20,12 @@ from scipy import ndimage
 from ao_shaping.gui.ccd.beam_quality import frame_source as frame_source_module
 from ao_shaping.gui.ccd.beam_quality.analyzer import (
     FWHM_TO_SIGMA,
+    _background_estimate,
+    _gaussian_1d_jac,
+    _largest_component,
     analyze_frame,
     bin_2x2,
+    gaussian_1d,
 )
 from ao_shaping.gui.ccd.beam_quality.frame_source import SimBeamSource
 from ao_shaping.gui.ccd.beam_quality.trend_buffer import (
@@ -1072,3 +1076,44 @@ def test_stacked_page_switch_toggles_render_gate(qt_app) -> None:
     assert page._poll_timer.interval() == BeamQualityApp.POLL_INTERVAL_MS
     shell.close()
     qt_app.processEvents()
+
+
+def test_background_estimate_strides_large_frames() -> None:
+    """大帧中值抽样对平滑背景只引入亚 count 级偏差。"""
+    yy, xx = np.mgrid[0:400, 0:600]
+    frame = (5.0 + 20.0 * xx / 599.0 + 3.0 * np.sin(yy / 7.0)).astype(np.float32)
+    exact = float(np.median(frame))
+    assert abs(_background_estimate(frame) - exact) < 0.5
+    small = frame[:100, :100]
+    assert _background_estimate(small) == pytest.approx(float(np.median(small)))
+
+
+def test_largest_component_crop_matches_full_label() -> None:
+    """包围盒内标注与全幅标注选出同一个连通域（多组件 + 空图）。"""
+    mask = np.zeros((300, 400), dtype=bool)
+    mask[40:80, 50:90] = True
+    mask[100:130, 200:240] = True
+    labeled, num = ndimage.label(mask)
+    counts = np.bincount(labeled.ravel())
+    counts[0] = 0
+    expected = labeled == int(np.argmax(counts))
+    assert num == 2
+    got = _largest_component(mask)
+    assert got is not None
+    assert np.array_equal(got, expected)
+    assert _largest_component(np.zeros_like(mask)) is None
+
+
+def test_gaussian_jac_matches_finite_difference() -> None:
+    """解析雅可比是数值差分的等价替换（拟合提速的前提）。"""
+    x = np.linspace(0.0, 100.0, 17)
+    params = (12.0, 50.0, 9.0, 3.0)
+    analytic = _gaussian_1d_jac(x, *params)
+    eps = 1e-5
+    for index in range(len(params)):
+        plus = list(params)
+        minus = list(params)
+        plus[index] += eps
+        minus[index] -= eps
+        numeric = (gaussian_1d(x, *plus) - gaussian_1d(x, *minus)) / (2.0 * eps)
+        assert analytic[:, index] == pytest.approx(numeric, abs=1e-4, rel=1e-4)
