@@ -372,3 +372,32 @@ def test_production_defaults_match_probe_geometry() -> None:
     xy = SCRIPT.analysis_grid((args.centre_x, args.centre_y), args.span)
     assert int(round(xy[..., 0].mean())) == 1228
     assert int(round(xy[..., 1].mean())) == 1107
+
+
+def test_start_phase_aligns_to_checkpoint_grid_size(tmp_path: Path) -> None:
+    """start_phase 必须从 checkpoint 的 grid_size 对齐，否则候选生成 shape 失配。
+
+    2026-11-27 上机失败根因：--grid-size 默认 128，但 checkpoint grid_size=640，
+    forward.predict 收到 128×128 phase 在 dimension 2 崩 "128 vs 640"。
+    """
+    ckpt = tmp_path / "frozen_parameters.json"
+    ckpt.write_text(json.dumps({"grid_size": 640}), encoding="utf-8")
+
+    assert SCRIPT.checkpoint_grid_size(str(ckpt)) == 640
+    # 目录形式（checkpoint 传目录，内部拼 frozen_parameters.json）也要识别
+    assert SCRIPT.checkpoint_grid_size(str(tmp_path)) == 640
+    assert SCRIPT.checkpoint_grid_size("") is None
+    assert SCRIPT.checkpoint_grid_size(str(tmp_path / "missing.json")) is None
+
+    args = SCRIPT.build_parser().parse_args(
+        ["--out", "x", "--grid-size", "128", "--checkpoint", str(ckpt)]
+    )
+    config, _xy = SCRIPT.build_config(args)
+    assert config.start_phase.shape == (640, 640)
+    plan = SCRIPT.plan_doc(args, config)
+    assert plan["config"]["grid_size"] == 640
+    assert plan["config"]["grid_size_cli"] == 128
+    # 无 checkpoint 时回退到 --grid-size，保持离线/无适配语义
+    args2 = SCRIPT.build_parser().parse_args(["--out", "x", "--grid-size", "8"])
+    config2, _ = SCRIPT.build_config(args2)
+    assert config2.start_phase.shape == (8, 8)

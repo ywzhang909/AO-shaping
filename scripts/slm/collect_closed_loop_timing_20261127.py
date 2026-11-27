@@ -215,6 +215,27 @@ def _round_from_note(note: str, prefix: str, suffix: str) -> int | None:
         return None
 
 
+def checkpoint_grid_size(checkpoint: str) -> int | None:
+    """从冻结检查点读 ``grid_size``；文件/目录均可，缺失返回 ``None``。
+
+    ``FrozenDefocusForward`` 按检查点的 ``grid_size`` 构建 SLM 控制网格，
+    ``refine_phase`` 喂给它的相位必须同尺寸，否则第一轮候选就会 shape 失配。
+    """
+    if not checkpoint:
+        return None
+    path = Path(checkpoint).expanduser()
+    if path.is_dir():
+        path = path / "frozen_parameters.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        value = int(data.get("grid_size", 0))
+    except (OSError, ValueError, TypeError):
+        return None
+    return value if value > 0 else None
+
+
 def build_config(args: argparse.Namespace) -> tuple[ClosedLoopConfig, np.ndarray]:
     centre = (float(args.centre_x), float(args.centre_y))
     xy = analysis_grid(centre, int(args.span))
@@ -224,7 +245,19 @@ def build_config(args: argparse.Namespace) -> tuple[ClosedLoopConfig, np.ndarray
         half_width=float(args.half_width),
         half_height=float(args.half_height),
     )
-    start_phase = np.zeros((int(args.grid_size), int(args.grid_size)), dtype=np.float64)
+    # start_phase 尺寸必须与 checkpoint 的 SLM 控制网格一致；--grid-size 只是
+    # 无检查点时的兜底。自动对齐避免用户手填失配（plan-only 不构造 forward，
+    # 手填错误要到占设备后的第一轮候选才暴露，曾致 2026-11-27 上机失败）。
+    grid_size = int(args.grid_size)
+    ckpt_grid = checkpoint_grid_size(args.checkpoint)
+    if ckpt_grid is not None and ckpt_grid != grid_size:
+        logger.info(
+            "start_phase 网格从 checkpoint grid_size=%d 对齐（--grid-size=%d 忽略）",
+            ckpt_grid,
+            grid_size,
+        )
+        grid_size = ckpt_grid
+    start_phase = np.zeros((grid_size, grid_size), dtype=np.float64)
     config = ClosedLoopConfig(
         xy=xy,
         target=target,
@@ -249,7 +282,8 @@ def plan_doc(args: argparse.Namespace, config: ClosedLoopConfig) -> dict[str, An
             "span": args.span,
             "half_width": args.half_width,
             "half_height": args.half_height,
-            "grid_size": args.grid_size,
+            "grid_size": int(config.start_phase.shape[0]),
+            "grid_size_cli": args.grid_size,
             "max_rounds": config.max_rounds,
             "exposure_ms": config.exposure_ms,
             "adapt": config.adapt,
