@@ -470,6 +470,21 @@ def test_plan_doc_records_refit_every() -> None:
     assert plan1["config"]["refit_every"] == 1
 
 
+def test_register_rejected_samples_flag_plumbs_to_config() -> None:
+    """默认关闭；开启后须同时进 plan 记录与 ClosedLoopConfig。"""
+    args = SCRIPT.build_parser().parse_args(["--out", "x"])
+    plan = SCRIPT.plan_doc(args, SCRIPT.build_config(args)[0])
+    assert plan["config"]["register_rejected_samples"] is False
+    assert SCRIPT.build_config(args)[0].register_rejected_samples is False
+
+    args1 = SCRIPT.build_parser().parse_args(
+        ["--out", "x", "--register-rejected-samples"]
+    )
+    plan1 = SCRIPT.plan_doc(args1, SCRIPT.build_config(args1)[0])
+    assert plan1["config"]["register_rejected_samples"] is True
+    assert SCRIPT.build_config(args1)[0].register_rejected_samples is True
+
+
 def test_adapter_factory_applies_refit_every(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

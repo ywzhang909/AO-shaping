@@ -266,6 +266,7 @@ def build_config(args: argparse.Namespace) -> tuple[ClosedLoopConfig, np.ndarray
         max_rounds=int(args.max_rounds),
         candidate_policy="auto",
         adapt=bool(args.adapt),
+        register_rejected_samples=bool(args.register_rejected_samples),
         exposure_ms=float(args.exposure_ms),
         step_iterations=int(args.step_iterations),
     )
@@ -290,6 +291,7 @@ def plan_doc(args: argparse.Namespace, config: ClosedLoopConfig) -> dict[str, An
             "adapt": config.adapt,
             "candidate_policy": config.candidate_policy,
             "refit_every": int(args.refit_every),
+            "register_rejected_samples": bool(args.register_rejected_samples),
             "step_iterations": config.step_iterations,
         },
         "device": {
@@ -478,6 +480,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
         help="在线适配重拟合间隔（默认 2）；设 1 可在首个被接受轮次后立即重拟合",
+    )
+    # 默认关闭：被拒轮次仍只作为判读证据，开启后才登记为适配样本。
+    parser.add_argument(
+        "--register-rejected-samples",
+        action="store_true",
+        help="门禁通过但被拒的轮次也登记为适配样本（默认关闭）",
     )
     parser.add_argument("--no-adapt", dest="adapt", action="store_false", default=True)
     parser.add_argument("--checkpoint", default="")
