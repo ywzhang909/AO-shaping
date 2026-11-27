@@ -1,5 +1,12 @@
 # S1f 随机抖动归因判读 (issue247-s1f-jitter-attribution-judgment/v1)
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/s1f_jitter_attribution_judge_20261127.py`](../../../scripts/slm/s1f_jitter_attribution_judge_20261127.py)
+> **复现命令**: `python scripts/slm/s1f_jitter_attribution_judge_20261127.py --capture-dir data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_02 --out report/shape_trials/s1f_jitter_attribution_20261127`
+> **运行环境**: 离线判读（只读 run_02 的 frames 与 capture_journal.jsonl）
+> **说明**: run_02 三变体逐帧统计表（A/B/C 与 ratio/drift），按冻结 §3.4 口径生成；仅佐证，不改判据。
+<!-- provenance:end -->
+
 ## 采集
 
 | 项 | 值 |

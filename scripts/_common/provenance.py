@@ -86,6 +86,78 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+
+    "report/shape_trials/s1f_jitter_attribution_20261127/s1f_jitter_attribution_official_20261127.md": ReportProvenance(
+        script="scripts/slm/s1f_jitter_attribution_judge_20261127.py",
+        command=(
+            "python scripts/slm/s1f_jitter_attribution_judge_20261127.py "
+            "--capture-dir data/experiments/attribution_20261123/s1/"
+            "s1f_jitter_attribution_20261127/run_02 "
+            "--out report/shape_trials/s1f_jitter_attribution_20261127"
+        ),
+        environment="硬件采集 run_02（SLM #1 + Daheng cam0）+ 离线判读；未操作激光",
+        note=(
+            "S1f 随机抖动归因正式判读报告（2026-11-27）。预注册 docs/dev/s1f_jitter_attribution_prereg_20261127.md"
+            "（含 §9 光强预检修订），设计源 docs/dev/hw_window_20261123_attribution_prereg.md §12.16。"
+            "run_01 全场无光已作废（证据见 invalid_run01_no_light/）；run_02 有效：ratio=B/A=1.165 ≤ 1.3 → V1"
+            "读取/提取主导（85.8%），write_screen_rms=0.136 px，drift=0.254 px 不材料。"
+            "前序 commit aca0b987 / 540aeb83；判读产物与报告 cb2ac1da，回填 33639637。S1 维持 BLOCKED。"
+        ),
+        extra_scripts=(
+            "scripts/slm/s1f_jitter_attribution_capture_20261127.py",
+        ),
+    ),
+    "report/shape_trials/s1f_jitter_attribution_20261127/s1f_jitter_attribution_prep_20261127.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（未占用 SLM/CCD/激光）",
+        note=(
+            "S1f 探针离线准备与自检报告：三变体契约（A 同写屏 24 帧地板 / B 同字节 24 次各 1 帧 / C flat 头中尾各 16 帧）、"
+            "ratio 与 drift 冻结判据、§9 光强预检门禁与采集/判读脚本设计；含 run_01 无光作废记录（§9）。"
+            "提交 aca0b987 / 93bcc0ff。"
+        ),
+    ),
+    "report/shape_trials/s1f_jitter_attribution_20261127/s1f_jitter_attribution_judgment_tables.md": ReportProvenance(
+        script="scripts/slm/s1f_jitter_attribution_judge_20261127.py",
+        command=(
+            "python scripts/slm/s1f_jitter_attribution_judge_20261127.py "
+            "--capture-dir data/experiments/attribution_20261123/s1/"
+            "s1f_jitter_attribution_20261127/run_02 "
+            "--out report/shape_trials/s1f_jitter_attribution_20261127"
+        ),
+        environment="离线判读（只读 run_02 的 frames 与 capture_journal.jsonl）",
+        note=(
+            "run_02 三变体逐帧统计表（A/B/C 与 ratio/drift），按冻结 §3.4 口径生成；仅佐证，不改判据。"
+        ),
+    ),
+    "report/shape_trials/s1f_jitter_attribution_20261127/invalid_run01_no_light/CAPTURE_INVALID_evidence.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件采集 run_01（已作废）+ 离线检查；未操作激光",
+        note=(
+            "run_01 全场无光作废证据：flat 峰 41 counts、峰位 (1,460)，对照 S1e 同曝光 2524 counts；"
+            "帧均值与背景一致、写屏 digest 正确、设备正常释放。其判读结果系噪声峰跳变假象，不得引用。"
+        ),
+    ),
+    "report/shape_trials/s1f_jitter_attribution_20261127/invalid_run01_no_light/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（作废会话证据归档）",
+        note=(
+            "run_01 无光作废证据目录索引：说明假判读产物仅作反例、不得引用；"
+            "§9 光强门禁加入后该会话会被采集与判读双重拒绝。"
+        ),
+    ),
+    "report/shape_trials/s1f_jitter_attribution_20261127/invalid_run01_no_light/s1f_jitter_attribution_judgment_tables.md": ReportProvenance(
+        script="scripts/slm/s1f_jitter_attribution_judge_20261127.py",
+        command=(
+            "python scripts/slm/s1f_jitter_attribution_judge_20261127.py "
+            "--capture-dir data/experiments/attribution_20261123/s1/"
+            "s1f_jitter_attribution_20261127/run_01 "
+            "--out report/shape_trials/s1f_jitter_attribution_20261127/invalid_run01_no_light"
+        ),
+        environment="离线判读（run_01 无光，产物作废）",
+        note=(
+            "run_01 无光数据的假判读表格，仅作作废证据；§9 光强门禁生效后该会话会被拒判。"
+        ),
+    ),
     "report/shape_trials/transfer_geometry_adaptation_20261124.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件采集 + 离线 CPU 拟合/评估（拟合与评估阶段不打开 SLM、CCD 或激光控制器）",

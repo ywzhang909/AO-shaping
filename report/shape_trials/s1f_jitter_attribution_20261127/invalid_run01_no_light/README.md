@@ -1,5 +1,11 @@
 # 作废判读产物（run_01 无光）
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 离线（作废会话证据归档）
+> **说明**: run_01 无光作废证据目录索引：说明假判读产物仅作反例、不得引用；§9 光强门禁加入后该会话会被采集与判读双重拒绝。
+<!-- provenance:end -->
+
 本目录 `s1f_jitter_attribution_judgment.json` / `_tables.md` 是对
 `data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_01`
 的判读输出，**该次采集全场无有效光强**（flat 峰 41 counts，S1e 同日同曝光为 2524 counts），

@@ -1,5 +1,12 @@
 # S1f 随机抖动归因判读 (issue247-s1f-jitter-attribution-judgment/v1)
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/s1f_jitter_attribution_judge_20261127.py`](../../../../scripts/slm/s1f_jitter_attribution_judge_20261127.py)
+> **复现命令**: `python scripts/slm/s1f_jitter_attribution_judge_20261127.py --capture-dir data/experiments/attribution_20261123/s1/s1f_jitter_attribution_20261127/run_01 --out report/shape_trials/s1f_jitter_attribution_20261127/invalid_run01_no_light`
+> **运行环境**: 离线判读（run_01 无光，产物作废）
+> **说明**: run_01 无光数据的假判读表格，仅作作废证据；§9 光强门禁生效后该会话会被拒判。
+<!-- provenance:end -->
+
 ## 采集
 
 | 项 | 值 |
