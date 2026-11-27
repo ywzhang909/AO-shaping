@@ -63,3 +63,63 @@
 4. 证据：`data/debug/beam_quality/hidden_gate_hardware.json`；会话目录
    `data/debug/slm_transfer/<时间戳>/`。
 5. 若失败：先看 `current_problems()` 与运行按钮状态，不要重复启动第二个占设备的进程。
+
+## 4. §5 数据缺口：采集/重建代码已离线备好（未上机）
+
+来源：`report/shape_trials/closed_loop_speed_tsne_20261125/closed_loop_speed_analysis_20261125.md` §5。
+
+1. **逐轮分项耗时（原缺口 1）**：新增 `scripts/slm/collect_closed_loop_timing_20261127.py`，
+   不改被别的车道改写的 `closed_loop_shaping.py` / `closed_loop_shaping_page.py`。
+   - 通过 `ClosedLoopRunner` 的 `on_event` / `on_frame` 钩子 + `TimingBench` 装饰器采集；
+     事件对口径：`适配重拟合`→`adaptation`=fit，`adaptation`→`生成第 N 轮候选`=adapt，
+     `生成第 N 轮候选`→`下发第 N 轮候选`=candidate，`apply_phase`+`capture`=capture。
+   - 帧回调**当场**采样 `apply_phase_ms` / `ccd_capture_ms`，避免末轮值覆盖前几轮；
+     门禁失败的 baseline 也由 `round` 事件兜底写入 `rounds.jsonl`。
+   - 默认 plan-only：不导入设备模块、不加锁、不建输出目录；`--execute` 才占设备，
+     `DeviceLock.default()` + `--wait-until-idle`，`finally` 释放并记 `lock` 段。
+2. **权重轨迹（原缺口 2，已离线补齐）**：新增
+   `scripts/slm/reconstruct_debug_weights_20261127.py`。原会话 `20261124_200949`
+   的 `debug_weights=false` 且 `save_dataset=false`，但 `fit/iterations.pkl` 有完整
+   `parameters`；脚本复用 `fit._flatten_parameters` / `_write_weight_trajectory`，
+   写出 `data/debug/slm_transfer/20261124_200949/fit/debug_weights_reconstructed/`
+   下四个产物 + `verify.json`（7 迭代、17 键，npz 首末值自检通过）。
+   `reconstruction.json` 明确 `hardware_used=false`、`refit_performed=false`，
+   **是重建不是新采集**，原 `debug_weights/` 目录拒绝覆盖。
+3. **溯源登记（原缺口 3，仍阻塞）**：`scripts/_common/provenance.py::REPORTS` 正被另一车道
+   整文件改写，仍不碰；待其提交后再补登记并跑 `sync_report_provenance.py --check`。
+
+自检：`.venv\Scripts\python.exe -m compileall` 两脚本通过；`ruff check` 四个新文件 all passed；
+`pytest tests/ao_shaping/scripts/test_collect_closed_loop_timing_20261127.py
+tests/ao_shaping/scripts/test_reconstruct_debug_weights_20261127.py -q --import-mode=importlib`
+**11 passed**（含 fake bench 端到端多轮落盘、gate-fail 兜底落盘、plan-only 不建目录）；
+针对四个新文件 `git diff --check` exit 0。
+
+## 5. §5 采集器上机清单（待用户确认，本轮未执行）
+
+1. 设备：SLM #1 + 大恒 CCD cam 0；开始前、结束后在回复中明确报告占用与释放。
+   上次成功关闭 SLM #1 为 2026-11-27 16:02:14，当前已过 >200 s 冷却余量，
+   仍按 `--wait-until-idle 300` 让设备锁裁决，不无条件抢锁。
+2. 先跑离线复核（不占设备）：
+
+   ```bash
+   .venv\Scripts\python.exe scripts/slm/collect_closed_loop_timing_20261127.py --out data/debug/closed_loop_timing_20261127 --checkpoint data/debug/slm_transfer/ab_session_20261124/refit_forward/frozen_parameters.json --session-dir data/debug/closed_loop_timing_20261127 --source-dataset data/debug/slm_transfer/ab_session_20261124/capture
+   ```
+
+   确认 stdout 的 `config.candidate_policy=auto`、device 为 SLM #1 / daheng / cam 0。
+3. 光路：按 `libs/skills/ao-optical-path-calibration/SKILL.md` 六步探测，
+   确认 `光路有光`、曝光不超过 CCD 量程、SLM 相位自检通过；页 1 会话必须
+   `page.set_camera("daheng")`，本脚本已直接用 `HardwareBench(camera_type="daheng", cam_id=0)`。
+4. 再执行（占设备）：
+
+   ```bash
+   .venv\Scripts\python.exe scripts/slm/collect_closed_loop_timing_20261127.py --out data/debug/closed_loop_timing_20261127 --execute --checkpoint data/debug/slm_transfer/ab_session_20261124/refit_forward/frozen_parameters.json --session-dir data/debug/closed_loop_timing_20261127 --source-dataset data/debug/slm_transfer/ab_session_20261124/capture --max-rounds 8 --step-iterations 60 --exposure-ms 0.12
+   ```
+
+   注意：闭环分析窗口 `span=4`、中心 (500,500) 与 `--centre-*` 默认值对应页面默认；
+   曝光 0.12 ms 沿用当天 01 上机通过值，若门禁 `low_signal` 先检查光路/曝光，不盲目放大。
+5. 证据：`data/debug/closed_loop_timing_20261127/session.json`（锁、设备回读、时间线、
+   退出码）与 `rounds.jsonl`（每轮 `fit_ms` / `adapt_ms` / `candidate_ms` /
+   `apply_phase_ms` / `ccd_capture_ms` / `capture_ms` / gate / 分数 / 决策）。
+6. 收尾：确认 `lock.released=true`、`release_error=null`，SLM 恢复正常平相位、CCD 关闭，
+   日志末次「成功关闭SLM #1」时间戳；失败时先看 `session.json.reason` 与 gate 原因，
+   不重复启动第二个占设备的进程。
