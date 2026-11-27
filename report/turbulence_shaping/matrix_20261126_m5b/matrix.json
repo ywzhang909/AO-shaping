@@ -1,0 +1,23 @@
+[
+  {
+    "variant": "model_in_loop",
+    "cn2": 1e-14,
+    "sigma_total_rad": 0.07085355432351771,
+    "evals": 2013,
+    "report": "model_in_loop_cn21e-14/report.md"
+  },
+  {
+    "variant": "model_in_loop",
+    "cn2": 2e-13,
+    "sigma_total_rad": 0.23976403769809007,
+    "evals": 2005,
+    "report": "model_in_loop_cn22e-13/report.md"
+  },
+  {
+    "variant": "model_in_loop",
+    "cn2": 2e-12,
+    "sigma_total_rad": 1.226875363516784,
+    "evals": 2007,
+    "report": "model_in_loop_cn22e-12/report.md"
+  }
+]

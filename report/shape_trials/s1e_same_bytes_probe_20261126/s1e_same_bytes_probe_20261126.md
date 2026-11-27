@@ -1,19 +1,16 @@
 # S1e 同字节探针判读报告（2026-11-26）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/s1e_same_bytes_probe_judge_20261126.py`](../../../scripts/slm/s1e_same_bytes_probe_judge_20261126.py)
-> **复现命令**: `python scripts/slm/s1e_same_bytes_probe_judge_20261126.py --out-dir report/shape_trials/s1e_same_bytes_probe_20261126`
-> **数据/关联脚本**: [`scripts/slm/s1e_same_bytes_probe_capture_20261124.py`](../../../scripts/slm/s1e_same_bytes_probe_capture_20261124.py)
-> **数据/关联脚本**: [`scripts/slm/issue247_axis_map_solve_20261121.py`](../../../scripts/slm/issue247_axis_map_solve_20261121.py)
-> **运行环境**: 离线判读（只读 run_01 的 frames 与 capture_journal.jsonl；未占用 SLM/CCD/激光）
-> **说明**: S1e 同字节探针（预注册 §12.16）采集后的离线判读：复用冻结纯函数 FROZEN_CRITERIA/axis_type/pairwise_max_distance/d6_zero_exception 与冻结求解器 find_spots/principal，按 §12.16.3 只执行不改口径，登记 D1–D6 与 §12.16.4 E 分支。判读不重定义任何阈值；漂移校正、谐波比、几何指纹仅作佐证，不参与判据。
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件采集（s1e 探针会话）+ 离线 CPU 判读
+> **说明**: s1e 同字节探针主报告; 冻结判读 scripts/slm/s1e_same_bytes_probe_judge_20261126.py, 表格见同目录 _tables.md, 采集脚本 s1e_same_bytes_probe_capture_20261124.py
 <!-- provenance:end -->
 
 ## 摘要
 
 - **目标**：把「同一 SLM 字节流是否确定给出同一远场」从 S1d 的偶发对照，升级为受控重复实验，分离「序列位置 / 前驱数组 / 会话上电态」三个候选变量（预注册 §12.16）。
 - **采集**：变体 A（连续一次 `open`/`close`，12 上传 ×2 帧 = 24 帧），2026-11-26 05:07:21–05:07:50 UTC，`status=ok`，设备四标志全 `true`。
-- **结论**：**D1 = `D-fail`**（H 六次上传主瓣两两最大 **2.431 px** > 1.5 px）。但 D-fail 的**性质是位置抖动**——H 六次上传**全部 `col-type`**、远场形状与主瓣距离恒定（93.3–95.2 px），仅**位置**在会话内漂移；**未复现 S1d 的轴型翻转**。按 §12.16.4 取**分支 E2（`delivery_nondeterministic_same_bytes`）**，并显式记录：该分支原预设「B 稳定 + 轴型可按前驱分组」在本轮**不成立**（B n=3 且同样抖动；H 臂轴型分组退化），故 E3 不适用。
+- **结论**：**D1 = `D-fail`**（H 六次上传主瓣两两最大 **2.431 px** > 1.5 px）。但 D-fail 的**性质是位置抖动**——H 六次上传**全部 `col-type`**、远场形状与主瓣距离恒定（93.3–95.2 px），仅**位置**在会话内漂移；**未复现 S1d 的轴型翻转**。按 §12.16.4 取**分支 E2（`delivery_nondeterministic_same_bytes`）**，并显式记录：该分支原预设「B 稳定 + 轴型可按前驱分组」在本轮**不成立**（B n=3 且同样抖动；H 变体轴型分组退化），故 E3 不适用。
 - **状态**：S1 维持 **BLOCKED**；S1b/S1c/S1d 原始记录不改写；冻结测试集不动。
 
 ## 1. 预注册依据与不变量
@@ -44,7 +41,7 @@
 
 ### 2.3 数据清单与「同字节」前提
 
-- 24 帧、`capture_journal.jsonl` 36 行；H 六次上传的**物理字节 SHA 全同**（`b98be9a6696c…`）、B 三次全同（`c8d937cedb29…`）——每臂内部「同字节」前提成立。
+- 24 帧、`capture_journal.jsonl` 36 行；H 六次上传的**物理字节 SHA 全同**（`b98be9a6696c…`）、B 三次全同（`c8d937cedb29…`）——每个变体内部「同字节」前提成立。
 - 字节布局：H 数组 **F-contiguous**（strides `(2, 2400)`），B **C-contiguous**（`(3840, 2)`），flat C-contiguous。该差异见 §5.3。
 
 ## 3. 冻结判据（§12.16.3，原文摘要）
@@ -94,8 +91,8 @@
 ### 4.4 D3 前驱规则 → **`display_nondeterministic`（但判别力=False）**
 
 - 全量（H+B）前驱分组：`flat`→[col-type, col-type]、`H`→[col-type, other, other, other]、`B`→[col-type, col-type, col-type]；`zero_exception=False`。
-- 仅 H 臂前驱分组：`flat`→[col-type, col-type]、`H`→[col-type]、`B`→[col-type, col-type, col-type]；`zero_exception_H=True`，且六次上传**全为同一轴型**（`degenerate=True`）。
-- **判别力 `discriminating=False`**：D-fail 是**位置抖动**，而轴型分组在 H 臂内**退化为单一轴型**，无法据此区分历史效应；全量分组出现的「例外」仅因 **B 上传（本身即 `other`）跟随 H**，属**数组身份混杂**，非历史依赖。故 **E3 不适用**。
+- 仅 H 变体前驱分组：`flat`→[col-type, col-type]、`H`→[col-type]、`B`→[col-type, col-type, col-type]；`zero_exception_H=True`，且六次上传**全为同一轴型**（`degenerate=True`）。
+- **判别力 `discriminating=False`**：D-fail 是**位置抖动**，而轴型分组在 H 变体内**退化为单一轴型**，无法据此区分历史效应；全量分组出现的「例外」仅因 **B 上传（本身即 `other`）跟随 H**，属**数组身份混杂**，非历史依赖。故 **E3 不适用**。
 
 ### 4.5 D4 B 对照 → **`inconclusive`**
 
@@ -165,7 +162,7 @@
 
 1. **[待用户授权]** 变体 P（`run_02`，物理断电重启）——E4 判定所需；未授权不得执行。
 2. **位置抖动分辨**：加长 settle / 多次重复 / 0th 与目标同步跟踪，区分「投递抖动」与「宽瓣质心测量噪声」——建议作为下一受控变体（**非本轮口径**，不得回改本轮判据）。
-3. **前驱扫描变体（E3 检验）**：须在 H 臂内制造**轴型差异**才具判别力；本轮退化为单一轴型。
+3. **前驱扫描变体（E3 检验）**：须在 H 变体内制造**轴型差异**才具判别力；本轮退化为单一轴型。
 4. **provenance 收尾**：全树 `sync_report_provenance.py --check` 与 `report/README.md` 索引重建**待持锁车道**完成——本工作树正被其它车道删除/改写 `issue247_*` 等报告，全局 sync 会误伤。
 
 ## 8. 指标参数表

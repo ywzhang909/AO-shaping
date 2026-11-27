@@ -14,7 +14,7 @@
 (``report/shape_trials/physical_refine/closed_loop_refit_abba_plan_20261124.md``):
 在同一设备会话内按 **A → B → B → A** 顺序, 依次在 SLM 上显示
 ``--phase-a`` / ``--phase-b`` 相位并用 CCD 各采集一帧, 以交错序列抵消漂移。
-A 臂 = 默认配置相位, B 臂 = refit 配置相位。本脚本只做回放与记录,
+变体 A = 默认配置相位, 变体 B = refit 配置相位。本脚本只做回放与记录,
 不做配对判定 (判定由离线分析按冻结口径完成)。
 
 安全语义 (与 ``validate_transfer_shapes_hardware.py`` 同一条外壳约定)
@@ -89,9 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     parser.add_argument("--phase-a", type=Path, required=True,
-                        help="A 臂相位文件 (npz 或 npy, 弧度制)")
+                        help="变体 A 相位文件 (npz 或 npy, 弧度制)")
     parser.add_argument("--phase-b", type=Path, required=True,
-                        help="B 臂相位文件 (npz 或 npy, 弧度制)")
+                        help="变体 B 相位文件 (npz 或 npy, 弧度制)")
     parser.add_argument("--mask-npz", type=Path, default=None,
                         help="可选掩膜 npz (core/ROI); 提供时统计掩膜内指标")
     parser.add_argument("--out", type=Path, required=True,
@@ -272,7 +272,7 @@ def _run_abba(args: argparse.Namespace) -> None:
         "stages": stages,
         "rebuilt_notice": (
             "按文档化 CLI 契约重建 (hw_capture_script_inventory_20261124), "
-            "上机前需重新验证"
+            "实验前需重新验证"
         ),
     }
     (out_dir / SUMMARY_NAME).write_text(

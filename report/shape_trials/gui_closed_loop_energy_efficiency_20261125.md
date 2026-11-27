@@ -1,5 +1,11 @@
 # GUI 闭环整形「完成整形后」能量利用率 vs SLM 衍射效率 (2026-11-25，2026-11-26 修订)
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 离线分析（复用实验系统已采集 JSON，不打开 SLM / CCD / 激光）
+> **说明**: 闭环整形完成态能量利用率 vs SLM 衍射效率 (η=E_blaze/F0 口径, 2026-11-26 修订); 正文含 UI 变更说明与三组历史数据复算; 数字表格由脚本复现, 叙述为手写
+<!-- provenance:end -->
+
 ## 摘要
 
 为实测闭环整形页面（`ClosedLoopShapingPage`）新增**完成态能量利用率报告**：闭环结束后，
@@ -134,8 +140,8 @@ S0 为平相位同框积分），`F0` 为平相位 R0=48 px 圆盘积分；级�
 ## A/B–ABBA 闭环实测判定（CCD，2026-11-26）
 
 前面「历史数据计算」只是趋势参考，**不构成 `model640` vs `refit_forward` 的闭环收益判定**。
-按冻结口径做单变量配对 A/B–ABBA 实测，A 臂 = `model640` 闭环 best
-（`ab_validate_base/square_best.npy`），B 臂 = `refit_forward`
+按冻结口径做单变量配对 A/B–ABBA 实测，变体 A = `model640` 闭环 best
+（`ab_validate_base/square_best.npy`），变体 B = `refit_forward`
 （`ab_validate_refit/square_best.npy`），同一设备会话内按 **A → B → B → A** 依次回放相位、
 CCD 各采一帧，以交错序列抵消漂移。主判据为
 `paired_decision(metric="cv")`，容差严格用默认 `rel_tol=0, abs_tol=0`；
@@ -155,7 +161,7 @@ CCD 各采一帧，以交错序列抵消漂移。主判据为
 四帧实测（camera-pixel core mask `abba_core_mask_camera.npz`，shape `(1944,2592)`、1369 个
 True，与 analysis-grid decimated CV 1.2299 对齐）：
 
-| 级 | 臂 | CV | mean | peak | saturated |
+| 级 | 变体 | CV | mean | peak | saturated |
 |---|---|---|---|---|---|
 | 0 | A | 1.897016 | 150.38 | 2059 | false |
 | 1 | B | 1.862118 | 151.28 | 2091 | false |

@@ -35,7 +35,8 @@ def matrix():
 
 
 def test_matrix_axes_are_the_frozen_grid(matrix) -> None:
-    assert matrix.VARIANTS == ("spgd", "square", "heuristic", "gs_refine")
+    assert matrix.VARIANTS == ("spgd", "square", "heuristic", "gs_refine",
+                               "model_in_loop")
     assert matrix.CN2_GRID == (1e-14, 2e-13, 2e-12)
 
 
@@ -45,22 +46,26 @@ def test_slot_bases_reproduce_historical_pairing(matrix) -> None:
     assert matrix.slot_of("square", 2e-13) == 4
     assert matrix.slot_of("heuristic", 2e-12) == 8
     assert matrix.slot_of("gs_refine", 1e-14) == 12
+    # MIL (M5b) 独立基址段 24+: 与 gs_refine 的 12..14 不撞, 老单元槽位不动
+    assert matrix.slot_of("model_in_loop", 1e-14) == 24
+    assert matrix.slot_of("model_in_loop", 2e-12) == 26
+    assert len({matrix.slot_of(v, c)
+                for v in matrix.VARIANTS for c in matrix.CN2_GRID}) == 15
 
 
 def test_cell_plans_construct_params_and_are_unique(matrix, tmp_path: Path) -> None:
     args = matrix.parse_args(["--dry-run", "--out-root", str(tmp_path)])
     plans = [
-        matrix.cell_plan(args, variant, cn2, slot)
-        for slot, (cn2, variant) in enumerate(
-            (c, v) for c in matrix.CN2_GRID for v in matrix.VARIANTS
-        )
+        matrix.cell_plan(args, variant, cn2, matrix.slot_of(variant, cn2))
+        for cn2 in matrix.CN2_GRID for variant in matrix.VARIANTS
     ]
-    assert len(plans) == 12
+    assert len(plans) == 15
     dirs = {Path(p["out_dir"]).name for p in plans}
-    assert len(dirs) == 12, "单元目录互撞会让 artifact 发现挑错目录"
+    assert len(dirs) == 15, "单元目录互撞会让 artifact 发现挑错目录"
     for plan in plans:
         params = TurbShapingParams(**plan)
-        assert params.turb_mode == "dynamic" and params.report is False
+        expected_mode = "static" if plan["algorithm"] == "model_in_loop" else "dynamic"
+        assert params.turb_mode == expected_mode and params.report is False
 
 
 def test_slot_of_pairs_sub_sweeps_with_frozen_baseline(matrix) -> None:
@@ -81,5 +86,5 @@ def test_dry_run_prints_plan_and_writes_nothing(matrix, tmp_path: Path, capsys, 
     monkeypatch.setattr(sys, "argv", argv)
     assert matrix.main() == 0
     payload = json.loads(capsys.readouterr().out)
-    assert len(payload["cells"]) == 12
+    assert len(payload["cells"]) == 15
     assert not (tmp_path / "nope").exists()

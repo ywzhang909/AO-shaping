@@ -1,5 +1,12 @@
 # S1e arm P D5 同序位跨变体对比
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/s1e_arm_p_d5_judge_20261126.py`](../../../scripts/slm/s1e_arm_p_d5_judge_20261126.py)
+> **复现命令**: `python scripts/slm/s1e_arm_p_d5_judge_20261126.py`
+> **运行环境**: 离线 CPU 判读（读两个变体冻结 JSON, 不打开设备）
+> **说明**: s1e arm-p vs d5 对比冻结表格 (缺省读 s1e_same_bytes_probe_20261126.json 与 s1e_arm_p_20261126.json)
+<!-- provenance:end -->
+
 - 判定：**no_power_cycle_effect**
 - 冻结阈值：`FROZEN_CRITERIA['intra_upload_max_dist_px']` = 1.5 px
 - 口径：dr/dc relative to each variant's own 0th (frozen §12.16.3)

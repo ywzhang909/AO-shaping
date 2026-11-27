@@ -81,6 +81,14 @@ def load_records(run_dir: Path) -> tuple[list[dict], list[int]]:
         rows = [dict(r) for r in obj]
     else:
         raise ValueError(f"unsupported recorder pkl shape in {pkls[0]}")
+    for row in rows:
+        # MIL 行用 score_after/cv_after/ee_after (#253 M5b): 归一到通用列名,
+        # 已有 quality 的变体逐字不动。
+        if "quality" not in row and row.get("score_after") is not None:
+            row["quality"] = float(row["score_after"])
+        for generic, mil_key in (("cv", "cv_after"), ("ee", "ee_after")):
+            if row.get(generic) is None and row.get(mil_key) is not None:
+                row[generic] = float(row[mil_key])
     epochs = [int(r.get(RECORD_EPOCH, i)) for i, r in enumerate(rows)]
     return rows, epochs
 
@@ -94,11 +102,21 @@ def sidecar_n_max(run_dir: Path) -> int:
             payload = json.loads(j.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
-        for key in ("n_max", "params"):
-            v = payload.get(key) if key == "n_max" else (payload.get(key) or {}).get("n_max")
+        for key in ("n_max", "n_orders"):
+            v = payload.get(key)
             if isinstance(v, int):
                 return v
-    return 4
+        v = (payload.get("params") or {}).get("n_max")
+        if isinstance(v, int):
+            return v
+    # 兜底: MIL 的 run_config.json 用 n_orders (已在上面读到); 矩阵 run.json
+    # 是最后来源 —— 它被排在后面, 因为各变体的专用 sidecar 更接近真相。
+    try:
+        meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return 4
+    value = meta.get("n_max")
+    return int(value) if isinstance(value, int) else 4
 
 
 def _subsample(rows: list, epochs: list, max_frames: int) -> tuple[list, list]:
