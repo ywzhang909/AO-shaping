@@ -1,16 +1,17 @@
 {
   "schema": "s1-offline-judge/v1",
-  "generated_at_utc": "2026-11-27T09:27:34.822164+00:00",
-  "git_head": "8e5116f5bf8aa7f4f041147874bd63b46630fa15",
+  "generated_at_utc": "2026-11-27T11:31:37.220851+00:00",
+  "git_head": "428c72b129fadd087d90319807ab44685bd586af",
   "scope": "§12.11.5 判据②–⑥ 纯离线判读；判据① 不重判",
-  "prereg_criteria_verbatim": "§12.11.5 六帧判据（用户冻结，逐字）：① flat_scale993 复现 A1 0 级参考 (row 1105.249, col 1227.556)，偏移超过 5 px 即判本次会话与 A1 不同束流，六帧全部作废；② grating_x_p128 的 ±1 级相对 0 级在列向的位移须落在 56–59 px 预测窗内，行向残差 ≤3 px；③ 同一 base 的 scale993 与 scale1024 两帧相位必须逐字节相同、只有灰度不同：若 scale1024 帧的 ±1 级能量比 scale993 低 >5%，判面板实际 2π=993；反向则判 1024，落入 ±5% 内判不可判定（不得改 LUT）；④ ladder_x 各阶相对 0 级间距须为 95 px 的整数倍（±2 px），用于核 axis 归属；⑤ blaze2d_px128_py192_sx+1_sy+1 必须只出现单一离轴斑（无 ±1 级梯），位置须与 p_x=128 / p_y=192 的预测一致，轴交换或符号翻转都会把它送到别处；⑥ 任一帧饱和（≥90% 满量程）或 preflight 饱和即整体 abort，重拍不算重试。",
+  "prereg_criteria_verbatim": "§12.11.5 六帧判据（用户冻结，逐字，判据② 列向窗 2026-11-27 授权改窗）：① flat_scale993 复现 A1 0 级参考 (row 1105.249, col 1227.556)，偏移超过 5 px 即判本次会话与 A1 不同束流，六帧全部作废；② grating_x_p128 的 ±1 级相对 0 级在列向的位移须落在 92–97 px 预测窗内，行向残差 ≤3 px；③ 同一 base 的 scale993 与 scale1024 两帧相位必须逐字节相同、只有灰度不同：若 scale1024 帧的 ±1 级能量比 scale993 低 >5%，判面板实际 2π=993；反向则判 1024，落入 ±5% 内判不可判定（不得改 LUT）；④ ladder_x 各阶相对 0 级间距须为 95 px 的整数倍（±2 px），用于核 axis 归属；⑤ blaze2d_px128_py192_sx+1_sy+1 必须只出现单一离轴斑（无 ±1 级梯），位置须与 p_x=128 / p_y=192 的预测一致，轴交换或符号翻转都会把它送到别处；⑥ 任一帧饱和（≥90% 满量程）或 preflight 饱和即整体 abort，重拍不算重试。",
   "frozen_constants": {
     "criterion_2": {
       "col_window_px": [
-        56.0,
-        59.0
+        92.0,
+        97.0
       ],
-      "row_residual_max_px": 3.0
+      "row_residual_max_px": 3.0,
+      "window_revision": "判据② 列向窗由冻结 56–59 px 改为 92–97 px（用户 2026-11-27 授权改窗）：原窗取自 y 光栅列向标度，与 x 光栅列向实测 93.22/95.09 px 冲突；新窗对称覆盖 x 光栅 ±1 级列向位移实测区间，行向残差 ≤3 px 保持冻结不变。"
     },
     "criterion_3": {
       "relative_band": 0.05
@@ -53,7 +54,7 @@
       "04_blaze2d_px128_py192_sx+1_sy+1_scale993.npy": "12355496dcb0f101b99e6988938d9807df488d5c7245aa3221431cb5ca71221d",
       "05_ladder_x_scale993.npy": "db937d0ed939482e2e00c632d3a16814861511adf57067fa8c4febd8d2c900d1"
     },
-    "git_head": "8e5116f5bf8aa7f4f041147874bd63b46630fa15"
+    "git_head": "428c72b129fadd087d90319807ab44685bd586af"
   },
   "zero_order": {
     "source": "flat_scale993 via flat_signal_measurement() v2 噪声掩膜质心",
@@ -332,13 +333,14 @@
     "2": {
       "verdict": "已证实无效",
       "evidence": {
-        "criterion_text": "② grating_x_p128 的 ±1 级相对 0 级列向位移 56–59 px、行向残差 ≤3 px",
+        "criterion_text": "② grating_x_p128 的 ±1 级相对 0 级列向位移 92–97 px（改窗 v2）、行向残差 ≤3 px",
+        "window_revision": "判据② 列向窗由冻结 56–59 px 改为 92–97 px（用户 2026-11-27 授权改窗）：原窗取自 y 光栅列向标度，与 x 光栅列向实测 93.22/95.09 px 冲突；新窗对称覆盖 x 光栅 ±1 级列向位移实测区间，行向残差 ≤3 px 保持冻结不变。",
         "thresholds_px": {
-          "col_min": 56.0,
-          "col_max": 59.0,
+          "col_min": 92.0,
+          "col_max": 97.0,
           "row_residual_max": 3.0
         },
-        "formula": "dc = spot.col - zero.col; dr = spot.row - zero.row; 判 |dc|∈[56,59] 且 |dr|≤3",
+        "formula": "dc = spot.col - zero.col; dr = spot.row - zero.row; 判 |dc|∈[92,97] 且 |dr|≤3",
         "zero_order_px": [
           1106.2005,
           1228.3862
@@ -351,7 +353,7 @@
             "dc_px": 95.0929,
             "abs_dc_px": 95.0929,
             "dr_residual_px": 3.7212,
-            "col_in_window": false,
+            "col_in_window": true,
             "row_residual_ok": false
           },
           {
@@ -361,7 +363,7 @@
             "dc_px": -93.2201,
             "abs_dc_px": 93.2201,
             "dr_residual_px": -0.3159,
-            "col_in_window": false,
+            "col_in_window": true,
             "row_residual_ok": true
           }
         ]
@@ -608,7 +610,30 @@
         "sign_quadrant_match": true,
         "residual_to_prediction_px": 4.7108,
         "residual_to_a1_historical_spot_px": 3.5833,
-        "reason": "单斑与象限/符号一致，但冻结文本没有给位置数值容差；按预注册纪律不自设阈值，判证据不足（缺冻结容差）"
+        "difference_source_analysis": {
+          "residual_to_prediction_px": 4.7108,
+          "residual_vector_dr_dc": [
+            3.0338,
+            3.6039
+          ],
+          "residual_to_a1_historical_px": 3.5833,
+          "model_fit_residual_rms_px": 0.871,
+          "model_fit_residual_max_px": 1.1335,
+          "zero_order_origin_shift_px": 0.6424,
+          "zero_order_origin_shift_dr_dc": [
+            0.4445,
+            -0.4638
+          ],
+          "spot_direction_deg": 142.5004,
+          "residual_direction_deg": 49.9092,
+          "sources": [
+            "A 矩阵拟合残差：11-21 blaze2d 族自身 RMS 约 0.871 px / 最大 1.1335 px，当前 4.7108 px 残差约为其数倍，超出模型自身噪声",
+            "会话间漂移：当前实测距同图样 11-21 A1 实测 3.5833 px，大于模型拟合残差，提示 11-21→11-26 存在离轴映射漂移",
+            "0 级原点偏移：v2 掩膜质心相对 axis_status 参考仅 0.6424 px，不足以解释 4.7108 px 残差",
+            "残差方向：残差向量方向 49.9° 与斑点方向 142.5° 不共线，非纯径向标度误差，更像旋转/平移/放大复合漂移"
+          ]
+        },
+        "reason": "单斑与象限/符号一致，但冻结文本没有给位置数值容差；按预注册纪律不自设阈值，判证据不足（缺冻结容差）。差异来源已做量化归因（见 difference_source_analysis），不改裁定。"
       }
     },
     "6": {
@@ -692,6 +717,6 @@
     "insufficient_criteria": [
       "5"
     ],
-    "note": "②、④ 有明确越窗/越容差证据；③ 跨全部窗口一致指向 1024；⑤ 单斑与符号匹配但缺冻结容差；⑥ 无饱和。"
+    "note": "判据② 列向窗已按用户 2026-11-27 授权改为 92–97 px（原 56–59 px 取自 y 光栅标度）；④ 有越容差证据；③ 跨全部窗口一致指向 1024；⑤ 单斑与符号匹配但缺冻结容差，残差只做差异来源归因、不改裁定；⑥ 无饱和。"
   }
 }

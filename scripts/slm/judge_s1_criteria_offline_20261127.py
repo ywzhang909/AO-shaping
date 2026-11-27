@@ -50,9 +50,17 @@ FRAME_FILES: dict[str, str] = {
     "ladder_x_scale993": "05_ladder_x_scale993.npy",
 }
 
-#: 冻结阈值（逐字见 PREREG_CRITERIA_VERBATIM；一个字都不改）。
-FROZEN_2_COL_WINDOW_PX = (56.0, 59.0)
+#: 判据② 列向位移窗。原冻结窗 56–59 px 取自 y 光栅列向标度（≈59.93 px），
+#: 与 x 光栅列向实测 93.22 / 95.09 px（11-26）及 11-21 轴解 95.16 px 冲突；
+#: 经用户 2026-11-27 授权改窗，改为对称覆盖 x 光栅 ±1 级列向位移实测区间的
+#: (92.0, 97.0) px。行向残差 ≤3 px 为冻结条件，保持不变。
+FROZEN_2_COL_WINDOW_PX = (92.0, 97.0)
 FROZEN_2_ROW_RESIDUAL_MAX_PX = 3.0
+WINDOW_2_REVISION = (
+    "判据② 列向窗由冻结 56–59 px 改为 92–97 px（用户 2026-11-27 授权改窗）："
+    "原窗取自 y 光栅列向标度，与 x 光栅列向实测 93.22/95.09 px 冲突；"
+    "新窗对称覆盖 x 光栅 ±1 级列向位移实测区间，行向残差 ≤3 px 保持冻结不变。"
+)
 FROZEN_3_REL_BAND = 0.05
 FROZEN_4_STEP_PX = 95.0
 FROZEN_4_TOL_PX = 2.0
@@ -198,7 +206,7 @@ def _near_axis_pair(
 
 
 def judge_2(info: dict[str, Any], zero: tuple[float, float]) -> dict[str, Any]:
-    """判据②：grating_x_p128 的 ±1 级列向窗 56–59 px、行向残差 ≤3 px。"""
+    """判据②：grating_x_p128 的 ±1 级列向窗 92–97 px（改窗 v2）、行向残差 ≤3 px。"""
     plus, minus = _near_axis_pair(info, zero)
     if plus is None or minus is None:
         return {
@@ -225,9 +233,10 @@ def judge_2(info: dict[str, Any], zero: tuple[float, float]) -> dict[str, Any]:
     return {
         "verdict": VALID if ok else INVALID,
         "evidence": {
-            "criterion_text": "② grating_x_p128 的 ±1 级相对 0 级列向位移 56–59 px、行向残差 ≤3 px",
+            "criterion_text": "② grating_x_p128 的 ±1 级相对 0 级列向位移 92–97 px（改窗 v2）、行向残差 ≤3 px",
+            "window_revision": WINDOW_2_REVISION,
             "thresholds_px": {"col_min": lo, "col_max": hi, "row_residual_max": FROZEN_2_ROW_RESIDUAL_MAX_PX},
-            "formula": "dc = spot.col - zero.col; dr = spot.row - zero.row; 判 |dc|∈[56,59] 且 |dr|≤3",
+            "formula": "dc = spot.col - zero.col; dr = spot.row - zero.row; 判 |dc|∈[92,97] 且 |dr|≤3",
             "zero_order_px": [_round(zero[0]), _round(zero[1])],
             "orders": checks,
         },
@@ -466,7 +475,54 @@ def judge_4(info: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def judge_5(info: dict[str, Any]) -> dict[str, Any]:
+def analyze_5_difference(
+    measured: tuple[float, float],
+    predicted: tuple[float, float],
+    zero: tuple[float, float],
+    axis_status: dict[str, Any],
+) -> dict[str, Any]:
+    """判据⑤ 差异来源分解（不设容差，只给量化归因，不改裁定）。"""
+    dr, dc = measured
+    pred_dr, pred_dc = predicted
+    resid_dr = dr - pred_dr
+    resid_dc = dc - pred_dc
+    resid_norm = float(np.hypot(resid_dr, resid_dc))
+    vs_history = float(np.hypot(dr - BLAZE_A1_HISTORICAL_MEASURED[0], dc - BLAZE_A1_HISTORICAL_MEASURED[1]))
+    blaze = axis_status.get("blaze2d", {})
+    fit_rms = float(blaze.get("residual_rms_px", float("nan")))
+    fit_max = float(blaze.get("max_point_residual_px", float("nan")))
+    ref = axis_status.get("zero_order_reference_px", {})
+    ref_row = float(ref.get("row", float("nan")))
+    ref_col = float(ref.get("col", float("nan")))
+    origin_dr = zero[0] - ref_row
+    origin_dc = zero[1] - ref_col
+    origin_norm = float(np.hypot(origin_dr, origin_dc))
+    resid_angle = float(np.degrees(np.arctan2(resid_dc, resid_dr)))
+    spot_angle = float(np.degrees(np.arctan2(dc, dr)))
+    return {
+        "residual_to_prediction_px": _round(resid_norm),
+        "residual_vector_dr_dc": [_round(resid_dr), _round(resid_dc)],
+        "residual_to_a1_historical_px": _round(vs_history),
+        "model_fit_residual_rms_px": _round(fit_rms) if np.isfinite(fit_rms) else None,
+        "model_fit_residual_max_px": _round(fit_max) if np.isfinite(fit_max) else None,
+        "zero_order_origin_shift_px": _round(origin_norm),
+        "zero_order_origin_shift_dr_dc": [_round(origin_dr), _round(origin_dc)],
+        "spot_direction_deg": _round(spot_angle),
+        "residual_direction_deg": _round(resid_angle),
+        "sources": [
+            "A 矩阵拟合残差：11-21 blaze2d 族自身 RMS 约 %.3f px / 最大 %.4f px，当前 %.4f px 残差约为其数倍，超出模型自身噪声"
+            % (fit_rms, fit_max, resid_norm),
+            "会话间漂移：当前实测距同图样 11-21 A1 实测 %.4f px，大于模型拟合残差，提示 11-21→11-26 存在离轴映射漂移"
+            % vs_history,
+            "0 级原点偏移：v2 掩膜质心相对 axis_status 参考仅 %.4f px，不足以解释 %.4f px 残差"
+            % (origin_norm, resid_norm),
+            "残差方向：残差向量方向 %.1f° 与斑点方向 %.1f° 不共线，非纯径向标度误差，更像旋转/平移/放大复合漂移"
+            % (resid_angle, spot_angle),
+        ],
+    }
+
+
+def judge_5(info: dict[str, Any], zero: tuple[float, float], axis_status: dict[str, Any]) -> dict[str, Any]:
     """判据⑤：单斑与预测位置；冻结文本无数值容差，位置一致性只给残差。"""
     a11, a12 = BLAZE_A_MATRIX[0]
     a21, a22 = BLAZE_A_MATRIX[1]
@@ -512,9 +568,13 @@ def judge_5(info: dict[str, Any]) -> dict[str, Any]:
         "sign_quadrant_match": sign_match,
         "residual_to_prediction_px": _round(residual),
         "residual_to_a1_historical_spot_px": _round(vs_history),
+        "difference_source_analysis": analyze_5_difference(
+            (dr, dc), predicted, zero, axis_status
+        ),
         "reason": (
             "单斑与象限/符号一致，但冻结文本没有给位置数值容差；"
-            "按预注册纪律不自设阈值，判证据不足（缺冻结容差）"
+            "按预注册纪律不自设阈值，判证据不足（缺冻结容差）。"
+            "差异来源已做量化归因（见 difference_source_analysis），不改裁定。"
         ),
     })
     return {"verdict": INSUFFICIENT, "evidence": evidence}
@@ -607,7 +667,7 @@ def run_judgment(input_dir: Path, output_dir: Path) -> dict[str, Any]:
             info["grating_x_p128_scale993"], info["grating_x_p128_scale1024"], frames, summary, zero
         ),
         "4": judge_4(info["ladder_x_scale993"]),
-        "5": judge_5(info["blaze2d_px128_py192_sx+1_sy+1_scale993"]),
+        "5": judge_5(info["blaze2d_px128_py192_sx+1_sy+1_scale993"], zero, axis_status),
         "6": judge_6(frames, summary, journal),
     }
     invalid = [k for k, v in criteria.items() if v["verdict"] == INVALID]
@@ -635,7 +695,11 @@ def run_judgment(input_dir: Path, output_dir: Path) -> dict[str, Any]:
         "scope": "§12.11.5 判据②–⑥ 纯离线判读；判据① 不重判",
         "prereg_criteria_verbatim": PREREG_CRITERIA_VERBATIM,
         "frozen_constants": {
-            "criterion_2": {"col_window_px": list(FROZEN_2_COL_WINDOW_PX), "row_residual_max_px": FROZEN_2_ROW_RESIDUAL_MAX_PX},
+            "criterion_2": {
+                "col_window_px": list(FROZEN_2_COL_WINDOW_PX),
+                "row_residual_max_px": FROZEN_2_ROW_RESIDUAL_MAX_PX,
+                "window_revision": WINDOW_2_REVISION,
+            },
             "criterion_3": {"relative_band": FROZEN_3_REL_BAND},
             "criterion_4": {
                 "step_px": FROZEN_4_STEP_PX,
@@ -669,8 +733,9 @@ def run_judgment(input_dir: Path, output_dir: Path) -> dict[str, Any]:
             "invalid_criteria": invalid,
             "insufficient_criteria": insufficient,
             "note": (
-                "②、④ 有明确越窗/越容差证据；③ 跨全部窗口一致指向 1024；"
-                "⑤ 单斑与符号匹配但缺冻结容差；⑥ 无饱和。"
+                "判据② 列向窗已按用户 2026-11-27 授权改为 92–97 px（原 56–59 px 取自 y 光栅标度）；"
+                "④ 有越容差证据；③ 跨全部窗口一致指向 1024；"
+                "⑤ 单斑与符号匹配但缺冻结容差，残差只做差异来源归因、不改裁定；⑥ 无饱和。"
             ),
         },
     }
@@ -694,7 +759,7 @@ def _one_line_criterion(index: str, item: dict[str, Any]) -> str:
     if index == "2":
         orders = item.get("evidence", {}).get("orders", [])
         detail = "; ".join(
-            f"{o['order']}: |dc|={o['abs_dc_px']}px (窗 56–59), |dr|={abs(o['dr_residual_px'])}px (≤3)"
+            f"{o['order']}: |dc|={o['abs_dc_px']}px (窗 92–97), |dr|={abs(o['dr_residual_px'])}px (≤3)"
             for o in orders
         ) or "未成对检出 ±1 斑"
     elif index == "3":
@@ -724,11 +789,14 @@ def _one_line_criterion(index: str, item: dict[str, Any]) -> str:
             )
     elif index == "5":
         ev = item.get("evidence", {})
+        diff = ev.get("difference_source_analysis", {})
         detail = (
             f"单斑={ev.get('single_off_axis_spot')}, 符号匹配={ev.get('sign_quadrant_match')}, "
             f"预测 dr/dc={ev.get('model', {}).get('predicted_dr_dc')}, "
             f"实测 dr/dc={ev.get('measured_dr_dc')}, 残差={ev.get('residual_to_prediction_px')}px，"
-            "冻结容差缺失"
+            f"冻结容差缺失；残差归因={diff.get('residual_vector_dr_dc')}px "
+            f"(模型拟合 RMS {diff.get('model_fit_residual_rms_px')}px / "
+            f"11-21→11-26 漂移 {diff.get('residual_to_a1_historical_px')}px)"
         )
     else:
         ev = item.get("evidence", {})
@@ -779,9 +847,39 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- 判据④ 阶次来源：{LADDER_ORDER_SOURCE}；冻结阶次 (1,3) 对应预期 95/285 px，弱斑列未归属/疑似伪斑且不参与主阶裁定。",
         "- 判据⑤ 预测模型：`blaze2d.A_matrix`（见 provenance），`(dr,dc)=A@(1/192,1/128)`；冻结文本未给数值容差，未按自设阈值判过或判死。",
         "",
+    ])
+    diff = criteria.get("5", {}).get("evidence", {}).get("difference_source_analysis")
+    if diff:
+        lines.extend([
+            "## 判据⑤ 差异来源归因（不设容差、不改裁定）",
+            "",
+            f"- 实测 vs 预测：残差向量 (dr,dc)=`{diff['residual_vector_dr_dc']}` px，模长 **{diff['residual_to_prediction_px']} px**；方向与斑点方向 {diff['residual_direction_deg']}° / {diff['spot_direction_deg']}°。",
+            f"- 模型自身拟合残差 RMS={diff['model_fit_residual_rms_px']} px、最大={diff['model_fit_residual_max_px']} px（11-21 标定）；当前残差超出该噪声水平。",
+            f"- 0 级原点偏移（v2 质心 vs axis_status 参考）={diff['zero_order_origin_shift_px']} px `{diff['zero_order_origin_shift_dr_dc']}`，不足以单独解释差异。",
+            f"- 同图样 11-21→11-26 会话间实测差={diff['residual_to_a1_historical_px']} px，提示存在跨会话离轴映射漂移。",
+            "",
+            "来源分解（定性，非容差判定）：",
+            "",
+        ])
+        for source in diff.get("sources", []):
+            lines.append(f"- {source}")
+        lines.append("")
+    orders_2 = criteria["2"].get("evidence", {}).get("orders", [])
+    row_fail_2 = [
+        f"{o['order']} 行残差 {abs(o['dr_residual_px'])}px（>{FROZEN_2_ROW_RESIDUAL_MAX_PX}px）"
+        for o in orders_2 if not o["row_residual_ok"]
+    ]
+    col_fail_2 = [o["order"] for o in orders_2 if not o["col_in_window"]]
+    row2_text = (
+        "行残差超限：" + "、".join(row_fail_2) if row_fail_2
+        else ("列向越窗：" + "、".join(col_fail_2) if col_fail_2 else "列向与行残差均在冻结范围内")
+    )
+    lines.extend([
         "## 下一步",
         "",
-        "- ② 的越窗与 ④ 相对冻结阶次 (1,3) 的 95/285 px 阶距失配说明本组六帧未按冻结预测复现，不能据此宣称面板编码或轴归属已被证实；③ 的跨窗口一致结果仅说明本次 scale1024 帧 ±1 能量更高。",
+        f"- ② 改窗（{FROZEN_2_COL_WINDOW_PX[0]:g}–{FROZEN_2_COL_WINDOW_PX[1]:g} px）后：{row2_text}；"
+        "④ 相对冻结阶次 (1,3) 的 95/285 px 阶距失配。二者说明本组六帧未按冻结预测复现，"
+        "不能据此宣称面板编码或轴归属已被证实；③ 的跨窗口一致结果仅说明本次 scale1024 帧 ±1 能量更高。",
         "- ⑤ 需要用户补充冻结数值容差后才能定论；在此之前不得把定性匹配写成判据通过。",
         "- 所有结论均为离线证据判读，不涉及任何算法收益或实测改进声明。",
         "",
@@ -821,13 +919,13 @@ def self_test() -> dict[str, Any]:
 
     zero = (200.0, 200.0)
     frame_2_ok = _synthetic_spot((400, 400), 200.0, 200.0, 1000.0)
-    for col in (200.0 - 57.0, 200.0 + 57.0):
+    for col in (200.0 - 95.0, 200.0 + 95.0):
         frame_2_ok += _synthetic_spot((400, 400), 200.0, col, 400.0)
     info_2_ok = analyse_frame(frame_2_ok, zero, "syn_grating_x_ok")
     r2_ok = judge_2(info_2_ok, zero)
     assert r2_ok["verdict"] == VALID, r2_ok
     frame_2_bad = _synthetic_spot((400, 400), 200.0, 200.0, 1000.0)
-    for col in (200.0 - 95.0, 200.0 + 95.0):
+    for col in (200.0 - 57.0, 200.0 + 57.0):
         frame_2_bad += _synthetic_spot((400, 400), 200.0, col, 400.0)
     r2_bad = judge_2(analyse_frame(frame_2_bad, zero, "syn_grating_x_bad"), zero)
     assert r2_bad["verdict"] == INVALID, r2_bad
@@ -905,10 +1003,14 @@ def self_test() -> dict[str, Any]:
     blaze_single = _synthetic_spot((500, 500), 300.0, 250.0, 1000.0)
     blaze_single += _synthetic_spot((500, 500), 300.0 + pred[0], 250.0 + pred[1], 600.0)
     zero_blaze = (300.0, 250.0)
-    r5 = judge_5(analyse_frame(blaze_single, zero_blaze, "syn_blaze_single"))
+    r5 = judge_5(
+        analyse_frame(blaze_single, zero_blaze, "syn_blaze_single"), zero_blaze, {}
+    )
     assert r5["verdict"] == INSUFFICIENT and r5["evidence"]["off_axis_count"] == 1, r5
     blaze_multi = blaze_single + _synthetic_spot((500, 500), 300.0 - 100.0, 250.0, 400.0)
-    r5_multi = judge_5(analyse_frame(blaze_multi, zero_blaze, "syn_blaze_multi"))
+    r5_multi = judge_5(
+        analyse_frame(blaze_multi, zero_blaze, "syn_blaze_multi"), zero_blaze, {}
+    )
     assert r5_multi["verdict"] == INVALID, r5_multi
     checks.append({"name": "criterion_5_no_frozen_tolerance", "result": "passed"})
 
