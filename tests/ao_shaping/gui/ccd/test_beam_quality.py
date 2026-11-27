@@ -948,3 +948,127 @@ def test_poll_uses_averaged_frame_for_analysis(qt_app) -> None:
 
     window._source = None
     window.close()
+
+
+def test_hidden_page_stops_redraw_but_keeps_trend(qt_app, monkeypatch) -> None:
+    """页 0 隐藏后: 分析降到 1 Hz、不重绘视频/剖面/读数, 趋势缓冲仍连续。"""
+    from ao_shaping.gui.ccd.beam_quality.analyzer import FrameMetrics
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    class _ThreeFrameSource:
+        fps = 30.0
+        exposure_ms = 5.0
+        dropped_frames = 0
+
+        def __init__(self) -> None:
+            self.pending = [
+                np.full((8, 8), value, dtype=np.uint8) for value in (20, 30, 40)
+            ]
+
+        def drain_latest(self) -> tuple[np.ndarray, float] | None:
+            if not self.pending:
+                return None
+            return self.pending.pop(0), time.time()
+
+        def stop(self) -> None:
+            return None
+
+    metrics = FrameMetrics(
+        max_value=100.0,
+        mean_value=30.0,
+        std_value=5.0,
+        sat_ratio=0.0,
+        cx=4.0,
+        cy=4.0,
+        ellipse=None,
+        x_profile=np.zeros(8),
+        y_profile=np.zeros(8),
+        width=8,
+        height=8,
+    )
+    calls = {"analyze": 0, "video": 0, "profile": 0, "spread": 0, "stats": 0}
+
+    def _analyze(_img: np.ndarray) -> FrameMetrics:
+        calls["analyze"] += 1
+        return metrics
+
+    window = BeamQualityApp()
+    window.show()
+    qt_app.processEvents()
+    assert window._poll_timer.interval() == BeamQualityApp.POLL_INTERVAL_MS
+
+    monkeypatch.setattr(window, "_analyze", _analyze)
+    monkeypatch.setattr(
+        window._video, "set_frame", lambda *_a: calls.update(video=calls["video"] + 1)
+    )
+    monkeypatch.setattr(
+        window._profile,
+        "update_metrics",
+        lambda *_a: calls.update(profile=calls["profile"] + 1),
+    )
+    monkeypatch.setattr(
+        window,
+        "_update_center_spread",
+        lambda *_a: calls.update(spread=calls["spread"] + 1),
+    )
+    monkeypatch.setattr(
+        window, "_update_stats", lambda *_a: calls.update(stats=calls["stats"] + 1)
+    )
+
+    window._source = _ThreeFrameSource()  # type: ignore[assignment]
+    window._poll_timer.start()
+    window._trend_timer.start()
+    window.set_render_active(False)
+    assert not window._render_active
+    assert window._poll_timer.interval() == BeamQualityApp.HIDDEN_POLL_INTERVAL_MS
+    assert window._poll_timer.isActive()
+    assert not window._trend_timer.isActive()
+    assert not window._auto_timer.isActive()
+
+    for _ in range(2):
+        window._last_append_ts = 0.0
+        window._on_poll()
+    assert calls["analyze"] == 2
+    assert calls["video"] == calls["profile"] == 0
+    assert calls["spread"] == calls["stats"] == 0
+    assert len(window._buffer) == 2, "隐藏页仍需写趋势缓冲, 否则回页 0 会断线"
+
+    window.set_render_active(True)
+    assert window._render_active
+    assert window._poll_timer.interval() == BeamQualityApp.POLL_INTERVAL_MS
+    assert window._poll_timer.isActive()
+    assert window._trend_timer.isActive()
+    window._last_append_ts = 0.0
+    window._ui_fps_since = time.monotonic() - 2.0
+    window._on_poll()
+    assert calls["analyze"] == 3
+    assert calls["video"] == calls["profile"] == calls["spread"] == calls["stats"] == 1
+    assert len(window._buffer) == 3
+    window.close()
+
+
+def test_stacked_page_switch_toggles_render_gate(qt_app) -> None:
+    """外壳 QStackedWidget 切页必须触发页 0 的 hide/showEvent 门控。"""
+    from PySide6.QtWidgets import QStackedWidget, QWidget
+
+    from ao_shaping.gui.ccd.beam_quality.app import BeamQualityApp
+
+    shell = QStackedWidget()
+    page = BeamQualityApp()
+    shell.addWidget(page)
+    shell.addWidget(QWidget())
+    shell.show()
+    qt_app.processEvents()
+    assert page._render_active
+
+    shell.setCurrentIndex(1)
+    qt_app.processEvents()
+    assert not page._render_active
+    assert page._poll_timer.interval() == BeamQualityApp.HIDDEN_POLL_INTERVAL_MS
+
+    shell.setCurrentIndex(0)
+    qt_app.processEvents()
+    assert page._render_active
+    assert page._poll_timer.interval() == BeamQualityApp.POLL_INTERVAL_MS
+    shell.close()
+    qt_app.processEvents()

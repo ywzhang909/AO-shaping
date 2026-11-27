@@ -166,6 +166,7 @@ class BeamQualityApp(QMainWindow):
     """光束质量分析主窗口。"""
 
     POLL_INTERVAL_MS = 33  # ~30 Hz 取帧
+    HIDDEN_POLL_INTERVAL_MS = 1000  # 隐藏页 1 Hz 保底采样: 维持趋势连续性, 不烧 UI 线程
     TREND_INTERVAL_MS = 200  # ~5 Hz 重绘趋势
     TREND_SAMPLE_INTERVAL_S = 0.1  # 趋势采样 10 Hz (3600 点 ≈ 6 min)
     TREND_MAXLEN = 7200
@@ -200,6 +201,8 @@ class BeamQualityApp(QMainWindow):
         self._ui_fps = 0.0
         self._ui_fps_count = 0
         self._ui_fps_since = time.monotonic()
+        #: 页面是否被外壳当前显示。切到整形页后停重绘, 只保留 1 Hz 趋势采样。
+        self._render_active = True
 
         # 阻塞型硬件操作 (open/close/改曝光) 串行下到这个单线程池,
         # UI 线程只收发结果; _busy 期间相关按钮禁用, 防止并发操作同一相机。
@@ -224,6 +227,42 @@ class BeamQualityApp(QMainWindow):
         self._auto_timer = QTimer(self)
         self._auto_timer.setInterval(self.AUTO_EXPOSURE_INTERVAL_MS)
         self._auto_timer.timeout.connect(self._on_auto_exposure_tick)
+
+    # -------------------------------------------------------------- 可见性门控
+    def set_render_active(self, active: bool) -> None:
+        """切页/隐藏时降本: 分析从 30 Hz 降到 1 Hz, 停重绘与趋势刷新。
+
+        外壳用 ``QStackedWidget`` 切页, 非当前页只被 ``hide()``, QTimer 照常触发;
+        不显式降频的话, 操作员在整形页操作时页 0 仍在 UI 线程满速分析/重绘。
+        隐藏页仍以 1 Hz 分析并写入趋势缓冲, 保住趋势连续性; 不更新视频/剖面/读数。
+        恢复时补一次趋势刷新, 避免回到页 0 看到停更前的旧图。
+        """
+        want = bool(active)
+        if want == self._render_active:
+            return
+        self._render_active = want
+        self._poll_timer.setInterval(
+            self.POLL_INTERVAL_MS if want else self.HIDDEN_POLL_INTERVAL_MS
+        )
+        if self._source is None:
+            return
+        if want:
+            self._poll_timer.start()
+            self._trend_timer.start()
+            if self._auto_exposure and not self._busy:
+                self._auto_timer.start()
+            self._on_trend_tick()
+        else:
+            self._trend_timer.stop()
+            self._auto_timer.stop()
+
+    def hideEvent(self, event) -> None:
+        self.set_render_active(False)
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        self.set_render_active(True)
+        super().showEvent(event)
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
@@ -565,10 +604,11 @@ class BeamQualityApp(QMainWindow):
             self._last_frame_ts = 0.0
             self._last_view = None
             self._averager.reset()
-            self._poll_timer.start()
-            self._trend_timer.start()
-            if self._auto_exposure:
-                self._auto_timer.start()
+            self._poll_timer.start()  # interval 已按 _render_active 设好 (隐藏页 1 Hz)
+            if self._render_active:
+                self._trend_timer.start()
+                if self._auto_exposure:
+                    self._auto_timer.start()
             self._set_controls_enabled(True)
             # 打开后把曝光控件换成该设备的真实量程 (占位量程只用于打开前)
             self._sync_exposure_range(source)
@@ -753,7 +793,7 @@ class BeamQualityApp(QMainWindow):
 
     # -------------------------------------------------------------- 周期任务
     def _on_poll(self) -> None:
-        """UI 线程: 只处理最新一帧 → 分析 → 刷新视频/剖面/趋势缓冲。"""
+        """UI 线程: 处理最新一帧 → 分析 → 可见时刷新视频/剖面, 始终写趋势缓冲。"""
         source = self._source
         if source is None:
             return
@@ -771,9 +811,11 @@ class BeamQualityApp(QMainWindow):
         metrics = self._analyze(self._last_view)
         if metrics is not None:
             self._last_metrics = metrics
-            self._update_center_spread(metrics)
-            self._video.set_frame(self._last_view, metrics, source.fps)
-            self._profile.update_metrics(metrics)
+            if self._render_active:
+                self._update_center_spread(metrics)
+                self._video.set_frame(self._last_view, metrics, source.fps)
+                self._profile.update_metrics(metrics)
+            # 隐藏页仍以 1 Hz 写趋势缓冲, 不重绘任何控件。
             now = time.time()
             if now - self._last_append_ts >= self.TREND_SAMPLE_INTERVAL_S:
                 self._buffer.append(now, metrics)
@@ -786,7 +828,8 @@ class BeamQualityApp(QMainWindow):
             self._ui_fps = self._ui_fps_count / elapsed
             self._ui_fps_count = 0
             self._ui_fps_since = time.monotonic()
-            self._update_stats(img)
+            if self._render_active:
+                self._update_stats(img)
 
     def _analyze(self, img: np.ndarray) -> FrameMetrics | None:
         """分析一帧; 超大靶面先 2x2 binning, 再把坐标换算回原始像素。"""
