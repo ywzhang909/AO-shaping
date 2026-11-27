@@ -457,3 +457,56 @@ def test_e2e_real_adapter_cpu_advances_multiple_rounds(tmp_path: Path) -> None:
     assert session["rounds_recorded"] == 3  # baseline + 2 轮
     rows = [json.loads(line) for line in (out / "rounds.jsonl").read_text().splitlines()]
     assert all(row["candidate_ms"] is not None for row in rows[1:])
+
+
+def test_plan_doc_records_refit_every() -> None:
+    """--refit-every 必须在 plan-only 可见；默认 2 保持现状语义。"""
+    args = SCRIPT.build_parser().parse_args(["--out", "x"])
+    plan = SCRIPT.plan_doc(args, SCRIPT.build_config(args)[0])
+    assert plan["config"]["refit_every"] == 2
+
+    args1 = SCRIPT.build_parser().parse_args(["--out", "x", "--refit-every", "1"])
+    plan1 = SCRIPT.plan_doc(args1, SCRIPT.build_config(args1)[0])
+    assert plan1["config"]["refit_every"] == 1
+
+
+def test_adapter_factory_applies_refit_every(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--refit-every 1 必须传到在线适配器的 policy（首个接受轮次后立即重拟合）。"""
+    xy = SCRIPT.analysis_grid((500.0, 500.0), 4)
+    shape = (int(xy.shape[0]), int(xy.shape[1]))
+    captured: dict[str, Any] = {}
+
+    class RecorderAdapter:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+        def ready(self) -> bool:
+            return True
+
+        def refit(self) -> object:
+            return SimpleNamespace(promoted=True, status="promoted")
+
+        def forward(self, grid: object) -> object:
+            return _FakeForward(shape)
+
+    # 拦截生产默认 adapter_factory 里的 OnlineTransferAdapter 构造，捕获 policy。
+    # 输入校验有独立测试，这里只关心 policy 传递，故跳过（无需真实 checkpoint）。
+    monkeypatch.setattr(SCRIPT, "OnlineTransferAdapter", RecorderAdapter)
+    monkeypatch.setattr(SCRIPT, "adapter_inputs_error", lambda _args: None)
+    exit_code = SCRIPT.main(
+        [
+            "--out", str(tmp_path / "run"), "--execute", "--wait-until-idle", "0",
+            "--max-rounds", "1", "--step-iterations", "2",
+            "--grid-size", "8", "--centre-x", "500", "--centre-y", "500",
+            "--exposure-ms", "20", "--refit-every", "1",
+            # 生产 adapter_factory 会先做输入校验，给非空占位即可（适配器已 fake）
+            "--checkpoint", "dummy.json", "--session-dir", str(tmp_path / "session"),
+            "--source-dataset", "dummy",
+        ],
+        bench_factory=_SpotBench,
+    )
+    assert exit_code == 0
+    assert "policy" in captured
+    assert captured["policy"].refit_every == 1

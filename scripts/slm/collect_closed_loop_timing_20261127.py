@@ -47,6 +47,7 @@ if str(SRC) not in sys.path:
 import numpy as np
 
 from ao_shaping.gui.slm.closed_loop_shaping import (
+    AdaptationPolicy,
     ClosedLoopConfig,
     ClosedLoopRunner,
     LoopEvent,
@@ -288,6 +289,7 @@ def plan_doc(args: argparse.Namespace, config: ClosedLoopConfig) -> dict[str, An
             "exposure_ms": config.exposure_ms,
             "adapt": config.adapt,
             "candidate_policy": config.candidate_policy,
+            "refit_every": int(args.refit_every),
             "step_iterations": config.step_iterations,
         },
         "device": {
@@ -470,6 +472,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--half-height", type=float, default=2.0)
     parser.add_argument("--grid-size", type=int, default=128)
     parser.add_argument("--step-iterations", type=int, default=60)
+    # 在线适配重拟合间隔：默认 2 保持现状语义；设 1 可在首个被接受轮次后立即重拟合。
+    parser.add_argument(
+        "--refit-every",
+        type=int,
+        default=2,
+        help="在线适配重拟合间隔（默认 2）；设 1 可在首个被接受轮次后立即重拟合",
+    )
     parser.add_argument("--no-adapt", dest="adapt", action="store_false", default=True)
     parser.add_argument("--checkpoint", default="")
     parser.add_argument("--session-dir", default="")
@@ -529,6 +538,8 @@ def main(
                 session_dir=args.session_dir,
                 span=int(args.span),
                 source_dataset=args.source_dataset,
+                # 重拟合间隔由 CLI 控制：1 表示首个被接受轮次后立即重拟合。
+                policy=AdaptationPolicy(refit_every=int(args.refit_every)),
                 # refine_phase 的 init/target 在 CPU（runner 调用点不传 device），
                 # forward 必须同设备，否则 cuda/cpu 混算报 device 失配。
                 device="cpu",
