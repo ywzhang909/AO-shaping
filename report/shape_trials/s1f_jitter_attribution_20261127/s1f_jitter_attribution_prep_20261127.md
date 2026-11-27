@@ -186,5 +186,5 @@ flowchart LR
 
 ## 附录 B · 绑定 commit
 
-- 代码与预注册提交：`PENDING_CODE_COMMIT`
-- 本报告提交：`PENDING_REPORT_COMMIT`
+- 代码与预注册提交：`aca0b987`
+- 本报告提交：`aca0b987`（与代码同一提交；本段由紧随其后的溯源绑定提交回填）

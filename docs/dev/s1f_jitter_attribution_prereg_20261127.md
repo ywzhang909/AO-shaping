@@ -165,3 +165,7 @@
 - 本线文件：本预注册、采集脚本、判读脚本、两份离线测试、离线准备报告（`report/shape_trials/s1f_jitter_attribution_20261127/`）。
 - **不碰** `scripts/_common/provenance.py`；`driver.py` 工作树中他车道 `SlotRotator` hunk 保持未暂存。
 - 只提交本线文件，逐路径 `git add`。
+
+## 8. 绑定 commit
+
+- 离线准备提交：`aca0b987`（预注册、采集脚本、判读脚本、两份离线测试、离线准备报告）。
