@@ -28,7 +28,14 @@
 目录就绪之后才惰性导入。
 
 退出码（``--execute``）：0 = 测到且 within_tolerance；3 = 测到但超出 5 px 容差
-（测量本身有效，只是还没对齐）；2 = 等不到台面锁；1 = 其它错误。
+（测量本身有效，只是还没对齐）；4 = 测不到 0 级光斑（fail-closed：质心退回几何中心
+占位，**不作** within_tolerance 判读）；2 = 等不到台面锁；1 = 其它错误。
+
+无信号判据（严格复用 S1 v2，禁止重写）
+--------------------------------------
+逐帧调用 S1 的 ``flat_signal_measurement``；只有
+``peak_snr >= 50.0 && signal_pixels >= 4 && signal_weight_counts >= 2000.0``
+同时成立才算测到光斑。阈值直接取自 S1 模块常量，本文件不新造数值。
 """
 
 from __future__ import annotations
@@ -54,7 +61,11 @@ for _path in (ROOT / "src", ROOT / "libs", ROOT, Path(__file__).resolve().parent
 # The S1 module owns the centroid convention used by criterion ①.  Import it
 # (and its phase builder) rather than restating either formula here.
 from scripts.slm.capture_s1_mapping_disambiguation_20261124 import (
+    SIGNAL_MIN_PIXELS,
+    SIGNAL_MIN_WEIGHT,
+    SIGNAL_PEAK_SNR_MIN,
     _centroid_px,
+    flat_signal_measurement,
     utc_now,
 )
 from scripts.slm.issue247_geometry_capture_20261120 import flat_phase, phase_to_gray
@@ -87,6 +98,8 @@ GRAY_MODULUS = TWO_PI_GRAY_SCALE_DEVICE + 1
 #: A1 平场 0 级参考（issue247 A1 帧质心，用户冻结，与 S1 判据①同值）。
 ZERO_ORDER_REFERENCE_PX = {"row": 1105.249, "col": 1227.556}
 TOLERANCE_PX = 5.0
+#: 独立退出码：测不到 0 级光斑（fail-closed）；质心只是几何中心占位，不作判读。
+EXIT_NO_SIGNAL = 4
 REFERENCE_SOURCE = (
     "issue247 A1 平场 0 级质心（用户冻结）；与 §12.11.5 六帧判据①同一参考点"
 )
@@ -212,6 +225,29 @@ def counter_criteria() -> dict[str, Any]:
     }
 
 
+def signal_gate() -> dict[str, Any]:
+    """S1 v2's frozen no-signal gate, restated from its own constants."""
+    return {
+        "source": (
+            "scripts.slm.capture_s1_mapping_disambiguation_20261124."
+            "flat_signal_measurement"
+        ),
+        "criterion": (
+            "peak_snr >= min_peak_snr and signal_pixels >= min_pixels "
+            "and signal_weight_counts >= min_weight_counts"
+        ),
+        "peak_snr_min": float(SIGNAL_PEAK_SNR_MIN),
+        "signal_pixels_min": int(SIGNAL_MIN_PIXELS),
+        "signal_weight_counts_min": float(SIGNAL_MIN_WEIGHT),
+        "fail_closed": True,
+        "fail_closed_exit_code": EXIT_NO_SIGNAL,
+        "fail_closed_note": (
+            "has_signal=false 时质心退回几何中心（centroid_is_fallback=true），"
+            "不输出 within_tolerance 判读"
+        ),
+    }
+
+
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     """Deterministic, hardware-free plan (frozen reference + pattern + devices)."""
     frames = int(args.frames)
@@ -260,9 +296,11 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "centroid_source": (
             "scripts.slm.capture_s1_mapping_disambiguation_20261124._centroid_px"
         ),
+        "signal_gate": signal_gate(),
         "exit_codes": {
             "0": "measured, within_tolerance",
             "3": "measured, outside 5 px tolerance",
+            "4": "no_signal (fail-closed; centroid is fallback, not a measurement)",
             "2": "bench lock not acquired",
             "1": "error",
         },
@@ -437,15 +475,38 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                     f"expected integer CCD data, got dtype {frame.dtype}"
                 )
             saturated = bool(frame.max() >= SATURATION_FRACTION * full_scale)
-            centroid = _centroid_px(frame)
-            centroids.append(centroid)
+            measurement = flat_signal_measurement(frame)
+            has_signal = bool(measurement["has_signal"])
+            centroid = [float(value) for value in measurement["centroid_px"]]
+            if has_signal:
+                centroids.append(centroid)
+            offset = offset_from_reference(centroid) if has_signal else None
             raw_path = out / "raw" / f"{index:02d}_flat.npy"
             np.save(raw_path, frame)
             row: dict[str, Any] = {
                 "index": index,
                 "pattern_id": plan["pattern"]["id"],
                 "centroid_px": centroid,
-                "offset_from_reference": offset_from_reference(centroid),
+                "offset_from_reference": offset,
+                "has_signal": has_signal,
+                "centroid_is_fallback": bool(measurement["centroid_is_fallback"]),
+                "masked_centroid_px": (
+                    None
+                    if measurement["masked_centroid_px"] is None
+                    else [
+                        float(value)
+                        for value in measurement["masked_centroid_px"]
+                    ]
+                ),
+                "median_counts": float(measurement["median_counts"]),
+                "sigma_counts": float(measurement["sigma_counts"]),
+                "peak_counts": float(measurement["peak_counts"]),
+                "peak_snr": float(measurement["peak_snr"]),
+                "signal_threshold_counts": float(
+                    measurement["signal_threshold_counts"]
+                ),
+                "signal_pixels": int(measurement["signal_pixels"]),
+                "signal_weight_counts": float(measurement["signal_weight_counts"]),
                 "frame_sha256": digest(frame),
                 "frame_shape": list(frame.shape),
                 "frame_max_counts": int(frame.max()),
@@ -467,30 +528,68 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 index=index,
                 centroid_row_px=centroid[0],
                 centroid_col_px=centroid[1],
-                drow_px=row["offset_from_reference"]["drow_px"],
-                dcol_px=row["offset_from_reference"]["dcol_px"],
-                dist_px=row["offset_from_reference"]["dist_px"],
-                within_tolerance=row["offset_from_reference"]["within_tolerance"],
+                has_signal=has_signal,
+                centroid_is_fallback=row["centroid_is_fallback"],
+                peak_snr=row["peak_snr"],
+                signal_pixels=row["signal_pixels"],
+                signal_weight_counts=row["signal_weight_counts"],
+                **({} if offset is None else {
+                    "drow_px": offset["drow_px"],
+                    "dcol_px": offset["dcol_px"],
+                    "dist_px": offset["dist_px"],
+                    "within_tolerance": offset["within_tolerance"],
+                }),
             )
 
-        mean = mean_centroid(centroids)
-        verdict = offset_from_reference(mean)
-        _journal(
-            journal,
-            "verdict",
-            mean_centroid_px=mean,
-            tolerance_px=TOLERANCE_PX,
-            **verdict,
-        )
-        status = "ok"
-        exit_code = 0 if verdict["within_tolerance"] else 3
-        logger.info(
-            "A1 0 级质心 mean=({:.3f}, {:.3f}) dist={:.3f}px within={}",
-            mean[0],
-            mean[1],
-            verdict["dist_px"],
-            verdict["within_tolerance"],
-        )
+        mean = mean_centroid(centroids) if centroids else None
+        n_frames_with_signal = len(centroids)
+        if mean is None:
+            # Fail-closed: no frame passed S1 v2's gate, so there is no valid
+            # centroid.  The geometric centre in ``centroid_px`` is diagnostic
+            # only; never compare it against criterion ①.
+            verdict = None
+            status = "no_signal"
+            exit_code = EXIT_NO_SIGNAL
+            _journal(
+                journal,
+                "no_signal",
+                n_frames=len(frame_records),
+                n_frames_with_signal=0,
+                exit_code=EXIT_NO_SIGNAL,
+                signal_gate=signal_gate(),
+            )
+            logger.warning(
+                "A1 0 级对齐探针未测到 0 级光斑（{} 帧均未过 S1 v2 信号门 "
+                "peak_snr>={:.0f}, signal_pixels>={}, weight>={:.0f}）；"
+                "质心为几何中心占位，不作 within_tolerance 判读；退出码 {}",
+                len(frame_records),
+                SIGNAL_PEAK_SNR_MIN,
+                SIGNAL_MIN_PIXELS,
+                SIGNAL_MIN_WEIGHT,
+                EXIT_NO_SIGNAL,
+            )
+        else:
+            verdict = offset_from_reference(mean)
+            _journal(
+                journal,
+                "verdict",
+                mean_centroid_px=mean,
+                tolerance_px=TOLERANCE_PX,
+                n_frames_with_signal=n_frames_with_signal,
+                **verdict,
+            )
+            status = "ok"
+            exit_code = 0 if verdict["within_tolerance"] else 3
+            logger.info(
+                "A1 0 级质心 mean=({:.3f}, {:.3f}) dist={:.3f}px within={} "
+                "(signal frames {}/{})",
+                mean[0],
+                mean[1],
+                verdict["dist_px"],
+                verdict["within_tolerance"],
+                n_frames_with_signal,
+                len(frame_records),
+            )
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         logger.exception("A1 0 级对齐探针采集失败")
@@ -539,7 +638,7 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
         release["elapsed_s"] = time.monotonic() - started
         release["closed_normally"] = all(
             release[key] is True for key in ("slm_closed", "camera_closed", "lock_released")
-        ) and status == "ok"
+        ) and status in ("ok", "no_signal")
         if output_created:
             write_json(out / "released.json", release)
             measurement: dict[str, Any] = {
@@ -555,6 +654,10 @@ def execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
                 "within_tolerance": (
                     None if verdict is None else bool(verdict["within_tolerance"])
                 ),
+                "has_signal": bool(centroids),
+                "centroid_is_fallback": bool(frame_records) and not centroids,
+                "n_frames_with_signal": len(centroids),
+                "signal_gate": signal_gate(),
                 "any_frame_saturated": any(
                     bool(record["saturated"]) for record in frame_records
                 ),
@@ -647,12 +750,37 @@ def self_test() -> int:
     assert observed["within_tolerance"] is False
     assert 97.5 < observed["dist_px"] < 97.7
 
-    # Synthetic single peak: centroid lands on the peak centre.
+    # Synthetic single peak: gate passes and centroid lands on the peak centre.
     frame = np.zeros((61, 61), dtype=np.uint16)
     frame[29:32, 40:43] = 500
     assert _centroid_px(frame) == [30.0, 41.0]
+    peak_measure = flat_signal_measurement(frame)
+    assert peak_measure["has_signal"] is True
+    assert peak_measure["centroid_is_fallback"] is False
+    assert peak_measure["centroid_px"] == [30.0, 41.0]
 
-    logger.info("A1 0 级对齐探针离线自检通过（单图样、同口径质心、5 px 容差）")
+    # Synthetic no-signal frame: the same S1 v2 gate must fail closed.
+    assert flat_signal_measurement is s1.flat_signal_measurement
+    assert SIGNAL_PEAK_SNR_MIN == s1.SIGNAL_PEAK_SNR_MIN
+    assert SIGNAL_MIN_PIXELS == s1.SIGNAL_MIN_PIXELS
+    assert SIGNAL_MIN_WEIGHT == s1.SIGNAL_MIN_WEIGHT
+    blank = np.zeros((61, 61), dtype=np.uint16)
+    blank_measure = flat_signal_measurement(blank)
+    assert blank_measure["has_signal"] is False
+    assert blank_measure["centroid_is_fallback"] is True
+    assert blank_measure["centroid_px"] == [30.0, 30.0]  # geometric centre only
+    assert blank_measure["peak_snr"] == 0.0
+    assert blank_measure["signal_pixels"] == 0
+    noise = np.random.default_rng(20261127).integers(0, 6, size=(61, 61))
+    noise_measure = flat_signal_measurement(noise.astype(np.uint16))
+    assert noise_measure["has_signal"] is False
+    assert noise_measure["centroid_is_fallback"] is True
+    assert EXIT_NO_SIGNAL == 4
+    assert signal_gate()["fail_closed_exit_code"] == EXIT_NO_SIGNAL
+
+    logger.info(
+        "A1 0 级对齐探针离线自检通过（单图样、S1 v2 信号门、5 px 容差）"
+    )
     print(
         json.dumps(
             {
@@ -660,6 +788,7 @@ def self_test() -> int:
                 "pattern": "flat_scale993",
                 "n_frames_default": DEFAULT_FRAMES,
                 "tolerance_px": TOLERANCE_PX,
+                "no_signal_exit_code": EXIT_NO_SIGNAL,
             },
             ensure_ascii=False,
         )
